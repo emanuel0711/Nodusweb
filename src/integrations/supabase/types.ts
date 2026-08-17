@@ -14,7 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      offer_runs: {
+        Row: {
+          created_at: string
+          file_name: string
+          id: string
+          matched_items: number
+          total_items: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          id?: string
+          matched_items?: number
+          total_items?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          id?: string
+          matched_items?: number
+          total_items?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      products: {
+        Row: {
+          category: string | null
+          created_at: string
+          description: string
+          ean: string | null
+          id: string
+          image_url: string | null
+          internal_code: string | null
+          unit: string | null
+          unit_price: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          description: string
+          ean?: string | null
+          id?: string
+          image_url?: string | null
+          internal_code?: string | null
+          unit?: string | null
+          unit_price?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          description?: string
+          ean?: string | null
+          id?: string
+          image_url?: string | null
+          internal_code?: string | null
+          unit?: string | null
+          unit_price?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
