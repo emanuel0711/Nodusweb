@@ -32,7 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { readSpreadsheet, pick } from "@/lib/spreadsheet";
+import { readSpreadsheet, pick, categoryFromFileName } from "@/lib/spreadsheet";
 import { parsePrice } from "@/lib/text-match";
 
 export const Route = createFileRoute("/_authenticated/catalogo")({
@@ -205,6 +205,7 @@ function CatalogPage() {
 
       let imported = 0;
       for (const file of Array.from(files)) {
+        const fileCategory = categoryFromFileName(file.name);
         const rows = await readSpreadsheet(file);
         const mapped = rows
           .map((row) => ({
@@ -214,7 +215,7 @@ function CatalogPage() {
             description: String(pick(row, ["Descrição", "Descricao", "Produto", "Nome"]) || "").trim(),
             unit: String(pick(row, ["Un.", "Un", "Unidade"]) || "") || null,
             unit_price: parsePrice(pick(row, ["Preço Un.", "Preco Un", "Preço", "Preco"])),
-            category: String(pick(row, ["Categoria", "Grupo", "Setor"]) || "") || null,
+            category: fileCategory,
             image_url: String(pick(row, ["URL da imagem", "Imagem", "Image"]) || "") || null,
           }))
           .filter((row) => row.description.length > 0);
