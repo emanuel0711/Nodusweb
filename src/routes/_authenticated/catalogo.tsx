@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Search, Upload, Pencil, Trash2, ImageIcon, Loader2 } from "lucide-react";
+import { Plus, Search, Upload, Pencil, Trash2, ImageIcon, Loader2, CheckSquare } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { readSpreadsheet, pick, categoryFromFileName } from "@/lib/spreadsheet";
-import { parsePrice } from "@/lib/text-match";
+import { bestMatch, normalize, parsePrice } from "@/lib/text-match";
 import { findProductImages } from "@/lib/product-image";
 
 export const Route = createFileRoute("/_authenticated/catalogo")({
@@ -25,6 +25,10 @@ const ALL = "__all__";
 const UNCATEGORIZED = "__uncategorized__";
 type Product = { id: string; internal_code: string | null; ean: string | null; description: string; unit: string | null; unit_price: number | null; category: string | null; image_url: string | null };
 const emptyForm = { description: "", internal_code: "", ean: "", unit: "", category: "", image_url: "", unit_price: "" };
+
+function cleanCode(value: unknown): string {
+  return String(value ?? "").replace(/\D/g, "");
+}
 
 async function loadCategories() {
   const values = new Set<string>();
@@ -42,11 +46,26 @@ async function loadCategories() {
   return hasUncategorized ? [UNCATEGORIZED, ...categories] : categories;
 }
 
+async function loadAllProducts(): Promise<Product[]> {
+  const result: Product[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("products")
+      .select("id, internal_code, ean, description, unit, unit_price, category, image_url")
+      .range(from, from + 999);
+    if (error) throw error;
+    result.push(...((data ?? []) as Product[]));
+    if ((data ?? []).length < 1000) break;
+  }
+  return result;
+}
+
 function CatalogPage() {
   const queryClient = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState(ALL);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -73,7 +92,7 @@ function CatalogPage() {
       if (!form.description.trim()) throw new Error("Descrição obrigatória");
       const { data: auth } = await supabase.auth.getUser();
       if (!auth.user) throw new Error("Sessão expirada");
-      const payload = { description: form.description.trim(), internal_code: form.internal_code.trim() || null, ean: form.ean.trim() || null, unit: form.unit.trim() || null, category: form.category.trim() || null, image_url: form.image_url.trim() || null, unit_price: parsePrice(form.unit_price) };
+      const payload = { description: form.description.trim(), internal_code: form.internal_code.trim() || null, ean: cleanCode(form.ean) || null, unit: form.unit.trim() || null, category: form.category.trim() || null, image_url: form.image_url.trim() || null, unit_price: parsePrice(form.unit_price) };
       const result = editing ? await supabase.from("products").update(payload).eq("id", editing.id) : await supabase.from("products").insert({ ...payload, user_id: auth.user.id });
       if (result.error) throw result.error;
     },
@@ -87,21 +106,45 @@ function CatalogPage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  async function deleteGroups() {
+    if (!selectedGroups.length) return;
+    const labels = selectedGroups.map((item) => item === UNCATEGORIZED ? "Sem categoria" : item);
+    if (!confirm(`Excluir todos os produtos dos ${selectedGroups.length} CSV/Excel selecionados?\n\n${labels.join("\n")}`)) return;
+    try {
+      for (const group of selectedGroups) {
+        const query = supabase.from("products").delete();
+        const result = group === UNCATEGORIZED ? await query.is("category", null) : await query.eq("category", group);
+        if (result.error) throw result.error;
+      }
+      setSelectedGroups([]);
+      setCategory(ALL);
+      setPage(0);
+      toast.success("Importações selecionadas excluídas");
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product-categories"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível excluir as importações");
+    }
+  }
+
   async function handleImport(files: FileList | null) {
     if (!files?.length) return;
     setImporting(true);
     try {
       const { data: auth } = await supabase.auth.getUser();
       if (!auth.user) throw new Error("Sessão expirada");
+      const existing = await loadAllProducts();
+      const byEan = new Map(existing.map((item) => [cleanCode(item.ean), item]).filter(([key]) => key.length >= 8));
       let imported = 0;
       let imagesFound = 0;
+
       for (const file of Array.from(files)) {
         const rows = await readSpreadsheet(file);
         const categoryName = categoryFromFileName(file.name);
         const mapped = rows.map((row) => ({
           user_id: auth.user.id,
           internal_code: String(pick(row, ["Cód. Interno", "Codigo Interno", "Cod Interno"]) || "").trim() || null,
-          ean: String(pick(row, ["Código", "Codigo", "EAN", "Código de barras", "GTIN"]) || "").trim() || null,
+          ean: cleanCode(pick(row, ["Código", "Codigo", "EAN", "Código de barras", "GTIN", "EAN13", "EAN-13"])),
           description: String(pick(row, ["Descrição", "Descricao", "Produto", "Nome"]) || "").trim(),
           unit: String(pick(row, ["Un.", "Un", "Unidade"]) || "").trim() || null,
           unit_price: parsePrice(pick(row, ["Preço Un.", "Preco Un", "Preço", "Preco"])),
@@ -109,10 +152,19 @@ function CatalogPage() {
           image_url: String(pick(row, ["URL da imagem", "URL Imagem", "Imagem", "Image", "Foto"]) || "").trim() || null,
         })).filter((row) => row.description);
 
-        const missingEans = mapped.filter((row) => !row.image_url && row.ean).map((row) => row.ean as string);
-        const images = await findProductImages(missingEans);
-        const completed = mapped.map((row) => {
-          const url = row.image_url || (row.ean ? images.get(row.ean) : "") || null;
+        const matches = mapped.map((row) => {
+          const exact = row.ean ? byEan.get(row.ean) : undefined;
+          const fuzzy = exact ?? bestMatch(row.description, existing, 0.62)?.item;
+          return { row, matched: fuzzy };
+        });
+
+        const missingExternalEans = matches
+          .filter(({ row, matched }) => !row.image_url && !matched?.image_url && row.ean)
+          .map(({ row }) => row.ean);
+        const images = await findProductImages(missingExternalEans);
+
+        const completed = matches.map(({ row, matched }) => {
+          const url = row.image_url || matched?.image_url || (row.ean ? images.get(row.ean) : "") || null;
           if (url && !row.image_url) imagesFound++;
           return { ...row, image_url: url };
         });
@@ -124,7 +176,7 @@ function CatalogPage() {
           imported += chunk.length;
         }
       }
-      toast.success(`${imported} produto(s) importado(s). ${imagesFound} imagem(ns) encontrada(s) automaticamente.`);
+      toast.success(`${imported} produto(s) importado(s). ${imagesFound} imagem(ns) recuperada(s) automaticamente.`);
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["product-categories"] });
     } catch (error) { toast.error(error instanceof Error ? error.message : "Falha na importação"); }
@@ -137,14 +189,22 @@ function CatalogPage() {
 
   const total = products.data?.count ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const selectableGroups = (categories.data ?? []).filter((item) => item !== ALL);
 
   return <AppShell title="Catálogo de produtos" subtitle="Base usada no cruzamento automático das ofertas.">
-    <div className="surface p-4"><div className="flex flex-wrap items-center gap-3">
+    <div className="surface p-4 space-y-4"><div className="flex flex-wrap items-center gap-3">
       <div className="relative min-w-56 flex-1"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Buscar por descrição, EAN ou código interno" value={search} maxLength={120} onChange={(e) => { setSearch(e.target.value); setPage(0); }} /></div>
       <Select value={category} onValueChange={(value) => { setCategory(value); setPage(0); }}><SelectTrigger className="w-60"><SelectValue placeholder="Categoria" /></SelectTrigger><SelectContent><SelectItem value={ALL}>Todas as categorias</SelectItem>{(categories.data ?? []).map((item) => <SelectItem key={item} value={item}>{item === UNCATEGORIZED ? "Sem categoria" : item}</SelectItem>)}</SelectContent></Select>
       <input ref={fileInput} type="file" accept=".csv,.xlsx,.xls" multiple hidden onChange={(e) => handleImport(e.target.files)} />
       <Button variant="outline" disabled={importing} onClick={() => fileInput.current?.click()}>{importing ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} Importar CSV/Excel</Button>
       <Button onClick={() => { setEditing(null); setForm(emptyForm); setOpen(true); }}><Plus className="size-4" /> Novo produto</Button>
+    </div>
+    <div className="border-t pt-3">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium"><CheckSquare className="size-4" /> Importações/CSV salvos</div>
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
+        {selectableGroups.length ? selectableGroups.map((item) => <label key={item} className="flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" checked={selectedGroups.includes(item)} onChange={(e) => setSelectedGroups((current) => e.target.checked ? [...current, item] : current.filter((value) => value !== item))} /> <span>{item === UNCATEGORIZED ? "Sem categoria" : item}</span></label>) : <span className="text-sm text-muted-foreground">Nenhum CSV importado ainda.</span>}
+      </div>
+      <div className="mt-3"><Button variant="destructive" size="sm" disabled={!selectedGroups.length} onClick={deleteGroups}><Trash2 className="size-4" /> Excluir selecionados ({selectedGroups.length})</Button></div>
     </div></div>
 
     <div className="surface mt-4 overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Imagem</TableHead><TableHead>Descrição</TableHead><TableHead>EAN</TableHead><TableHead>Código</TableHead><TableHead>Un.</TableHead><TableHead>Preço</TableHead><TableHead>Categoria</TableHead><TableHead>Ações</TableHead></TableRow></TableHeader><TableBody>
