@@ -178,6 +178,7 @@ function CatalogPage() {
       setForm(emptyForm);
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["product-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["product-groups"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -231,6 +232,7 @@ function CatalogPage() {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["product-groups"] });
       queryClient.invalidateQueries({ queryKey: ["product-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["product-groups"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -273,6 +275,7 @@ function CatalogPage() {
       toast.success(`${imported} produto(s) importado(s)`);
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["product-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["product-groups"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha na importação");
