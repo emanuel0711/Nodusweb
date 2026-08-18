@@ -26,15 +26,13 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 }
 
 function createSupabaseClient() {
-  // Lovable normally injects these values through Vite environment variables.
+  // Vite exposes client-side variables through import.meta.env.
   // The publishable key is intentionally safe for client-side use; it is not a service_role key.
   const SUPABASE_URL =
     import.meta.env['VITE_SUPABASE_URL'] ||
-    process.env['SUPABASE_URL'] ||
     'https://grywmgnbfuhtkqvdhrig.supabase.co';
   const SUPABASE_PUBLISHABLE_KEY =
     import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] ||
-    process.env['SUPABASE_PUBLISHABLE_KEY'] ||
     'sb_publishable_rjCCkZGov1xCd5L6H9blZg_3j7ZUW0g';
 
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
