@@ -15,7 +15,7 @@ export const Route = createFileRoute("/")({
       {
         property: "og:description",
         content:
-          "Catálogo de produtos, importação de planilhas e exportação do modelo do clube em poucos cliques.",
+          "Gerencie o catálogo de produtos e gere a planilha do clube de ofertas automaticamente, com cruzamento inteligente de descrições, EAN e imagens.",
       },
     ],
   }),
