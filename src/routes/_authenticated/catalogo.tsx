@@ -364,6 +364,73 @@ function CatalogPage() {
         </div>
       </div>
 
+      {(groups.data?.length ?? 0) > 0 ? (
+        <div className="surface mt-4 p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-sm font-semibold">Arquivos importados (categorias)</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setSelectedGroups((current) =>
+                  current.length === (groups.data?.length ?? 0)
+                    ? []
+                    : (groups.data ?? []).map((group) => group.name),
+                )
+              }
+            >
+              {selectedGroups.length === (groups.data?.length ?? 0)
+                ? "Limpar seleção"
+                : "Selecionar tudo"}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="ml-auto"
+              disabled={selectedGroups.length === 0 || deleteGroupsMutation.isPending}
+              onClick={() => {
+                if (confirm(`Excluir todos os produtos de ${selectedGroups.length} arquivo(s)?`)) {
+                  deleteGroupsMutation.mutate(selectedGroups);
+                }
+              }}
+            >
+              {deleteGroupsMutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+              Excluir selecionados
+            </Button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(groups.data ?? []).map((group) => {
+              const checked = selectedGroups.includes(group.name);
+              return (
+                <button
+                  key={group.name}
+                  type="button"
+                  onClick={() =>
+                    setSelectedGroups((current) =>
+                      checked
+                        ? current.filter((name) => name !== group.name)
+                        : [...current, group.name],
+                    )
+                  }
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    checked
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-secondary text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {group.name} · {group.count}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+
       <div className="surface mt-4 overflow-x-auto">
         <Table>
           <TableHeader>
