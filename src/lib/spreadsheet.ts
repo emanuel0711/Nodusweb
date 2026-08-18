@@ -29,11 +29,7 @@ export function pick(row: SheetRow, candidates: string[]): unknown {
   return "";
 }
 
-export function exportRows(rows: Record<string, unknown>[], fileName: string, sheetName = "Planilha1") {
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-  // Browser-safe download (works inside preview iframes where writeFile can be blocked)
+function downloadWorkbook(workbook: XLSX.WorkBook, fileName: string) {
   const output = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
   const blob = new Blob([output], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -42,11 +38,85 @@ export function exportRows(rows: Record<string, unknown>[], fileName: string, sh
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
-  link.rel = "noopener";
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+export function exportRows(rows: Record<string, unknown>[], fileName: string, sheetName = "Planilha1") {
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  downloadWorkbook(workbook, fileName);
+}
+
+export interface ClubOfferExportRow {
+  name: string;
+  price: number | null;
+  promotionalPrice: number | null;
+  limit: number | null;
+  imageUrl: string;
+  code: string;
+  codeType: "Interno" | "EAN";
+}
+
+/** Exports the exact column structure used by the Club spreadsheet template. */
+export function exportClubTemplate(rows: ClubOfferExportRow[], fileName = "modelo para o clube.xlsx") {
+  const headers = [
+    "Nome",
+    "Carrossel",
+    "Check-In",
+    "Preço",
+    "Preço promocional",
+    "Limite por cliente",
+    "Dias para Resgate após ativação",
+    "Unidade",
+    "Não exigir ativação no App",
+    "Ativar em",
+    "Inativar em",
+    "URL da imagem",
+    "Tipo do código",
+    "Códigos dos produtos",
+    "Tipo Promocional",
+    "Sobrescrever lojas",
+    "Lojas",
+  ];
+
+  const data = rows.map((row) => ({
+    Nome: row.name,
+    Carrossel: "",
+    "Check-In": "Não",
+    Preço: row.price ?? 0,
+    "Preço promocional": row.promotionalPrice ?? 0,
+    "Limite por cliente": row.limit ?? 0,
+    "Dias para Resgate após ativação": 0,
+    Unidade: "Unidade",
+    "Não exigir ativação no App": "Exigir ativação no App",
+    "Ativar em": "01/01/2000 00:00:00",
+    "Inativar em": "01/01/2000 00:00:00",
+    "URL da imagem": row.imageUrl || "",
+    "Tipo do código": row.codeType,
+    "Códigos dos produtos": row.code || "",
+    "Tipo Promocional": "De / por",
+    "Sobrescrever lojas": "Não",
+    Lojas: "",
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
+  worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
+  worksheet["!autofilter"] = { ref: `A1:Q${Math.max(1, data.length + 1)}` };
+  worksheet["!cols"] = headers.map((header) => ({ wch: Math.min(38, Math.max(14, header.length + 2)) }));
+  for (let row = 2; row <= data.length + 1; row++) {
+    worksheet[`D${row}`].z = "0.00";
+    worksheet[`E${row}`].z = "0.00";
+  }
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Descontos");
+  downloadWorkbook(workbook, fileName);
 }
 
 /** "SABADOU 12-08.xlsx" -> "SABADOU 12-08" */
