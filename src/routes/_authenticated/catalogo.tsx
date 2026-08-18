@@ -104,6 +104,7 @@ function CatalogPage() {
   const [form, setForm] = useState(emptyForm);
   const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
 
   const categories = useQuery({
     queryKey: ["product-categories"],
@@ -194,6 +195,48 @@ function CatalogPage() {
     },
     onError: (error: Error) => toast.error(error.message),
   });
+
+  const groups = useQuery({
+    queryKey: ["product-groups"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("products").select("category").limit(20000);
+      if (error) throw error;
+      const counts = new Map<string, number>();
+      for (const row of data ?? []) {
+        const key = row.category ?? "Sem categoria";
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      return [...counts.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
+  });
+
+  const deleteGroupsMutation = useMutation({
+    mutationFn: async (names: string[]) => {
+      for (const name of names) {
+        const query = supabase.from("products").delete();
+        const { error } =
+          name === "Sem categoria"
+            ? await query.is("category", null)
+            : await query.eq("category", name);
+        if (error) throw error;
+      }
+    },
+    onSuccess: (_data, names) => {
+      toast.success(`${names.length} arquivo(s) removido(s) do catálogo`);
+      setSelectedGroups([]);
+      setCategory(ALL);
+      setPage(0);
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product-groups"] });
+      queryClient.invalidateQueries({ queryKey: ["product-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+
 
   async function handleImport(files: FileList | null) {
     if (!files || files.length === 0) return;
