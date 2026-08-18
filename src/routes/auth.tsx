@@ -4,7 +4,6 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { ShoppingBasket } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,10 +42,10 @@ function getAuthErrorMessage(error: unknown) {
   if (/email not confirmed/i.test(message)) return "Confirme seu e-mail antes de entrar";
   if (/email rate limit|rate limit/i.test(message)) return "Muitas tentativas. Aguarde alguns minutos e tente novamente.";
   if (/failed to fetch|network|fetch/i.test(message)) {
-    return "Não foi possível conectar ao Supabase. Verifique as variáveis VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY no Lovable.";
+    return "Não foi possível conectar ao Supabase. Verifique a configuração do projeto.";
   }
   if (/apikey|api key|invalid jwt|jwt/i.test(message)) {
-    return "A chave pública do Supabase foi rejeitada. Confira a Publishable Key do projeto no Lovable/Supabase.";
+    return "A chave pública do Supabase foi rejeitada. Confira a Publishable Key do projeto.";
   }
 
   const suffix = [value.code, value.status ? `HTTP ${value.status}` : ""].filter(Boolean).join(" — ");
@@ -60,10 +59,42 @@ function AuthPage() {
   const [password, setPassword] = useState("");
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (error) console.error("[Auth] Falha ao recuperar sessão:", error);
-      if (data.session) navigate({ to: "/painel", replace: true });
-    }).catch((error) => console.error("[Auth] Falha ao inicializar:", error));
+    let active = true;
+
+    // Supabase OAuth can return the access/refresh tokens in the URL hash.
+    // The Supabase client consumes that hash and persists the session. We then
+    // remove the credentials from the visible URL immediately.
+    const finishOAuthRedirect = async () => {
+      try {
+        if (window.location.hash.includes("access_token=") || window.location.hash.includes("refresh_token=")) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+          window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+        }
+
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (active && data.session) {
+          navigate({ to: "/painel", replace: true });
+        }
+      } catch (error) {
+        console.error("[Auth] Falha ao finalizar sessão OAuth:", error);
+        if (active) toast.error(getAuthErrorMessage(error));
+      }
+    };
+
+    void finishOAuthRedirect();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session && active) {
+        window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+        navigate({ to: "/painel", replace: true });
+      }
+    });
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
   }, [navigate]);
 
   async function submit(mode: "login" | "signup") {
@@ -83,7 +114,7 @@ function AuthPage() {
       } else {
         const { data, error } = await supabase.auth.signUp({
           ...parsed.data,
-          options: { emailRedirectTo: `${window.location.origin}/painel` },
+          options: { emailRedirectTo: `${window.location.origin}/auth` },
         });
         if (error) throw error;
 
@@ -105,12 +136,19 @@ function AuthPage() {
   async function signInWithGoogle() {
     setLoading(true);
     try {
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth`,
+        },
       });
-      if (result.error) throw result.error;
-      if (result.redirected) return;
-      navigate({ to: "/painel", replace: true });
+
+      if (error) throw error;
+      if (!data.url) throw new Error("O Supabase não retornou a URL de autenticação do Google.");
+
+      // signInWithOAuth redirects the browser. Keep the loading state while
+      // leaving the page; the callback is handled by /auth above.
+      window.location.assign(data.url);
     } catch (error) {
       console.error("[Auth] Erro no Google OAuth:", error);
       toast.error(getAuthErrorMessage(error));
