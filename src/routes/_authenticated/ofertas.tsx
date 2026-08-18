@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Upload, Download, Loader2, AlertTriangle, ImageIcon } from "lucide-react";
+import { Upload, Download, Loader2, AlertTriangle, ImageIcon, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -136,6 +136,17 @@ function OffersPage() {
     setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
+  function removeRow(index: number) {
+    setRows((current) => current.filter((_, i) => i !== index));
+  }
+
+  function clearFile() {
+    setRows([]);
+    setFileName("");
+    if (fileInput.current) fileInput.current.value = "";
+    toast.success("Planilha removida");
+  }
+
   const pending = rows.filter((row) => !row.ean || !row.imageUrl).length;
 
   return (
@@ -170,11 +181,23 @@ function OffersPage() {
             onChange={(event) => setThreshold(Number(event.target.value) || 0.55)}
           />
         </div>
-        <Button variant="outline" className="ml-auto" disabled={rows.length === 0} onClick={handleExport}>
+        <Button
+          variant="destructive"
+          disabled={rows.length === 0}
+          className="ml-auto"
+          onClick={() => {
+            if (confirm("Excluir a planilha carregada?")) clearFile();
+          }}
+        >
+          <Trash2 className="size-4" />
+          Excluir planilha
+        </Button>
+        <Button variant="outline" disabled={rows.length === 0} onClick={handleExport}>
           <Download className="size-4" />
           Exportar planilha preenchida
         </Button>
       </div>
+
 
       {rows.length > 0 ? (
         <>
@@ -205,6 +228,7 @@ function OffersPage() {
                   <TableHead>Limite</TableHead>
                   <TableHead>Código</TableHead>
                   <TableHead>URL da imagem</TableHead>
+                  <TableHead className="w-12 text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -255,6 +279,11 @@ function OffersPage() {
                           maxLength={1000}
                           onChange={(event) => updateRow(index, { imageUrl: event.target.value })}
                         />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" onClick={() => removeRow(index)}>
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );

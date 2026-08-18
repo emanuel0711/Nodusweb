@@ -33,5 +33,23 @@ export function exportRows(rows: Record<string, unknown>[], fileName: string, sh
   const worksheet = XLSX.utils.json_to_sheet(rows);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-  XLSX.writeFile(workbook, fileName);
+  // Browser-safe download (works inside preview iframes where writeFile can be blocked)
+  const output = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+  const blob = new Blob([output], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+/** "SABADOU 12-08.xlsx" -> "SABADOU 12-08" */
+export function categoryFromFileName(fileName: string): string {
+  return fileName.replace(/\.[^.]+$/, "").trim().slice(0, 120) || "Sem categoria";
 }

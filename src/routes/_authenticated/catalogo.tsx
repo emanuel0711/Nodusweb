@@ -32,7 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { readSpreadsheet, pick } from "@/lib/spreadsheet";
+import { readSpreadsheet, pick, categoryFromFileName } from "@/lib/spreadsheet";
 import { parsePrice } from "@/lib/text-match";
 
 export const Route = createFileRoute("/_authenticated/catalogo")({
@@ -104,6 +104,7 @@ function CatalogPage() {
   const [form, setForm] = useState(emptyForm);
   const [open, setOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
 
   const categories = useQuery({
     queryKey: ["product-categories"],
@@ -177,6 +178,7 @@ function CatalogPage() {
       setForm(emptyForm);
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["product-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["product-groups"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -195,6 +197,49 @@ function CatalogPage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const groups = useQuery({
+    queryKey: ["product-groups"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("products").select("category").limit(20000);
+      if (error) throw error;
+      const counts = new Map<string, number>();
+      for (const row of data ?? []) {
+        const key = row.category ?? "Sem categoria";
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      return [...counts.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
+  });
+
+  const deleteGroupsMutation = useMutation({
+    mutationFn: async (names: string[]) => {
+      for (const name of names) {
+        const query = supabase.from("products").delete();
+        const { error } =
+          name === "Sem categoria"
+            ? await query.is("category", null)
+            : await query.eq("category", name);
+        if (error) throw error;
+      }
+    },
+    onSuccess: (_data, names) => {
+      toast.success(`${names.length} arquivo(s) removido(s) do catálogo`);
+      setSelectedGroups([]);
+      setCategory(ALL);
+      setPage(0);
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["product-groups"] });
+      queryClient.invalidateQueries({ queryKey: ["product-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["product-groups"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+
+
   async function handleImport(files: FileList | null) {
     if (!files || files.length === 0) return;
     setImporting(true);
@@ -205,6 +250,7 @@ function CatalogPage() {
 
       let imported = 0;
       for (const file of Array.from(files)) {
+        const fileCategory = categoryFromFileName(file.name);
         const rows = await readSpreadsheet(file);
         const mapped = rows
           .map((row) => ({
@@ -214,7 +260,7 @@ function CatalogPage() {
             description: String(pick(row, ["Descrição", "Descricao", "Produto", "Nome"]) || "").trim(),
             unit: String(pick(row, ["Un.", "Un", "Unidade"]) || "") || null,
             unit_price: parsePrice(pick(row, ["Preço Un.", "Preco Un", "Preço", "Preco"])),
-            category: String(pick(row, ["Categoria", "Grupo", "Setor"]) || "") || null,
+            category: fileCategory,
             image_url: String(pick(row, ["URL da imagem", "Imagem", "Image"]) || "") || null,
           }))
           .filter((row) => row.description.length > 0);
@@ -229,6 +275,7 @@ function CatalogPage() {
       toast.success(`${imported} produto(s) importado(s)`);
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["product-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["product-groups"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha na importação");
@@ -319,6 +366,73 @@ function CatalogPage() {
           </Button>
         </div>
       </div>
+
+      {(groups.data?.length ?? 0) > 0 ? (
+        <div className="surface mt-4 p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-sm font-semibold">Arquivos importados (categorias)</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setSelectedGroups((current) =>
+                  current.length === (groups.data?.length ?? 0)
+                    ? []
+                    : (groups.data ?? []).map((group) => group.name),
+                )
+              }
+            >
+              {selectedGroups.length === (groups.data?.length ?? 0)
+                ? "Limpar seleção"
+                : "Selecionar tudo"}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="ml-auto"
+              disabled={selectedGroups.length === 0 || deleteGroupsMutation.isPending}
+              onClick={() => {
+                if (confirm(`Excluir todos os produtos de ${selectedGroups.length} arquivo(s)?`)) {
+                  deleteGroupsMutation.mutate(selectedGroups);
+                }
+              }}
+            >
+              {deleteGroupsMutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+              Excluir selecionados
+            </Button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(groups.data ?? []).map((group) => {
+              const checked = selectedGroups.includes(group.name);
+              return (
+                <button
+                  key={group.name}
+                  type="button"
+                  onClick={() =>
+                    setSelectedGroups((current) =>
+                      checked
+                        ? current.filter((name) => name !== group.name)
+                        : [...current, group.name],
+                    )
+                  }
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    checked
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-secondary text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {group.name} · {group.count}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
 
       <div className="surface mt-4 overflow-x-auto">
         <Table>
