@@ -228,6 +228,7 @@ function OffersPage() {
                   <TableHead>Limite</TableHead>
                   <TableHead>Código</TableHead>
                   <TableHead>URL da imagem</TableHead>
+                  <TableHead className="w-12 text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -278,6 +279,11 @@ function OffersPage() {
                           maxLength={1000}
                           onChange={(event) => updateRow(index, { imageUrl: event.target.value })}
                         />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" onClick={() => removeRow(index)}>
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );
