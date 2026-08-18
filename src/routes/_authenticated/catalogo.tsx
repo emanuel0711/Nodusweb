@@ -22,18 +22,24 @@ export const Route = createFileRoute("/_authenticated/catalogo")({
 
 const PAGE_SIZE = 20;
 const ALL = "__all__";
+const UNCATEGORIZED = "__uncategorized__";
 type Product = { id: string; internal_code: string | null; ean: string | null; description: string; unit: string | null; unit_price: number | null; category: string | null; image_url: string | null };
 const emptyForm = { description: "", internal_code: "", ean: "", unit: "", category: "", image_url: "", unit_price: "" };
 
 async function loadCategories() {
   const values = new Set<string>();
+  let hasUncategorized = false;
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabase.from("products").select("category").not("category", "is", null).range(from, from + 999);
+    const { data, error } = await supabase.from("products").select("category").range(from, from + 999);
     if (error) throw error;
-    for (const row of data ?? []) if (row.category) values.add(row.category);
+    for (const row of data ?? []) {
+      if (row.category) values.add(row.category);
+      else hasUncategorized = true;
+    }
     if ((data ?? []).length < 1000) break;
   }
-  return [...values].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const categories = [...values].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  return hasUncategorized ? [UNCATEGORIZED, ...categories] : categories;
 }
 
 function CatalogPage() {
@@ -54,7 +60,8 @@ function CatalogPage() {
       let query = supabase.from("products").select("id, internal_code, ean, description, unit, unit_price, category, image_url", { count: "exact" }).order("description").range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
       const term = search.trim().replace(/[,%]/g, " ");
       if (term) query = query.or(`description.ilike.%${term}%,ean.ilike.%${term}%,internal_code.ilike.%${term}%`);
-      if (category !== ALL) query = query.eq("category", category);
+      if (category === UNCATEGORIZED) query = query.is("category", null);
+      else if (category !== ALL) query = query.eq("category", category);
       const { data, error, count } = await query;
       if (error) throw error;
       return { rows: (data ?? []) as Product[], count: count ?? 0 };
@@ -134,7 +141,7 @@ function CatalogPage() {
   return <AppShell title="Catálogo de produtos" subtitle="Base usada no cruzamento automático das ofertas.">
     <div className="surface p-4"><div className="flex flex-wrap items-center gap-3">
       <div className="relative min-w-56 flex-1"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Buscar por descrição, EAN ou código interno" value={search} maxLength={120} onChange={(e) => { setSearch(e.target.value); setPage(0); }} /></div>
-      <Select value={category} onValueChange={(value) => { setCategory(value); setPage(0); }}><SelectTrigger className="w-60"><SelectValue placeholder="Categoria" /></SelectTrigger><SelectContent><SelectItem value={ALL}>Todas as categorias</SelectItem>{(categories.data ?? []).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
+      <Select value={category} onValueChange={(value) => { setCategory(value); setPage(0); }}><SelectTrigger className="w-60"><SelectValue placeholder="Categoria" /></SelectTrigger><SelectContent><SelectItem value={ALL}>Todas as categorias</SelectItem>{(categories.data ?? []).map((item) => <SelectItem key={item} value={item}>{item === UNCATEGORIZED ? "Sem categoria" : item}</SelectItem>)}</SelectContent></Select>
       <input ref={fileInput} type="file" accept=".csv,.xlsx,.xls" multiple hidden onChange={(e) => handleImport(e.target.files)} />
       <Button variant="outline" disabled={importing} onClick={() => fileInput.current?.click()}>{importing ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} Importar CSV/Excel</Button>
       <Button onClick={() => { setEditing(null); setForm(emptyForm); setOpen(true); }}><Plus className="size-4" /> Novo produto</Button>
