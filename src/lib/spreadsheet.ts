@@ -3,9 +3,37 @@ import { normalize } from "./text-match";
 
 export type SheetRow = Record<string, unknown>;
 
+function decodeCsv(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+
+  // UTF-8 is preferred. fatal=true lets us reliably detect legacy CSVs
+  // exported by supermarket systems using Windows-1252/Latin-1.
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^\uFEFF/, "");
+  } catch {
+    return new TextDecoder("windows-1252").decode(bytes).replace(/^\uFEFF/, "");
+  }
+}
+
+function detectCsvDelimiter(text: string): string {
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
+  const candidates = [";", "\t", ","];
+  return candidates
+    .map((delimiter) => ({ delimiter, count: firstLine.split(delimiter).length - 1 }))
+    .sort((a, b) => b.count - a.count)[0]?.delimiter || ";";
+}
+
 export async function readSpreadsheet(file: File): Promise<SheetRow[]> {
   const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array" });
+  const isCsv = /\.csv$/i.test(file.name);
+
+  // CSVs from the supermarket system are commonly semicolon-separated and
+  // Windows-1252 encoded. XLSX.read(arrayBuffer) is not reliable for that
+  // combination, so decode the text explicitly before handing it to SheetJS.
+  const workbook = isCsv
+    ? XLSX.read(decodeCsv(buffer), { type: "string", raw: true, FS: detectCsvDelimiter(decodeCsv(buffer)) })
+    : XLSX.read(buffer, { type: "array" });
+
   const firstSheetName = workbook.SheetNames[0];
   if (!firstSheetName) return [];
   const sheet = workbook.Sheets[firstSheetName];
