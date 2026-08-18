@@ -13,7 +13,11 @@ export async function readSpreadsheet(file: File): Promise<SheetRow[]> {
   return XLSX.utils.sheet_to_json<SheetRow>(sheet, { defval: "", raw: true });
 }
 
-/** Finds a value in a row by trying several possible header names (accent/case insensitive). */
+/** Returns a cell by zero-based column position. Useful for legacy CSVs where column B is the product code. */
+export function columnValue(row: SheetRow, index: number): unknown {
+  return Object.entries(row)[index]?.[1] ?? "";
+}
+
 export function pick(row: SheetRow, candidates: string[]): unknown {
   const entries = Object.entries(row).map(([key, value]) => [normalize(key), value] as const);
   for (const candidate of candidates) {
@@ -31,14 +35,11 @@ export function pick(row: SheetRow, candidates: string[]): unknown {
 
 function downloadWorkbook(workbook: XLSX.WorkBook, fileName: string) {
   const output = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
-  const blob = new Blob([output], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
+  const blob = new Blob([output], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
-  link.target = "_blank";
   link.rel = "noopener noreferrer";
   document.body.appendChild(link);
   link.click();
@@ -63,28 +64,20 @@ export interface ClubOfferExportRow {
   codeType: "Interno" | "EAN";
 }
 
-/** Exports the exact column structure used by the Club spreadsheet template. */
+/** Creates a square 1:1 delivery URL without changing the original catalog URL. */
+export function squareImageUrl(url: string): string {
+  const value = String(url ?? "").trim();
+  if (!value) return "";
+  return `https://wsrv.nl/?url=${encodeURIComponent(value)}&w=500&h=500&fit=cover&output=webp`;
+}
+
 export function exportClubTemplate(rows: ClubOfferExportRow[], fileName = "modelo para o clube.xlsx") {
   const headers = [
-    "Nome",
-    "Carrossel",
-    "Check-In",
-    "Preço",
-    "Preço promocional",
-    "Limite por cliente",
-    "Dias para Resgate após ativação",
-    "Unidade",
-    "Não exigir ativação no App",
-    "Ativar em",
-    "Inativar em",
-    "URL da imagem",
-    "Tipo do código",
-    "Códigos dos produtos",
-    "Tipo Promocional",
-    "Sobrescrever lojas",
-    "Lojas",
+    "Nome", "Carrossel", "Check-In", "Preço", "Preço promocional", "Limite por cliente",
+    "Dias para Resgate após ativação", "Unidade", "Não exigir ativação no App", "Ativar em",
+    "Inativar em", "URL da imagem", "Tipo do código", "Códigos dos produtos", "Tipo Promocional",
+    "Sobrescrever lojas", "Lojas",
   ];
-
   const data = rows.map((row) => ({
     Nome: row.name,
     Carrossel: "",
@@ -97,14 +90,13 @@ export function exportClubTemplate(rows: ClubOfferExportRow[], fileName = "model
     "Não exigir ativação no App": "Exigir ativação no App",
     "Ativar em": "01/01/2000 00:00:00",
     "Inativar em": "01/01/2000 00:00:00",
-    "URL da imagem": row.imageUrl || "",
+    "URL da imagem": squareImageUrl(row.imageUrl),
     "Tipo do código": row.codeType,
     "Códigos dos produtos": row.code || "",
     "Tipo Promocional": "De / por",
     "Sobrescrever lojas": "Não",
     Lojas: "",
   }));
-
   const worksheet = XLSX.utils.json_to_sheet(data, { header: headers });
   worksheet["!freeze"] = { xSplit: 0, ySplit: 1 };
   worksheet["!autofilter"] = { ref: `A1:Q${Math.max(1, data.length + 1)}` };
@@ -113,13 +105,11 @@ export function exportClubTemplate(rows: ClubOfferExportRow[], fileName = "model
     worksheet[`D${row}`].z = "0.00";
     worksheet[`E${row}`].z = "0.00";
   }
-
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Descontos");
   downloadWorkbook(workbook, fileName);
 }
 
-/** "SABADOU 12-08.xlsx" -> "SABADOU 12-08" */
 export function categoryFromFileName(fileName: string): string {
   return fileName.replace(/\.[^.]+$/, "").trim().slice(0, 120) || "Sem categoria";
 }
