@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { Toaster } from "../components/ui/sonner";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { supabase } from "../integrations/supabase/client";
 
 function NotFoundComponent() {
   return (
@@ -98,10 +99,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap",
       },
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
+      { rel: "stylesheet", href: appCss },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
   }),
@@ -127,10 +125,50 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const handleOAuthCallback = async () => {
+      const hash = window.location.hash;
+      const hasOAuthTokens = /(?:^|#|&)access_token=/.test(hash) || /(?:^|#|&)refresh_token=/.test(hash);
+      if (!hasOAuthTokens) return;
+
+      try {
+        // Let Supabase consume the implicit-flow hash and persist the session BEFORE
+        // removing the tokens. Previously we removed the hash first, which caused
+        // production callbacks landing on "/" to lose the session.
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+
+        if (!data.session) {
+          // Give the auth client one event loop turn to finish processing the hash.
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          const retry = await supabase.auth.getSession();
+          if (retry.error) throw retry.error;
+          if (!retry.data.session) throw new Error("O login do Google retornou os tokens, mas a sessão não foi criada.");
+        }
+
+        if (cancelled) return;
+        window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+        await router.navigate({ to: "/painel", replace: true });
+      } catch (error) {
+        console.error("[Auth] Falha ao processar callback OAuth:", error);
+        if (!cancelled) {
+          window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+        }
+      }
+    };
+
+    void handleOAuthCallback();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
       <Toaster richColors position="top-right" />
     </QueryClientProvider>
