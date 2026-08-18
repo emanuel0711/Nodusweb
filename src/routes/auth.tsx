@@ -34,6 +34,25 @@ const credentialsSchema = z.object({
   password: z.string().min(6, { message: "A senha deve ter ao menos 6 caracteres" }).max(72),
 });
 
+function getAuthErrorMessage(error: unknown) {
+  if (!error) return "Não foi possível continuar";
+  const value = error as { message?: string; code?: string; status?: number; name?: string };
+  const message = value.message || String(error);
+
+  if (/invalid login credentials/i.test(message)) return "E-mail ou senha incorretos";
+  if (/email not confirmed/i.test(message)) return "Confirme seu e-mail antes de entrar";
+  if (/email rate limit|rate limit/i.test(message)) return "Muitas tentativas. Aguarde alguns minutos e tente novamente.";
+  if (/failed to fetch|network|fetch/i.test(message)) {
+    return "Não foi possível conectar ao Supabase. Verifique as variáveis VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY no Lovable.";
+  }
+  if (/apikey|api key|invalid jwt|jwt/i.test(message)) {
+    return "A chave pública do Supabase foi rejeitada. Confira a Publishable Key do projeto no Lovable/Supabase.";
+  }
+
+  const suffix = [value.code, value.status ? `HTTP ${value.status}` : ""].filter(Boolean).join(" — ");
+  return suffix ? `${message} (${suffix})` : message;
+}
+
 function AuthPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -41,9 +60,10 @@ function AuthPage() {
   const [password, setPassword] = useState("");
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) console.error("[Auth] Falha ao recuperar sessão:", error);
       if (data.session) navigate({ to: "/painel", replace: true });
-    });
+    }).catch((error) => console.error("[Auth] Falha ao inicializar:", error));
   }, [navigate]);
 
   async function submit(mode: "login" | "signup") {
@@ -52,6 +72,7 @@ function AuthPage() {
       toast.error(parsed.error.issues[0]?.message ?? "Dados inválidos");
       return;
     }
+
     setLoading(true);
     try {
       if (mode === "login") {
@@ -60,19 +81,22 @@ function AuthPage() {
         toast.success("Bem-vindo de volta!");
         navigate({ to: "/painel", replace: true });
       } else {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           ...parsed.data,
           options: { emailRedirectTo: `${window.location.origin}/painel` },
         });
         if (error) throw error;
-        toast.success("Conta criada! Verifique seu e-mail se a confirmação for exigida.");
-        navigate({ to: "/painel", replace: true });
+
+        if (data.session) {
+          toast.success("Conta criada com sucesso!");
+          navigate({ to: "/painel", replace: true });
+        } else {
+          toast.success("Conta criada! Confirme seu e-mail para entrar.");
+        }
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Não foi possível continuar";
-      toast.error(
-        message.includes("Invalid login credentials") ? "E-mail ou senha incorretos" : message,
-      );
+      console.error("[Auth] Erro de autenticação:", error);
+      toast.error(getAuthErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -80,16 +104,18 @@ function AuthPage() {
 
   async function signInWithGoogle() {
     setLoading(true);
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
-    });
-    if (result.error) {
+    try {
+      const result = await lovable.auth.signInWithOAuth("google", {
+        redirect_uri: window.location.origin,
+      });
+      if (result.error) throw result.error;
+      if (result.redirected) return;
+      navigate({ to: "/painel", replace: true });
+    } catch (error) {
+      console.error("[Auth] Erro no Google OAuth:", error);
+      toast.error(getAuthErrorMessage(error));
       setLoading(false);
-      toast.error("Não foi possível entrar com o Google");
-      return;
     }
-    if (result.redirected) return;
-    navigate({ to: "/painel", replace: true });
   }
 
   return (
