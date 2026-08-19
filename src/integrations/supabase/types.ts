@@ -50,6 +50,7 @@ export type Database = {
           id: string
           image_url: string | null
           internal_code: string | null
+          promotion_code: string | null
           unit: string | null
           unit_price: number | null
           updated_at: string
@@ -63,6 +64,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           internal_code?: string | null
+          promotion_code?: string | null
           unit?: string | null
           unit_price?: number | null
           updated_at?: string
@@ -76,6 +78,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           internal_code?: string | null
+          promotion_code?: string | null
           unit?: string | null
           unit_price?: number | null
           updated_at?: string
