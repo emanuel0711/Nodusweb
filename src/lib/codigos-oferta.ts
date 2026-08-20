@@ -49,9 +49,7 @@ function candidatoExcluido(item: Produto, excecoes: string[][]): boolean {
 
   return excecoes.some((tokens) => {
     const textoExcecao = tokens.join(" ");
-    if (/^\d{8,14}$/.test(textoExcecao)) {
-      return [ean, interno, promocao].includes(textoExcecao);
-    }
+    if (/^\d{8,14}$/.test(textoExcecao)) return [ean, interno, promocao].includes(textoExcecao);
     return tokens.length > 0 && tokens.every((token) => descricao.includes(token));
   });
 }
@@ -71,12 +69,11 @@ export function codigosDaFamiliaOferta(
   if (!produto) return [];
 
   const tokensOferta = tokensFamilia(nome);
-  if (tokensOferta.length < 2) {
-    const principal = porQuilo ? limparCodigo(produto.internal_code) : limparEan(produto.ean);
-    return principal ? [principal] : [];
-  }
-
   const principal = porQuilo ? limparCodigo(produto.internal_code) : limparEan(produto.ean);
+  const principalExcluido = candidatoExcluido(produto, excecoes);
+
+  if (tokensOferta.length < 2) return principal && !principalExcluido ? [principal] : [];
+
   const candidatos = catalogo
     .filter((item) => !candidatoExcluido(item, excecoes))
     .filter((item) => contemTodosTokens(item.description, tokensOferta))
@@ -84,8 +81,6 @@ export function codigosDaFamiliaOferta(
     .map((item) => ({ item, score: semelhanca(nome.replace(/\bexceto\b.*$/i, ""), item.description) }))
     .filter(({ item, score }) => {
       if (item.id === produto.id) return true;
-      // O filtro por tokens já garante a identidade. A pontuação só elimina
-      // coincidências muito fracas quando a descrição da oferta é extremamente curta.
       return tokensOferta.length >= 3 || score >= 0.45;
     })
     .sort((a, b) => b.score - a.score);
@@ -94,7 +89,7 @@ export function codigosDaFamiliaOferta(
     .map(({ item }) => porQuilo ? limparCodigo(item.internal_code) : limparEan(item.ean))
     .filter(Boolean);
 
-  return [...new Set([principal, ...codigos].filter(Boolean))];
+  return [...new Set([(principalExcluido ? "" : principal), ...codigos].filter(Boolean))];
 }
 
 export function normalizarCodigos(codigos: string[]): string[] {
