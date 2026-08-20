@@ -186,7 +186,7 @@ export function exportarModeloDoClube(ofertas: OfertaParaExportar[], opcoes: Opc
     "Preço promocional": oferta.promotionalPrice ?? 0,
     "Limite por cliente": oferta.limit ?? 0,
     "Dias para Resgate após ativação": 1,
-    Unidade: oferta.unidade,
+    Unidade: oferta.unidade === "Kg" ? "Quilograma" : "Unidade",
     "Não exigir ativação no App": "Ativação automática",
     "Ativar em": opcoes.ativarEm,
     "Inativar em": opcoes.inativarEm,
