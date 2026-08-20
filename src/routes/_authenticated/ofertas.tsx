@@ -98,8 +98,6 @@ function valorDeCodigo(linha: LinhaPlanilha): string {
     if (encontrado) return limparCodigo(encontrado[1]);
   }
 
-  // Nos CSVs do mercado, a coluna A é removida em lerPlanilha; portanto,
-  // o primeiro valor ativo é a antiga coluna B, onde fica o código útil.
   const primeiraColunaAtiva = valorDaColuna(linha, 0);
   return pareceCodigoNumerico(primeiraColunaAtiva) ? limparCodigo(primeiraColunaAtiva) : "";
 }
@@ -133,10 +131,16 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
   const achado = exatoPorEan ? { item: exatoPorEan, score: 1 } : exatoPorCodigo || melhorCorrespondencia(nome, catalogo, notaMinima);
   const produto = achado?.item;
 
-  const codigoInterno = limparCodigo(produto?.internal_code) || (produto ? "" : codigoOrigem);
+  // Para produtos de Kg, o código vindo da planilha é a principal referência.
+  // O catálogo só complementa quando a planilha não trouxe um código.
+  const codigoCatalogo = limparCodigo(produto?.internal_code) || limparCodigo(produto?.promotion_code);
+  const codigoInterno = !eanOrigem && (codigoOrigem || codigoCatalogo) ? (codigoOrigem || codigoCatalogo) : "";
   const eanProduto = limparEan(produto?.ean) || eanOrigem;
   const regras = aplicarRegras(nome, limiteBruto, codigoInterno, eanProduto, produto?.unit || "");
-  const codigos = normalizarCodigos(codigosDaFamiliaOferta(nome, produto, catalogo, regras.porQuilo, excecoes));
+  const codigosFamilia = codigosDaFamiliaOferta(nome, produto, catalogo, regras.porQuilo, excecoes);
+  const codigos = regras.porQuilo
+    ? normalizarCodigos(codigosFamilia.length ? codigosFamilia : (codigoOrigem ? [codigoOrigem] : [codigoInterno]))
+    : normalizarCodigos(codigosFamilia);
 
   return {
     nome,
@@ -213,11 +217,13 @@ function PaginaOfertas() {
         const achado = melhorCorrespondencia(oferta.nome, catalogo, 0.72);
         if (!achado) return oferta;
         const produto = achado.item;
-        const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, limparCodigo(produto.internal_code), limparEan(produto.ean), produto.unit || "");
+        const codigoCatalogo = limparCodigo(produto.internal_code) || limparCodigo(produto.promotion_code);
+        const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, oferta.codigoInterno || codigoCatalogo, limparEan(produto.ean), produto.unit || "");
         const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || []);
+        const fallbackKg = regras.porQuilo ? [oferta.codigoInterno, codigoCatalogo].filter(Boolean) : [];
         const codigos = oferta.codigosEditados
           ? normalizarCodigos(oferta.codigos || [])
-          : normalizarCodigos(descobertos);
+          : normalizarCodigos(descobertos.length ? descobertos : fallbackKg);
         return {
           ...oferta,
           encontrado: oferta.encontrado || produto.description,
@@ -225,7 +231,7 @@ function PaginaOfertas() {
           codigos,
           codigo: codigos.join(";"),
           ean: oferta.ean || limparEan(produto.ean),
-          codigoInterno: oferta.codigoInterno || limparCodigo(produto.internal_code),
+          codigoInterno: oferta.codigoInterno || codigoCatalogo,
           nota: Math.max(oferta.nota, achado.score),
           porQuilo: regras.porQuilo,
           unidade: regras.unidade,
@@ -351,11 +357,7 @@ function PaginaOfertas() {
           <div className="space-y-4 py-2">
             <div>
               <label className="mb-1.5 block text-sm font-medium">Carrossel</label>
-              <select
-                value={carrossel}
-                onChange={(e) => setCarrossel(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-              >
+              <select value={carrossel} onChange={(e) => setCarrossel(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20">
                 <option value="">Selecione um carrossel</option>
                 {CARROSSEIS.map((opcao) => <option key={opcao} value={opcao}>{opcao}</option>)}
               </select>
