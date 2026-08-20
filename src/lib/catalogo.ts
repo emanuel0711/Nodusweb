@@ -31,6 +31,12 @@ export function limparCodigo(valor: unknown): string {
   return String(valor ?? "").trim().replace(/\.0+$/, "");
 }
 
+/** Um código com 12-14 dígitos é tratado como EAN/GTIN. */
+function pareceEan(valor: unknown): boolean {
+  const codigo = limparEan(valor);
+  return /^(\d{12}|\d{13}|\d{14})$/.test(codigo);
+}
+
 /** Carrega todos os produtos do usuário (o banco devolve no máximo 1000 por vez). */
 export async function carregarTodosProdutos(): Promise<Produto[]> {
   const todos: Produto[] = [];
@@ -57,21 +63,32 @@ export interface ProdutoImportado {
 
 /**
  * Converte uma linha de CSV/Excel em produto.
- * O código da promoção vem do cabeçalho quando existe; senão, da coluna B.
+ *
+ * REGRA IMPORTANTE PARA OS CSVs DO MERCADO:
+ * - A coluna A ("Cód. Interno") é ignorada completamente.
+ * - O código útil vem da coluna B ("Código") quando ela existir.
+ * - Se o código da coluna B tiver 12-14 dígitos, ele é EAN.
+ * - Se for um código curto, ele é tratado como código interno.
+ * Isso evita que o antigo código da coluna A seja levado para as ofertas.
  */
 export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): ProdutoImportado | null {
   const descricao = String(valorDoCampo(linha, ["Descrição", "Descricao", "Produto", "Nome", "Mercadoria"]) || "").trim();
   if (!descricao) return null;
 
-  const ean = limparEan(valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN", "EAN13"]));
-  const interno = limparCodigo(valorDoCampo(linha, ["Cód. Interno", "Codigo Interno", "Cod Interno", "Código Interno"]));
-  const doCabecalho = limparCodigo(valorDoCampo(linha, ["Código da promoção", "Cód. Promoção", "Código do produto", "Código", "Codigo"]));
-  const daColunaB = limparCodigo(valorDaColuna(linha, 1));
-  const codigo = doCabecalho || interno || (daColunaB !== ean ? daColunaB : "") || ean;
+  const eanInformado = limparEan(valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN", "EAN13"]));
+  const codigoColunaB = limparCodigo(valorDaColuna(linha, 1));
+  const codigoNomeado = limparCodigo(valorDoCampo(linha, ["Código da promoção", "Cód. Promoção", "Código do produto", "Código", "Codigo"]));
+
+  // A coluna A nunca participa do cadastro. O código da coluna B é a fonte
+  // principal para estes CSVs: curto = interno; 12-14 dígitos = EAN.
+  const codigoBase = codigoColunaB || codigoNomeado;
+  const ean = eanInformado || (pareceEan(codigoBase) ? limparEan(codigoBase) : "");
+  const interno = !ean && codigoBase ? limparCodigo(codigoBase) : "";
+  const codigoPromocao = codigoNomeado || codigoColunaB || ean;
 
   return {
     internal_code: interno || null,
-    promotion_code: codigo || null,
+    promotion_code: codigoPromocao || null,
     ean: ean || null,
     description: descricao,
     unit: String(valorDoCampo(linha, ["Un.", "Un", "Unidade"]) || "").trim() || null,
