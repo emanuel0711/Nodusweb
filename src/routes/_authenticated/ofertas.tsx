@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { lerPlanilha, valorDoCampo, exportarModeloDoClube, type LinhaPlanilha, type OfertaParaExportar } from "@/lib/planilha";
-import { melhorCorrespondencia, lerLimite, lerPreco } from "@/lib/comparar-textos";
+import { melhorCorrespondencia, lerPreco } from "@/lib/comparar-textos";
 import { buscarImagens } from "@/lib/imagens";
 import { carregarTodosProdutos, limparCodigo, limparEan, type Produto } from "@/lib/catalogo";
 import { aplicarRegras, type RegraOferta } from "@/lib/regras-oferta";
@@ -35,8 +35,11 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
 }
 
 function dataParaClube(valor: string): string {
-  if (!valor) return ""; const data = new Date(`${valor}T00:00:00`); if (Number.isNaN(data.getTime())) return "";
-  const p = (n: number) => String(n).padStart(2, "0"); return `${p(data.getDate())}/${p(data.getMonth() + 1)}/${data.getFullYear()} 00:00:00`;
+  if (!valor) return "";
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(data.getDate())}/${p(data.getMonth() + 1)}/${data.getFullYear()} ${p(data.getHours())}:${p(data.getMinutes())}:00`;
 }
 
 function PaginaOfertas() {
@@ -77,8 +80,8 @@ function PaginaOfertas() {
     </> : <div className="surface mt-4 p-10 text-center text-sm text-muted-foreground">Envie a planilha da semana para começar. O sistema fará o cruzamento com o catálogo salvo.</div>}
     <Dialog open={modalAberto} onOpenChange={setModalAberto}><DialogContent><DialogHeader><DialogTitle>Configurar arquivo do Clube</DialogTitle><DialogDescription>Esses dados serão aplicados a todas as ofertas desta planilha.</DialogDescription></DialogHeader><div className="space-y-4 py-2">
       <div><label className="mb-1.5 block text-sm font-medium">Carrossel</label><Input value={carrossel} onChange={(e) => setCarrossel(e.target.value)} placeholder="Ex.: Ofertas da semana" /></div>
-      <div><label className="mb-1.5 block text-sm font-medium">Ativar em</label><Input type="date" value={ativarEm} onChange={(e) => setAtivarEm(e.target.value)} /></div>
-      <div><label className="mb-1.5 block text-sm font-medium">Inativar em</label><Input type="date" value={inativarEm} onChange={(e) => setInativarEm(e.target.value)} /></div>
+      <div><label className="mb-1.5 block text-sm font-medium">Ativar em</label><Input type="datetime-local" step="60" value={ativarEm} onChange={(e) => setAtivarEm(e.target.value)} /></div>
+      <div><label className="mb-1.5 block text-sm font-medium">Inativar em</label><Input type="datetime-local" step="60" value={inativarEm} onChange={(e) => setInativarEm(e.target.value)} /></div>
       <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">Check-In: <strong>Não</strong> · Dias para resgate: <strong>1</strong> · App: <strong>Não exigir ativação</strong></div>
     </div><DialogFooter><Button variant="outline" onClick={() => setModalAberto(false)}>Cancelar</Button><Button onClick={exportar}><Download className="size-4" /> Gerar planilha</Button></DialogFooter></DialogContent></Dialog>
   </AppShell>;
