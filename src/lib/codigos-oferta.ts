@@ -107,9 +107,10 @@ export function codigosDaFamiliaOferta(
   porQuilo: boolean,
   excecoes: string[][] = [],
 ): string[] {
-  const principal = produto ? codigoDoProduto(produto, porQuilo) : "";
+  const produtoCompativel = Boolean(produto && tamanhosCompativeis(nome, produto.description));
+  const principal = produto && produtoCompativel ? codigoDoProduto(produto, porQuilo) : "";
   const principalExcluido = produto ? candidatoExcluido(produto, excecoes) : false;
-  const candidatos = candidatosDaFamilia(nome, produto, catalogo, porQuilo, excecoes);
+  const candidatos = candidatosDaFamilia(nome, produtoCompativel ? produto : undefined, catalogo, porQuilo, excecoes);
   const codigos = candidatos.map((item) => codigoDoProduto(item, porQuilo)).filter(Boolean);
   const todos = [...codigos, principalExcluido ? "" : principal].filter(Boolean);
   return [...new Set(todos)];
