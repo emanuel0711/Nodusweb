@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Upload, Download, Loader2, AlertTriangle, ImageIcon, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -34,6 +34,7 @@ interface Oferta extends RegraOferta {
 const NOMES = ["PRODUTO", "Produto", "Nome do Produto", "Nome", "Descrição", "Descricao", "Mercadoria"];
 const PRECOS = ["OFERTA", "Preço Normal", "Preco Normal", "Preço", "Preco", "Valor"];
 const PRECOS_CLUBE = ["CLUBE", "Preço Clube", "Preco Clube", "Preço promocional"];
+const OFERTAS_STORAGE_KEY = "ofertaflow:rascunho-ofertas";
 
 const TOKENS_GENERICOS = new Set([
   "kg", "un", "und", "unidade", "pct", "pcte", "cx", "caixa", "fardo", "fd",
@@ -59,109 +60,81 @@ function separarCodigos(valor: unknown, ean = false): string[] {
     .filter(Boolean))];
 }
 
-/** Procura a coluna de limite mesmo quando o arquivo usa outro texto, como "Limite por cliente". */
 function valorDeLimite(linha: LinhaPlanilha): string {
-  const encontrado = Object.entries(linha).find(([cabecalho, valor]) => {
-    const h = normalizarTexto(cabecalho);
-    return h.includes("limite") && String(valor ?? "").trim() !== "";
-  });
-  if (encontrado) return String(encontrado[1]).trim();
-  const porNome = valorDoCampo(linha, ["LIMITE", "Limite por CPF", "Limite", "Limite por cliente", "Limite por cliente (CPF)"]);
-  return String(porNome || "").trim();
+  const porNome = valorDoCampo(linha, ["Limite por cliente", "Limite por cliente (CPF)", "Limite por CPF", "LIMITE", "Limite"]);
+  if (String(porNome ?? "").trim()) return String(porNome).trim();
+
+  const encontrado = Object.entries(linha).find(([cabecalho, valor]) =>
+    normalizarTexto(cabecalho).includes("limite") && String(valor ?? "").trim() !== "",
+  );
+  return encontrado ? String(encontrado[1]).trim() : "";
 }
 
-/** Evita confundir "Código de barras" com o código operacional da oferta. */
 function valorDeCodigo(linha: LinhaPlanilha): string {
-  const prioridades = ["Código da promoção", "Cód. Promoção", "Código do produto", "Cód. Interno", "Codigo Interno", "Código Interno", "Código"];
-  const valor = valorDoCampo(linha, prioridades);
-  return limparCodigo(valor);
+  const campos = Object.entries(linha);
+  const prioridades = ["Código da promoção", "Cód. Promoção", "Código do produto", "Cód. Interno", "Codigo Interno", "Código Interno", "Código", "Codigo"];
+
+  for (const prioridade of prioridades) {
+    const alvo = normalizarTexto(prioridade);
+    const encontrado = campos.find(([cabecalho]) => {
+      const h = normalizarTexto(cabecalho);
+      if (["ean", "gtin", "codigo de barras", "código de barras"].some((bloqueado) => h.includes(normalizarTexto(bloqueado)))) return false;
+      return h === alvo;
+    });
+    if (encontrado && String(encontrado[1] ?? "").trim()) return limparCodigo(encontrado[1]);
+  }
+  return "";
 }
 
-/**
- * Código curto pode ser compartilhado por vários itens de balança. Nesse caso
- * o código sozinho NÃO escolhe o primeiro produto: o nome desempata entre os
- * candidatos.
- */
 function acharPorCodigo(nome: string, codigo: string, catalogo: Produto[], notaMinima: number): { item: Produto; score: number } | null {
   if (!codigo) return null;
   const alvo = limparCodigo(codigo);
   const candidatos = catalogo.filter((p) => limparCodigo(p.promotion_code) === alvo || limparCodigo(p.internal_code) === alvo);
   if (!candidatos.length) return null;
   if (candidatos.length === 1) return { item: candidatos[0], score: 1 };
-  return melhorCorrespondencia(nome, candidatos, Math.min(0.48, notaMinima));
+  return melhorCorrespondencia(nome, candidatos, Math.max(0.55, notaMinima));
 }
 
-/**
- * Depois de encontrar o item principal, reúne códigos do mesmo produto/família.
- *
- * A regra é conservadora:
- * - todos os tokens do nome da oferta precisam aparecer no catálogo;
- * - ofertas muito genéricas não agrupam famílias;
- * - "ZERO" só agrupa ZERO, "TRAD"/"TRADICIONAL" só agrupa tradicional;
- * - se a oferta não especificar a variante, variantes do catálogo podem compartilhar
- *   o mesmo item (ex.: Coca Cola 2L, Frisco 18g, cerveja/energético com vários EANs).
- */
-function codigosDaFamilia(
-  nome: string,
-  produto: Produto | undefined,
-  catalogo: Produto[],
-  porQuilo: boolean,
-): string[] {
+function codigosDaFamilia(nome: string, produto: Produto | undefined, catalogo: Produto[], porQuilo: boolean): string[] {
   if (!produto) return [];
   const tokensOferta = tokensFamilia(nome);
-  if (tokensOferta.length < 3) {
-    const codigo = porQuilo ? limparCodigo(produto.internal_code) : limparEan(produto.ean);
-    return codigo ? [codigo] : [];
-  }
+  const codigoPrincipal = porQuilo ? limparCodigo(produto.internal_code) : limparEan(produto.ean);
+
+  if (tokensOferta.length < 3) return codigoPrincipal ? [codigoPrincipal] : [];
 
   const candidatos = catalogo.filter((item) => {
     if (!produtoContemTokens(item.description, tokensOferta)) return false;
-    if (porQuilo) return Boolean(limparCodigo(item.internal_code));
-    return Boolean(limparEan(item.ean));
+    return porQuilo ? Boolean(limparCodigo(item.internal_code)) : Boolean(limparEan(item.ean));
   });
 
-  const similares = candidatos
+  const codigos = candidatos
     .map((item) => ({ item, score: semelhanca(nome, item.description) }))
     .filter(({ score }) => score >= 0.55)
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => b.score - a.score)
+    .map(({ item }) => porQuilo ? limparCodigo(item.internal_code) : limparEan(item.ean))
+    .filter(Boolean);
 
-  const fonte = similares.length ? similares : [{ item: produto, score: 1 }];
-  const codigos: string[] = [];
-  for (const { item } of fonte) {
-    const codigo = porQuilo ? limparCodigo(item.internal_code) : limparEan(item.ean);
-    if (codigo && !codigos.includes(codigo)) codigos.push(codigo);
-  }
-
-  const codigoPrincipal = porQuilo ? limparCodigo(produto.internal_code) : limparEan(produto.ean);
-  if (codigoPrincipal && !codigos.includes(codigoPrincipal)) codigos.unshift(codigoPrincipal);
-  return codigos;
+  return [...new Set([codigoPrincipal, ...codigos].filter(Boolean))];
 }
 
 function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): Oferta | null {
   const nome = String(valorDoCampo(linha, NOMES) || "").trim();
   if (!nome) return null;
 
-  // A coluna A dos CSVs de catálogo é inútil para a oferta. Aqui só aceitamos
-  // EAN real (8+ dígitos) e código operacional separado.
   const valorEAN = limparEan(valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN", "EAN13"]));
   const eanOrigem = valorEAN.length >= 8 ? valorEAN : "";
   const codigoOrigem = valorDeCodigo(linha) || (valorEAN.length > 0 && valorEAN.length < 8 ? valorEAN : "");
   const limiteBruto = valorDeLimite(linha);
 
-  const exatoPorEan = eanOrigem
-    ? catalogo.find((p) => limparEan(p.ean) === eanOrigem)
-    : undefined;
+  const exatoPorEan = eanOrigem ? catalogo.find((p) => limparEan(p.ean) === eanOrigem) : undefined;
   const exatoPorCodigo = !exatoPorEan ? acharPorCodigo(nome, codigoOrigem, catalogo, notaMinima) : null;
-  const achado = exatoPorEan
-    ? { item: exatoPorEan, score: 1 }
-    : exatoPorCodigo || melhorCorrespondencia(nome, catalogo, notaMinima);
+  const achado = exatoPorEan ? { item: exatoPorEan, score: 1 } : exatoPorCodigo || melhorCorrespondencia(nome, catalogo, notaMinima);
   const produto = achado?.item;
 
   const codigoInterno = limparCodigo(produto?.internal_code) || (produto ? "" : codigoOrigem);
   const eanProduto = limparEan(produto?.ean) || eanOrigem;
   const regras = aplicarRegras(nome, limiteBruto, codigoInterno, eanProduto, produto?.unit || "");
   const codigos = codigosDaFamilia(nome, produto, catalogo, regras.porQuilo);
-
   const codigoOperacional = regras.porQuilo
     ? (codigos[0] || limparCodigo(produto?.internal_code) || codigoOrigem)
     : (codigos[0] || limparEan(produto?.ean) || eanOrigem);
@@ -190,18 +163,84 @@ function dataParaClube(valor: string): string {
   return `${p(data.getDate())}/${p(data.getMonth() + 1)}/${data.getFullYear()} ${p(data.getHours())}:${p(data.getMinutes())}:00`;
 }
 
+interface RascunhoOfertas {
+  ofertas: Oferta[];
+  nomeArquivo: string;
+  carrossel: string;
+  ativarEm: string;
+  inativarEm: string;
+  notaMinima: number;
+}
+
+function lerRascunho(): RascunhoOfertas | null {
+  try {
+    const salvo = sessionStorage.getItem(OFERTAS_STORAGE_KEY);
+    return salvo ? JSON.parse(salvo) as RascunhoOfertas : null;
+  } catch {
+    return null;
+  }
+}
+
 function PaginaOfertas() {
   const queryClient = useQueryClient();
   const campoArquivo = useRef<HTMLInputElement>(null);
+  const rascunho = lerRascunho();
   const [processando, setProcessando] = useState(false);
-  const [nomeArquivo, setNomeArquivo] = useState("");
-  const [ofertas, setOfertas] = useState<Oferta[]>([]);
-  const [notaMinima, setNotaMinima] = useState(0.55);
+  const [nomeArquivo, setNomeArquivo] = useState(rascunho?.nomeArquivo ?? "");
+  const [ofertas, setOfertas] = useState<Oferta[]>(rascunho?.ofertas ?? []);
+  const [notaMinima, setNotaMinima] = useState(rascunho?.notaMinima ?? 0.55);
   const [modalAberto, setModalAberto] = useState(false);
   const [modalVisualizacao, setModalVisualizacao] = useState<Oferta | null>(null);
-  const [carrossel, setCarrossel] = useState("");
-  const [ativarEm, setAtivarEm] = useState("");
-  const [inativarEm, setInativarEm] = useState("");
+  const [carrossel, setCarrossel] = useState(rascunho?.carrossel ?? "");
+  const [ativarEm, setAtivarEm] = useState(rascunho?.ativarEm ?? "");
+  const [inativarEm, setInativarEm] = useState(rascunho?.inativarEm ?? "");
+
+  useEffect(() => {
+    if (!ofertas.length && !nomeArquivo) {
+      sessionStorage.removeItem(OFERTAS_STORAGE_KEY);
+      return;
+    }
+    const dados: RascunhoOfertas = { ofertas, nomeArquivo, carrossel, ativarEm, inativarEm, notaMinima };
+    sessionStorage.setItem(OFERTAS_STORAGE_KEY, JSON.stringify(dados));
+  }, [ofertas, nomeArquivo, carrossel, ativarEm, inativarEm, notaMinima]);
+
+  // Ao voltar do Catálogo, tenta completar somente os dados que estavam faltando.
+  // Alterações manuais feitas na Oferta não são sobrescritas.
+  useEffect(() => {
+    if (!ofertas.length) return;
+    let ativo = true;
+    carregarTodosProdutos().then((catalogo) => {
+      if (!ativo) return;
+      setOfertas((atuais) => atuais.map((oferta) => {
+        if (oferta.encontrado && oferta.imagem && oferta.codigos.length) return oferta;
+        const achado = melhorCorrespondencia(oferta.nome, catalogo, 0.72);
+        if (!achado) return oferta;
+
+        const produto = achado.item;
+        const codigoInterno = limparCodigo(produto.internal_code);
+        const ean = limparEan(produto.ean);
+        const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, codigoInterno, ean, produto.unit || "");
+        const codigos = oferta.codigos.length ? oferta.codigos : codigosDaFamilia(oferta.nome, produto, catalogo, regras.porQuilo);
+
+        return {
+          ...oferta,
+          encontrado: oferta.encontrado || produto.description,
+          imagem: oferta.imagem || produto.image_url || "",
+          codigos,
+          ean: oferta.ean || ean,
+          codigoInterno: oferta.codigoInterno || codigoInterno,
+          codigo: oferta.codigo || codigos[0] || "",
+          nota: Math.max(oferta.nota, achado.score),
+          porQuilo: oferta.porQuilo,
+          unidade: oferta.unidade,
+          limite: oferta.limite,
+        };
+      }));
+    }).catch(() => {
+      // O rascunho local continua disponível mesmo se o catálogo estiver temporariamente indisponível.
+    });
+    return () => { ativo = false; };
+  }, []);
 
   function alterar(indice: number, mudanca: Partial<Oferta>) {
     setOfertas((atual) => atual.map((o, i) => (i === indice ? { ...o, ...mudanca } : o)));
@@ -216,15 +255,10 @@ function PaginaOfertas() {
       const cruzadas = linhas.map((l) => cruzar(l, catalogo, notaMinima)).filter((x): x is Oferta => x !== null);
       if (!cruzadas.length) throw new Error("Não encontrei uma coluna com o nome do produto na planilha.");
 
-      // Cosmos continua sendo a primeira fonte para EAN. Fontes secundárias só
-      // entram quando o catálogo não tem imagem.
       const eansParaImagem = cruzadas
         .filter((i) => !i.imagem && !i.porQuilo)
         .flatMap((i) => i.codigos.filter((codigo) => codigo.length >= 8));
       const imagens = await buscarImagens(eansParaImagem);
-
-      // Para carnes/produtos de balança sem EAN, tenta busca textual separada.
-      // O código interno nunca é enviado como se fosse GTIN.
       const imagensPorNome = await buscarImagensPorProduto(
         cruzadas.filter((i) => !i.imagem && i.porQuilo).map((i) => ({ ean: "", nome: i.nome })),
       );
