@@ -92,9 +92,15 @@ export interface OpcoesExportacaoClube {
   inativarEm: string;
 }
 
+/**
+ * Cria uma URL quadrada sem cortar o produto. O "contain" preserva a embalagem
+ * inteira dentro do quadrado que o app do Clube utiliza para o reconhecimento.
+ */
 export function imagemQuadrada(url: string): string {
   const valor = String(url ?? "").trim();
-  return valor ? `https://wsrv.nl/?url=${encodeURIComponent(valor)}&w=500&h=500&fit=cover&output=webp` : "";
+  return valor
+    ? `https://wsrv.nl/?url=${encodeURIComponent(valor)}&w=500&h=500&fit=contain&bg=white&output=webp`
+    : "";
 }
 
 const COLUNAS_DO_CLUBE = ["Nome", "Carrossel", "Check-In", "Preço", "Preço promocional", "Limite por cliente", "Dias para Resgate após ativação", "Unidade", "Não exigir ativação no App", "Ativar em", "Inativar em", "URL da imagem", "Tipo do código", "Códigos dos produtos", "Tipo Promocional", "Sobrescrever lojas", "Lojas"];
