@@ -102,11 +102,16 @@ function valorDeCodigo(linha: LinhaPlanilha): string {
   return pareceCodigoNumerico(primeiraColunaAtiva) ? limparCodigo(primeiraColunaAtiva) : "";
 }
 
+/** Procura o código informado em qualquer campo correto do catálogo. */
 function acharPorCodigo(nome: string, codigo: string, catalogo: Produto[], notaMinima: number): { item: Produto; score: number } | null {
   if (!codigo) return null;
   const codigos = separarCodigos(codigo);
   for (const alvo of codigos) {
-    const candidatos = catalogo.filter((p) => limparCodigo(p.promotion_code) === alvo || limparCodigo(p.internal_code) === alvo);
+    const candidatos = catalogo.filter((p) =>
+      limparEan(p.ean) === limparEan(alvo) ||
+      limparCodigo(p.internal_code) === limparCodigo(alvo) ||
+      limparCodigo(p.promotion_code) === limparCodigo(alvo),
+    );
     if (candidatos.length === 1) return { item: candidatos[0], score: 1 };
     if (candidatos.length > 1) {
       const achado = melhorCorrespondencia(nome, candidatos, Math.max(0.55, notaMinima));
@@ -131,9 +136,9 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
   const achado = exatoPorEan ? { item: exatoPorEan, score: 1 } : exatoPorCodigo || melhorCorrespondencia(nome, catalogo, notaMinima);
   const produto = achado?.item;
 
-  // Para produtos de Kg, o código vindo da planilha é a principal referência.
-  // O catálogo só complementa quando a planilha não trouxe um código.
-  const codigoCatalogo = limparCodigo(produto?.internal_code) || limparCodigo(produto?.promotion_code);
+  // O código promocional é somente promocional.
+  // Para Kg, usamos o código informado na planilha ou o internal_code do catálogo.
+  const codigoCatalogo = limparCodigo(produto?.internal_code);
   const codigoInterno = !eanOrigem && (codigoOrigem || codigoCatalogo) ? (codigoOrigem || codigoCatalogo) : "";
   const eanProduto = limparEan(produto?.ean) || eanOrigem;
   const regras = aplicarRegras(nome, limiteBruto, codigoInterno, eanProduto, produto?.unit || "");
@@ -217,7 +222,7 @@ function PaginaOfertas() {
         const achado = melhorCorrespondencia(oferta.nome, catalogo, 0.72);
         if (!achado) return oferta;
         const produto = achado.item;
-        const codigoCatalogo = limparCodigo(produto.internal_code) || limparCodigo(produto.promotion_code);
+        const codigoCatalogo = limparCodigo(produto.internal_code);
         const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, oferta.codigoInterno || codigoCatalogo, limparEan(produto.ean), produto.unit || "");
         const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || []);
         const fallbackKg = regras.porQuilo ? [oferta.codigoInterno, codigoCatalogo].filter(Boolean) : [];
