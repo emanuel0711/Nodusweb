@@ -1,6 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { ShoppingBasket, Package, Sparkles, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -41,6 +43,23 @@ const FEATURES = [
 ];
 
 function Landing() {
+  const navigate = useNavigate();
+
+  // Depois do login com Google o usuário volta para a home: mandamos direto ao painel.
+  useEffect(() => {
+    let ativo = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (ativo && data.session) navigate({ to: "/painel", replace: true });
+    });
+    const { data: assinatura } = supabase.auth.onAuthStateChange((_evento, sessao) => {
+      if (sessao) navigate({ to: "/painel", replace: true });
+    });
+    return () => {
+      ativo = false;
+      assinatura.subscription.unsubscribe();
+    };
+  }, [navigate]);
+
   return (
     <div className="min-h-screen bg-background">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5">
