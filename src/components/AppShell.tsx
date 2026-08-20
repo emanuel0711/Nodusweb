@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import "@/app-overrides.css";
+import "@/catalogo-overrides.css";
 
 const NAV = [
   { to: "/painel", label: "Painel", icon: LayoutDashboard },
