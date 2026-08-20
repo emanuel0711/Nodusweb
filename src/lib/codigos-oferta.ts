@@ -19,7 +19,6 @@ export function tokensFamilia(valor: string): string[] {
   return [...new Set(compactarTexto(valor).split(/\s+/).filter((t) => t.length >= 2 && !TOKENS_GENERICOS.has(t)))];
 }
 
-/** Tamanho é parte da identidade do produto e nunca pode ser misturado. */
 function tamanhosDoProduto(valor: string): string[] {
   const texto = compactarTexto(valor);
   return [...new Set(
@@ -69,17 +68,19 @@ function candidatoExcluido(item: Produto, excecoes: string[][]): boolean {
   });
 }
 
+/** Para Kg, prioriza código interno e usa promotion_code curto apenas em cadastros antigos. */
 function codigoDoProduto(item: Produto, porQuilo: boolean): string {
-  return porQuilo ? limparCodigo(item.internal_code) : limparEan(item.ean);
+  if (porQuilo) {
+    const interno = limparCodigo(item.internal_code);
+    if (interno && !/^\d{8,14}$/.test(limparEan(interno))) return interno;
+    const promocao = limparCodigo(item.promotion_code);
+    if (promocao && !/^\d{8,14}$/.test(limparEan(promocao))) return promocao;
+    return "";
+  }
+  return limparEan(item.ean);
 }
 
-function candidatosDaFamilia(
-  nome: string,
-  produto: Produto | undefined,
-  catalogo: Produto[],
-  porQuilo: boolean,
-  excecoes: string[][],
-): Produto[] {
+function candidatosDaFamilia(nome: string, produto: Produto | undefined, catalogo: Produto[], porQuilo: boolean, excecoes: string[][]): Produto[] {
   const tokensOferta = tokensFamilia(nome);
   return catalogo
     .filter((item) => !candidatoExcluido(item, excecoes))
@@ -89,8 +90,6 @@ function candidatosDaFamilia(
     .map((item) => ({ item, score: semelhanca(nome.replace(/\bexceto\b.*$/i, ""), item.description) }))
     .filter(({ item, score }) => {
       if (produto && item.id === produto.id) return true;
-      // Produtos de balança têm código interno próprio. Não agrupamos por texto
-      // com a mesma tolerância usada para EANs, porque isso mistura cortes/produtos.
       if (porQuilo) return score >= 0.88;
       return tokensOferta.length >= 3 ? score >= 0.45 : score >= 0.60;
     })
@@ -98,24 +97,12 @@ function candidatosDaFamilia(
     .map(({ item }) => item);
 }
 
-/**
- * Retorna os códigos da mesma variante/família do item.
- * Ex.: Divine 70g nunca recebe códigos do Divine 100g.
- * Variantes como ZERO/TRAD só são separadas quando a planilha especifica a variante.
- */
-export function codigosDaFamiliaOferta(
-  nome: string,
-  produto: Produto | undefined,
-  catalogo: Produto[],
-  porQuilo: boolean,
-  excecoes: string[][] = [],
-): string[] {
+export function codigosDaFamiliaOferta(nome: string, produto: Produto | undefined, catalogo: Produto[], porQuilo: boolean, excecoes: string[][] = []): string[] {
   const produtoCompativel = Boolean(produto && tamanhosCompativeis(nome, produto.description));
   const principal = produto && produtoCompativel ? codigoDoProduto(produto, porQuilo) : "";
   const principalExcluido = produto ? candidatoExcluido(produto, excecoes) : false;
 
-  // Para Kg, o código interno é a identidade do item. Se o catálogo encontrou
-  // o produto, usamos o código dele e não uma família aproximada de outros cortes.
+  // Kg é sempre individual: nunca agrupar cortes/produtos parecidos.
   if (porQuilo) {
     if (!principal || principalExcluido) return [];
     return [principal];
