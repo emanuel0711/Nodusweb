@@ -3,8 +3,7 @@
  * e como a lista completa é carregada do banco.
  */
 import { supabase } from "@/integrations/supabase/client";
-import { normalizarTexto } from "./comparar-textos";
-import { lerPreco } from "./comparar-textos";
+import { normalizarTexto, lerPreco } from "./comparar-textos";
 import { valorDaColuna, valorDoCampo, type LinhaPlanilha } from "./planilha";
 
 export interface Produto {
@@ -32,7 +31,7 @@ export function limparCodigo(valor: unknown): string {
 }
 
 /** Um código com 12-14 dígitos é tratado como EAN/GTIN. */
-function pareceEan(valor: unknown): boolean {
+export function pareceEan(valor: unknown): boolean {
   const codigo = limparEan(valor);
   return /^(\d{12}|\d{13}|\d{14})$/.test(codigo);
 }
@@ -64,31 +63,64 @@ export interface ProdutoImportado {
 /**
  * Converte uma linha de CSV/Excel em produto.
  *
- * REGRA IMPORTANTE PARA OS CSVs DO MERCADO:
- * - A coluna A ("Cód. Interno") é ignorada completamente.
- * - O código útil vem da coluna B ("Código") quando ela existir.
- * - Se o código da coluna B tiver 12-14 dígitos, ele é EAN.
- * - Se for um código curto, ele é tratado como código interno.
- * Isso evita que o antigo código da coluna A seja levado para as ofertas.
+ * REGRAS DE CÓDIGO:
+ * - A coluna A continua ignorada completamente.
+ * - Um campo explicitamente chamado "Código da promoção" / "Cód. Promoção"
+ *   alimenta SOMENTE promotion_code.
+ * - O campo genérico "Código" da coluna B é a referência operacional do CSV:
+ *   12-14 dígitos = EAN; código curto = código interno.
+ * - EAN nunca é copiado para promotion_code.
+ * - promotion_code nunca é usado como substituto automático de internal_code.
+ *
+ * Assim os três identificadores permanecem independentes e a busca consegue
+ * distinguir EAN, código promocional e código interno sem criar colisões.
  */
 export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): ProdutoImportado | null {
   const descricao = String(valorDoCampo(linha, ["Descrição", "Descricao", "Produto", "Nome", "Mercadoria"]) || "").trim();
   if (!descricao) return null;
 
   const eanInformado = limparEan(valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN", "EAN13"]));
-  const codigoColunaB = limparCodigo(valorDaColuna(linha, 1));
-  const codigoNomeado = limparCodigo(valorDoCampo(linha, ["Código da promoção", "Cód. Promoção", "Código do produto", "Código", "Codigo"]));
 
-  // A coluna A nunca participa do cadastro. O código da coluna B é a fonte
-  // principal para estes CSVs: curto = interno; 12-14 dígitos = EAN.
-  const codigoBase = codigoColunaB || codigoNomeado;
-  const ean = eanInformado || (pareceEan(codigoBase) ? limparEan(codigoBase) : "");
-  const interno = !ean && codigoBase ? limparCodigo(codigoBase) : "";
-  const codigoPromocao = codigoNomeado || codigoColunaB || ean;
+  // A coluna A nunca participa do cadastro.
+  const codigoColunaB = limparCodigo(valorDaColuna(linha, 1));
+
+  // Só estes cabeçalhos explícitos representam código promocional.
+  const codigoPromocaoExplicito = limparCodigo(valorDoCampo(linha, [
+    "Código da promoção",
+    "Codigo da promocao",
+    "Cód. Promoção",
+    "Cod. Promocao",
+    "Código promoção",
+    "Codigo promocao",
+  ]));
+
+  // Campos explicitamente nomeados como interno têm prioridade sobre a coluna B.
+  const codigoInternoExplicito = limparCodigo(valorDoCampo(linha, [
+    "Cód. Interno",
+    "Cod. Interno",
+    "Código Interno",
+    "Codigo Interno",
+    "Código da balança",
+    "Codigo da balanca",
+  ]));
+
+  // "Código" genérico é usado apenas como fallback operacional da coluna B.
+  const codigoNomeadoGenerico = limparCodigo(valorDoCampo(linha, [
+    "Código do produto",
+    "Codigo do produto",
+    "Código",
+    "Codigo",
+    "Cod.",
+    "Cod",
+  ]));
+
+  const codigoOperacional = codigoColunaB || codigoNomeadoGenerico;
+  const ean = eanInformado || (pareceEan(codigoOperacional) ? limparEan(codigoOperacional) : "");
+  const interno = codigoInternoExplicito || (!ean && codigoOperacional ? limparCodigo(codigoOperacional) : "");
 
   return {
     internal_code: interno || null,
-    promotion_code: codigoPromocao || null,
+    promotion_code: codigoPromocaoExplicito || null,
     ean: ean || null,
     description: descricao,
     unit: String(valorDoCampo(linha, ["Un.", "Un", "Unidade"]) || "").trim() || null,
@@ -99,6 +131,6 @@ export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): Produ
 }
 
 /** Identidade usada para não importar o mesmo produto duas vezes. */
-export function chaveDoProduto(produto: { promotion_code: string | null; ean: string | null; description: string }): string {
-  return produto.promotion_code || produto.ean || normalizarTexto(produto.description);
+export function chaveDoProduto(produto: { internal_code: string | null; promotion_code: string | null; ean: string | null; description: string }): string {
+  return produto.ean || produto.internal_code || produto.promotion_code || normalizarTexto(produto.description);
 }
