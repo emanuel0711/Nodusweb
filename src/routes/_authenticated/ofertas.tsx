@@ -30,6 +30,7 @@ interface Oferta extends RegraOferta {
   codigo: string;
   codigoInterno: string;
   codigos: string[];
+  codigosEditados?: boolean;
   excecoes: string[][];
   imagem: string;
   encontrado: string | null;
@@ -108,6 +109,7 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
     codigo: codigos.join(";"),
     codigoInterno,
     codigos,
+    codigosEditados: false,
     excecoes,
     imagem: produto?.image_url ?? "",
     encontrado: produto?.description ?? null,
@@ -174,7 +176,11 @@ function PaginaOfertas() {
         const produto = achado.item;
         const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, limparCodigo(produto.internal_code), limparEan(produto.ean), produto.unit || "");
         const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || []);
-        const codigos = normalizarCodigos([...(oferta.codigos || []), ...descobertos]);
+        // O catálogo é a fonte da verdade para códigos ainda não editados.
+        // Isso também limpa códigos antigos incorretos que ficaram no sessionStorage.
+        const codigos = oferta.codigosEditados
+          ? normalizarCodigos(oferta.codigos || [])
+          : normalizarCodigos(descobertos);
         return {
           ...oferta,
           encontrado: oferta.encontrado || produto.description,
@@ -194,7 +200,9 @@ function PaginaOfertas() {
   }, []);
 
   function alterar(indice: number, mudanca: Partial<Oferta>) {
-    setOfertas((atual) => atual.map((o, i) => (i === indice ? { ...o, ...mudanca } : o)));
+    setOfertas((atual) => atual.map((o, i) => (i === indice
+      ? { ...o, ...mudanca, ...(Object.prototype.hasOwnProperty.call(mudanca, "codigos") ? { codigosEditados: true } : {}) }
+      : o)));
   }
 
   async function processar(arquivo: File) {
