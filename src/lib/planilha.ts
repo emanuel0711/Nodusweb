@@ -105,6 +105,15 @@ export function imagemQuadrada(url: string): string {
 
 const COLUNAS_DO_CLUBE = ["Nome", "Carrossel", "Check-In", "Preço", "Preço promocional", "Limite por cliente", "Dias para Resgate após ativação", "Unidade", "Não exigir ativação no App", "Ativar em", "Inativar em", "URL da imagem", "Tipo do código", "Códigos dos produtos", "Tipo Promocional", "Sobrescrever lojas", "Lojas"];
 
+/** Garante que múltiplos códigos sejam exportados como "codigo1;codigo2;codigo3", sem espaços. */
+function normalizarCodigosParaExportacao(codigos: string): string {
+  return String(codigos ?? "")
+    .split(/[;,|\n]+/)
+    .map((codigo) => codigo.trim())
+    .filter(Boolean)
+    .join(";");
+}
+
 export function exportarModeloDoClube(ofertas: OfertaParaExportar[], opcoes: OpcoesExportacaoClube, nomeArquivo = "modelo para o clube.xlsx") {
   const dados = ofertas.map((oferta) => ({
     Nome: oferta.name,
@@ -120,7 +129,7 @@ export function exportarModeloDoClube(ofertas: OfertaParaExportar[], opcoes: Opc
     "Inativar em": opcoes.inativarEm,
     "URL da imagem": imagemQuadrada(oferta.imageUrl),
     "Tipo do código": oferta.codeType,
-    "Códigos dos produtos": oferta.code || "",
+    "Códigos dos produtos": normalizarCodigosParaExportacao(oferta.code),
     "Tipo Promocional": "De / por",
     "Sobrescrever lojas": "Não",
     Lojas: "",
