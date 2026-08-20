@@ -71,10 +71,13 @@ export function aplicarRegras(
 
   let limite: number | null = null;
   if (normalizado && !/segunda unidade|segunda un|na segunda/.test(normalizado)) {
-    const numero = Number(limiteTexto.replace(/\./g, "").replace(",", ".").match(/\d+(?:\.\d+)?/)?.[0]);
+    const numeroTexto = limiteTexto.replace(",", ".").match(/\d+(?:\.\d+)?/)?.[0];
+    const numero = numeroTexto ? Number(numeroTexto) : NaN;
     if (Number.isFinite(numero) && numero > 0) {
       const porFardo = /\bfardo\b|\bfardos\b|\bfd\b|\bcaixa\b|\bcx\b/.test(normalizado);
-      limite = porFardo ? Math.round(numero * unidadesPorFardo(nome)) : Math.round(numero);
+      limite = porFardo ? numero * unidadesPorFardo(nome) : numero;
+      // Limites de unidade/fardo são inteiros; produtos por Kg podem ter fração.
+      if (!porQuilo) limite = Math.round(limite);
     }
   }
 
