@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { lerPlanilha, valorDoCampo, exportarModeloDoClube, type LinhaPlanilha, type OfertaParaExportar } from "@/lib/planilha";
-import { melhorCorrespondencia, lerPreco, normalizarTexto } from "@/lib/comparar-textos";
+import { melhorCorrespondencia, lerPreco, normalizarTexto, semelhanca } from "@/lib/comparar-textos";
 import { buscarImagens, buscarImagensPorProduto } from "@/lib/imagens";
 import { carregarTodosProdutos, limparCodigo, limparEan, type Produto } from "@/lib/catalogo";
 import { aplicarRegras, type RegraOferta } from "@/lib/regras-oferta";
@@ -25,6 +25,7 @@ interface Oferta extends RegraOferta {
   ean: string;
   codigo: string;
   codigoInterno: string;
+  codigos: string[];
   imagem: string;
   encontrado: string | null;
   nota: number;
@@ -33,6 +34,30 @@ interface Oferta extends RegraOferta {
 const NOMES = ["PRODUTO", "Produto", "Nome do Produto", "Nome", "Descrição", "Descricao", "Mercadoria"];
 const PRECOS = ["OFERTA", "Preço Normal", "Preco Normal", "Preço", "Preco", "Valor"];
 const PRECOS_CLUBE = ["CLUBE", "Preço Clube", "Preco Clube", "Preço promocional"];
+
+const TOKENS_GENERICOS = new Set([
+  "kg", "un", "und", "unidade", "pct", "pcte", "cx", "caixa", "fardo", "fd",
+  "bov", "bovina", "bovino", "produto", "mercadoria",
+]);
+
+function tokensFamilia(valor: string): string[] {
+  const texto = normalizarTexto(valor)
+    .replace(/(\d+)\s+(ml|l|g|kg)\b/g, "$1$2")
+    .replace(/\btrad\b/g, "tradicional");
+  return [...new Set(texto.split(" ").filter((t) => t.length >= 2 && !TOKENS_GENERICOS.has(t)))];
+}
+
+function produtoContemTokens(descricao: string, tokens: string[]): boolean {
+  const desc = tokensFamilia(descricao);
+  return tokens.every((token) => desc.includes(token));
+}
+
+function separarCodigos(valor: unknown, ean = false): string[] {
+  return [...new Set(String(valor ?? "")
+    .split(/[,;|\n]+/)
+    .map((item) => ean ? limparEan(item) : limparCodigo(item))
+    .filter(Boolean))];
+}
 
 /** Procura a coluna de limite mesmo quando o arquivo usa outro texto, como "Limite por cliente". */
 function valorDeLimite(linha: LinhaPlanilha): string {
@@ -55,7 +80,7 @@ function valorDeCodigo(linha: LinhaPlanilha): string {
 /**
  * Código curto pode ser compartilhado por vários itens de balança. Nesse caso
  * o código sozinho NÃO escolhe o primeiro produto: o nome desempata entre os
- * candidatos. Isso evita que todos os cortes de carne recebam o mesmo item.
+ * candidatos.
  */
 function acharPorCodigo(nome: string, codigo: string, catalogo: Produto[], notaMinima: number): { item: Produto; score: number } | null {
   if (!codigo) return null;
@@ -66,12 +91,58 @@ function acharPorCodigo(nome: string, codigo: string, catalogo: Produto[], notaM
   return melhorCorrespondencia(nome, candidatos, Math.min(0.48, notaMinima));
 }
 
+/**
+ * Depois de encontrar o item principal, reúne códigos do mesmo produto/família.
+ *
+ * A regra é conservadora:
+ * - todos os tokens do nome da oferta precisam aparecer no catálogo;
+ * - ofertas muito genéricas não agrupam famílias;
+ * - "ZERO" só agrupa ZERO, "TRAD"/"TRADICIONAL" só agrupa tradicional;
+ * - se a oferta não especificar a variante, variantes do catálogo podem compartilhar
+ *   o mesmo item (ex.: Coca Cola 2L, Frisco 18g, cerveja/energético com vários EANs).
+ */
+function codigosDaFamilia(
+  nome: string,
+  produto: Produto | undefined,
+  catalogo: Produto[],
+  porQuilo: boolean,
+): string[] {
+  if (!produto) return [];
+  const tokensOferta = tokensFamilia(nome);
+  if (tokensOferta.length < 3) {
+    const codigo = porQuilo ? limparCodigo(produto.internal_code) : limparEan(produto.ean);
+    return codigo ? [codigo] : [];
+  }
+
+  const candidatos = catalogo.filter((item) => {
+    if (!produtoContemTokens(item.description, tokensOferta)) return false;
+    if (porQuilo) return Boolean(limparCodigo(item.internal_code));
+    return Boolean(limparEan(item.ean));
+  });
+
+  const similares = candidatos
+    .map((item) => ({ item, score: semelhanca(nome, item.description) }))
+    .filter(({ score }) => score >= 0.55)
+    .sort((a, b) => b.score - a.score);
+
+  const fonte = similares.length ? similares : [{ item: produto, score: 1 }];
+  const codigos: string[] = [];
+  for (const { item } of fonte) {
+    const codigo = porQuilo ? limparCodigo(item.internal_code) : limparEan(item.ean);
+    if (codigo && !codigos.includes(codigo)) codigos.push(codigo);
+  }
+
+  const codigoPrincipal = porQuilo ? limparCodigo(produto.internal_code) : limparEan(produto.ean);
+  if (codigoPrincipal && !codigos.includes(codigoPrincipal)) codigos.unshift(codigoPrincipal);
+  return codigos;
+}
+
 function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): Oferta | null {
   const nome = String(valorDoCampo(linha, NOMES) || "").trim();
   if (!nome) return null;
 
-  // Em planilhas de carnes/balança, o campo chamado EAN às vezes contém um
-  // código interno curto (ex.: 1718). Só 8+ dígitos podem ser tratados como EAN.
+  // A coluna A dos CSVs de catálogo é inútil para a oferta. Aqui só aceitamos
+  // EAN real (8+ dígitos) e código operacional separado.
   const valorEAN = limparEan(valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN", "EAN13"]));
   const eanOrigem = valorEAN.length >= 8 ? valorEAN : "";
   const codigoOrigem = valorDeCodigo(linha) || (valorEAN.length > 0 && valorEAN.length < 8 ? valorEAN : "");
@@ -89,10 +160,11 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
   const codigoInterno = limparCodigo(produto?.internal_code) || (produto ? "" : codigoOrigem);
   const eanProduto = limparEan(produto?.ean) || eanOrigem;
   const regras = aplicarRegras(nome, limiteBruto, codigoInterno, eanProduto, produto?.unit || "");
+  const codigos = codigosDaFamilia(nome, produto, catalogo, regras.porQuilo);
 
-  // Para KG o código que interessa é o interno do produto encontrado.
-  // Para unidade, o código que interessa na exportação é o EAN.
-  const codigoOperacional = limparCodigo(produto?.promotion_code) || limparCodigo(produto?.internal_code) || codigoOrigem;
+  const codigoOperacional = regras.porQuilo
+    ? (codigos[0] || limparCodigo(produto?.internal_code) || codigoOrigem)
+    : (codigos[0] || limparEan(produto?.ean) || eanOrigem);
 
   return {
     nome,
@@ -103,6 +175,7 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
     ean: eanProduto.length >= 8 ? eanProduto : "",
     codigo: codigoOperacional,
     codigoInterno,
+    codigos,
     imagem: produto?.image_url ?? "",
     encontrado: produto?.description ?? null,
     nota: achado?.score ?? 0,
@@ -145,22 +218,28 @@ function PaginaOfertas() {
 
       // Cosmos continua sendo a primeira fonte para EAN. Fontes secundárias só
       // entram quando o catálogo não tem imagem.
-      const imagens = await buscarImagens(cruzadas.filter((i) => i.ean && !i.imagem).map((i) => i.ean));
+      const eansParaImagem = cruzadas
+        .filter((i) => !i.imagem && !i.porQuilo)
+        .flatMap((i) => i.codigos.filter((codigo) => codigo.length >= 8));
+      const imagens = await buscarImagens(eansParaImagem);
 
       // Para carnes/produtos de balança sem EAN, tenta busca textual separada.
       // O código interno nunca é enviado como se fosse GTIN.
       const imagensPorNome = await buscarImagensPorProduto(
-        cruzadas.filter((i) => !i.imagem && !i.ean).map((i) => ({ ean: "", nome: i.nome })),
+        cruzadas.filter((i) => !i.imagem && i.porQuilo).map((i) => ({ ean: "", nome: i.nome })),
       );
 
       const finais = cruzadas.map((item) => ({
         ...item,
-        imagem: item.imagem || imagens.get(item.ean) || imagensPorNome.get(item.nome) || "",
+        imagem: item.imagem
+          || item.codigos.map((codigo) => imagens.get(codigo)).find(Boolean)
+          || imagensPorNome.get(item.nome)
+          || "",
       }));
 
       setOfertas(finais);
       setNomeArquivo(arquivo.name);
-      const correspondidas = finais.filter((i) => i.nota >= notaMinima && (i.codigoInterno || i.ean || i.codigo)).length;
+      const correspondidas = finais.filter((i) => i.nota >= notaMinima && (i.codigoInterno || i.ean || i.codigo || i.codigos.length)).length;
       const { data } = await supabase.auth.getUser();
       if (data.user) {
         await supabase.from("offer_runs").insert({ user_id: data.user.id, file_name: arquivo.name, total_items: finais.length, matched_items: correspondidas });
@@ -187,7 +266,9 @@ function PaginaOfertas() {
       promotionalPrice: o.precoClube,
       limit: o.limite,
       imageUrl: o.imagem,
-      code: o.porQuilo ? limparCodigo(o.codigoInterno || o.codigo) : limparEan(o.ean),
+      code: o.codigos.length
+        ? o.codigos.join(", ")
+        : (o.porQuilo ? limparCodigo(o.codigoInterno || o.codigo) : limparEan(o.ean)),
       codeType: o.porQuilo ? "Interno" : "EAN",
       unidade: o.unidade,
     }));
@@ -205,7 +286,7 @@ function PaginaOfertas() {
     }
   }
 
-  const precisamRevisao = ofertas.filter((o) => (!o.codigoInterno && !o.ean && !o.codigo) || !o.imagem || o.nota < notaMinima).length;
+  const precisamRevisao = ofertas.filter((o) => (!o.codigoInterno && !o.ean && !o.codigo && !o.codigos.length) || !o.imagem || o.nota < notaMinima).length;
 
   return (
     <AppShell title="Automação de ofertas" subtitle="Envie a planilha da semana, confira o cruzamento com o catálogo e baixe o arquivo aceito pelo Clube.">
@@ -236,13 +317,13 @@ function PaginaOfertas() {
 
         <div className="surface mt-4 overflow-x-auto">
           <Table>
-            <TableHeader><TableRow><TableHead>Img</TableHead><TableHead>Nome</TableHead><TableHead>Produto encontrado</TableHead><TableHead>Confiança</TableHead><TableHead>Preço</TableHead><TableHead>Preço clube</TableHead><TableHead>Limite</TableHead><TableHead>Unidade</TableHead><TableHead>EAN</TableHead><TableHead>Código</TableHead><TableHead>URL da imagem</TableHead><TableHead /></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Img</TableHead><TableHead>Nome</TableHead><TableHead>Produto encontrado</TableHead><TableHead>Confiança</TableHead><TableHead>Preço</TableHead><TableHead>Preço clube</TableHead><TableHead>Limite</TableHead><TableHead>Tipo de produto</TableHead><TableHead>EAN</TableHead><TableHead>Código</TableHead><TableHead>URL da imagem</TableHead><TableHead /></TableRow></TableHeader>
             <TableBody>{ofertas.map((o, i) => <TableRow
               key={`${o.nome}-${i}`}
-              className={`${((!o.codigoInterno && !o.ean && !o.codigo) || !o.imagem || o.nota < notaMinima) ? "bg-warn/40" : ""} cursor-pointer hover:bg-muted/60`}
+              className={`${((!o.codigoInterno && !o.ean && !o.codigo && !o.codigos.length) || !o.imagem || o.nota < notaMinima) ? "bg-warn/40" : ""} cursor-pointer hover:bg-muted/60`}
               onClick={() => setModalVisualizacao(o)}
             >
-              <TableCell>{o.imagem ? <img src={o.imagem} alt={o.nome} loading="lazy" className="size-10 rounded-md object-cover" /> : <span className="flex size-10 items-center justify-center rounded-md bg-muted text-muted-foreground"><ImageIcon className="size-4" /></span>}</TableCell>
+              <TableCell>{o.imagem ? <img src={o.imagem} alt={o.nome} loading="lazy" className="size-10 rounded-md object-contain bg-white" /> : <span className="flex size-10 items-center justify-center rounded-md bg-muted text-muted-foreground"><ImageIcon className="size-4" /></span>}</TableCell>
               <TableCell className="max-w-64 font-medium">{o.nome}</TableCell>
               <TableCell className="max-w-72 text-xs text-muted-foreground">{o.encontrado || "Não encontrado"}</TableCell>
               <TableCell>{Math.round(o.nota * 100)}%</TableCell>
@@ -250,8 +331,16 @@ function PaginaOfertas() {
               <TableCell>{o.precoClube ?? "—"}</TableCell>
               <TableCell>{o.limite ?? "—"}</TableCell>
               <TableCell>{o.unidade}</TableCell>
-              <TableCell><Input className="w-40" value={o.ean} maxLength={20} onClick={(e) => e.stopPropagation()} onChange={(e) => alterar(i, { ean: limparEan(e.target.value) })} /></TableCell>
-              <TableCell><Input className="w-36" value={o.codigo} maxLength={60} onClick={(e) => e.stopPropagation()} onChange={(e) => alterar(i, { codigo: limparCodigo(e.target.value) })} /></TableCell>
+              <TableCell>
+                {!o.porQuilo ? (
+                  <Input className="w-56" value={o.codigos.join(", ")} onClick={(e) => e.stopPropagation()} onChange={(e) => { const codigos = separarCodigos(e.target.value, true); alterar(i, { codigos, ean: codigos[0] || "" }); }} />
+                ) : "—"}
+              </TableCell>
+              <TableCell>
+                {o.porQuilo ? (
+                  <Input className="w-48" value={o.codigos.join(", ")} onClick={(e) => e.stopPropagation()} onChange={(e) => { const codigos = separarCodigos(e.target.value); alterar(i, { codigos, codigo: codigos[0] || "" }); }} />
+                ) : "—"}
+              </TableCell>
               <TableCell><Input className="w-56" value={o.imagem} maxLength={1000} onClick={(e) => e.stopPropagation()} onChange={(e) => alterar(i, { imagem: e.target.value })} /></TableCell>
               <TableCell><Button variant="ghost" size="icon" aria-label="Remover item" onClick={(e) => { e.stopPropagation(); setOfertas((atual) => atual.filter((_, x) => x !== i)); }}><Trash2 className="size-4" /></Button></TableCell>
             </TableRow>)}</TableBody>
@@ -277,7 +366,7 @@ function PaginaOfertas() {
           <DialogHeader><DialogTitle>{modalVisualizacao?.nome}</DialogTitle><DialogDescription>Conferência completa do item importado.</DialogDescription></DialogHeader>
           {modalVisualizacao && <div className="grid gap-5 sm:grid-cols-[180px_1fr]">
             <div className="flex min-h-44 items-center justify-center rounded-xl bg-muted p-3">
-              {modalVisualizacao.imagem ? <img src={modalVisualizacao.imagem} alt={modalVisualizacao.nome} className="max-h-52 w-full rounded-lg object-contain" /> : <ImageIcon className="size-10 text-muted-foreground" />}
+              {modalVisualizacao.imagem ? <img src={modalVisualizacao.imagem} alt={modalVisualizacao.nome} className="max-h-52 w-full rounded-lg object-contain bg-white" /> : <ImageIcon className="size-10 text-muted-foreground" />}
             </div>
             <div className="grid gap-3 text-sm sm:grid-cols-2">
               <div><span className="text-muted-foreground">Produto encontrado</span><p className="font-medium">{modalVisualizacao.encontrado || "Não encontrado"}</p></div>
@@ -286,10 +375,9 @@ function PaginaOfertas() {
               <div><span className="text-muted-foreground">Preço clube</span><p className="font-medium">{modalVisualizacao.precoClube ?? "—"}</p></div>
               <div><span className="text-muted-foreground">Limite lido da planilha</span><p className="font-medium">{modalVisualizacao.limiteBruto || "—"}</p></div>
               <div><span className="text-muted-foreground">Limite para o Clube</span><p className="font-medium">{modalVisualizacao.limite ?? "—"}</p></div>
-              <div><span className="text-muted-foreground">Unidade</span><p className="font-medium">{modalVisualizacao.unidade}</p></div>
+              <div><span className="text-muted-foreground">Tipo de produto</span><p className="font-medium">{modalVisualizacao.unidade}</p></div>
               <div><span className="text-muted-foreground">Tipo do código</span><p className="font-medium">{modalVisualizacao.porQuilo ? "Interno" : "EAN"}</p></div>
-              <div><span className="text-muted-foreground">EAN</span><p className="font-medium">{modalVisualizacao.ean || "—"}</p></div>
-              <div><span className="text-muted-foreground">Código interno</span><p className="font-medium">{modalVisualizacao.codigoInterno || "—"}</p></div>
+              <div><span className="text-muted-foreground">{modalVisualizacao.porQuilo ? "Códigos internos" : "EANs"}</span><p className="font-medium break-words">{modalVisualizacao.codigos.join(", ") || "—"}</p></div>
             </div>
           </div>}
         </DialogContent>
