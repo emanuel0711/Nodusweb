@@ -236,7 +236,7 @@ function PaginaCatalogo() {
         </div>
         <Select value={categoria} onValueChange={(valor) => { setCategoria(valor); setPagina(0); }}>
           <SelectTrigger className="w-60"><SelectValue placeholder="Categoria" /></SelectTrigger>
-          <SelectContent>
+          <SelectContent className="of-category-menu">
             <SelectItem value={TODAS}>Todas as categorias</SelectItem>
             {arquivosImportados.map((item) => <SelectItem key={item} value={item}>{item === SEM_CATEGORIA ? "Sem categoria" : item}</SelectItem>)}
           </SelectContent>
@@ -306,18 +306,22 @@ function PaginaCatalogo() {
     </div>
 
     <Dialog open={dialogoAberto} onOpenChange={setDialogoAberto}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>{editando ? "Editar produto" : "Novo produto"}</DialogTitle></DialogHeader>
-        <div className="grid gap-3">{([
-          ["description", "Descrição"], ["promotion_code", "Código da promoção/caixa"], ["internal_code", "Código interno"],
-          ["ean", "EAN"], ["unit", "Unidade"], ["category", "Categoria"], ["unit_price", "Preço"], ["image_url", "URL da imagem"],
-        ] as const).map(([campo, rotulo]) => (
-          <div key={campo} className="grid gap-1">
-            <Label>{rotulo}</Label>
-            <Input value={formulario[campo]} onChange={(e) => setFormulario((atual) => ({ ...atual, [campo]: e.target.value }))} />
-          </div>
-        ))}</div>
-        <DialogFooter>
+      <DialogContent className="of-product-dialog">
+        <DialogHeader className="of-product-dialog__header">
+          <DialogTitle>{editando ? "Editar produto" : "Novo produto"}</DialogTitle>
+        </DialogHeader>
+        <div className="of-product-form">
+          {([
+            ["description", "Descrição"], ["promotion_code", "Código da promoção/caixa"], ["internal_code", "Código interno"],
+            ["ean", "EAN"], ["unit", "Unidade"], ["category", "Categoria"], ["unit_price", "Preço"], ["image_url", "URL da imagem"],
+          ] as const).map(([campo, rotulo]) => (
+            <div key={campo} className="of-product-field">
+              <Label htmlFor={`produto-${campo}`}>{rotulo}</Label>
+              <Input id={`produto-${campo}`} className="of-product-input" value={formulario[campo]} onChange={(e) => setFormulario((atual) => ({ ...atual, [campo]: e.target.value }))} />
+            </div>
+          ))}
+        </div>
+        <DialogFooter className="of-product-dialog__footer">
           <Button variant="outline" onClick={() => setDialogoAberto(false)}>Cancelar</Button>
           <Button disabled={salvar.isPending} onClick={() => salvar.mutate()}>{salvar.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Salvar</Button>
         </DialogFooter>
