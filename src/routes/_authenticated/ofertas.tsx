@@ -42,6 +42,16 @@ const PRECOS = ["OFERTA", "Preço Normal", "Preco Normal", "Preço", "Preco", "V
 const PRECOS_CLUBE = ["CLUBE", "Preço Clube", "Preco Clube", "Preço promocional"];
 const OFERTAS_STORAGE_KEY = "ofertaflow:rascunho-ofertas";
 
+const CARROSSEIS = [
+  "6431 - Promoções",
+  "6432 - Pra Você",
+  "13533 - Hortifruti",
+  "14036 - TERÇA DAS BEBIDAS",
+  "13715 - SUPER SABADO",
+  "6433 - Especial",
+  "6434 - Cashback",
+] as const;
+
 function separarCodigos(valor: unknown, ean = false): string[] {
   return normalizarCodigos([
     String(valor ?? "")
@@ -219,7 +229,6 @@ function PaginaOfertas() {
           nota: Math.max(oferta.nota, achado.score),
           porQuilo: regras.porQuilo,
           unidade: regras.unidade,
-          // Recalcula o limite sempre que o rascunho é reaberto, evitando manter regra antiga.
           limite: regras.limite,
           limiteBruto: oferta.limiteBruto,
         };
@@ -271,7 +280,7 @@ function PaginaOfertas() {
 
   function exportar() {
     if (!ofertas.length || !carrossel.trim() || !ativarEm || !inativarEm) {
-      toast.error("Preencha Carrossel, Ativar em e Inativar em.");
+      toast.error("Preencha Carrossel, Ativação automática e Inativar em.");
       return;
     }
 
@@ -338,10 +347,24 @@ function PaginaOfertas() {
 
       <Dialog open={modalAberto} onOpenChange={setModalAberto}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Configurar arquivo do Clube</DialogTitle><DialogDescription>Esses dados serão aplicados a todas as ofertas desta planilha.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Configurar arquivo do Clube</DialogTitle><DialogDescription>Escolha o carrossel e defina o período da oferta. A ativação usa data e hora.</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
-            <div><label className="mb-1.5 block text-sm font-medium">Carrossel</label><Input value={carrossel} onChange={(e) => setCarrossel(e.target.value)} placeholder="Ex.: Ofertas da semana" /></div>
-            <div><label className="mb-1.5 block text-sm font-medium">Ativar em</label><Input type="datetime-local" step="60" value={ativarEm} onChange={(e) => setAtivarEm(e.target.value)} /></div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Carrossel</label>
+              <select
+                value={carrossel}
+                onChange={(e) => setCarrossel(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="">Selecione um carrossel</option>
+                {CARROSSEIS.map((opcao) => <option key={opcao} value={opcao}>{opcao}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Ativação automática</label>
+              <Input type="datetime-local" step="60" value={ativarEm} onChange={(e) => setAtivarEm(e.target.value)} />
+              <p className="mt-1 text-xs text-muted-foreground">A oferta será ativada automaticamente na data e hora escolhidas.</p>
+            </div>
             <div><label className="mb-1.5 block text-sm font-medium">Inativar em</label><Input type="datetime-local" step="60" value={inativarEm} onChange={(e) => setInativarEm(e.target.value)} /></div>
             <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">Check-In: <strong>Não</strong> · Dias para resgate: <strong>1</strong> · App: <strong>Não exigir ativação</strong></div>
           </div>
