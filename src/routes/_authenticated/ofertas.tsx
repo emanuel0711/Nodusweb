@@ -204,8 +204,6 @@ function PaginaOfertas() {
     sessionStorage.setItem(OFERTAS_STORAGE_KEY, JSON.stringify(dados));
   }, [ofertas, nomeArquivo, carrossel, ativarEm, inativarEm, notaMinima]);
 
-  // Ao voltar do Catálogo, tenta completar somente os dados que estavam faltando.
-  // Alterações manuais feitas na Oferta não são sobrescritas.
   useEffect(() => {
     if (!ofertas.length) return;
     let ativo = true;
@@ -236,9 +234,7 @@ function PaginaOfertas() {
           limite: oferta.limite,
         };
       }));
-    }).catch(() => {
-      // O rascunho local continua disponível mesmo se o catálogo estiver temporariamente indisponível.
-    });
+    }).catch(() => {});
     return () => { ativo = false; };
   }, []);
 
@@ -301,7 +297,7 @@ function PaginaOfertas() {
       limit: o.limite,
       imageUrl: o.imagem,
       code: o.codigos.length
-        ? o.codigos.join(", ")
+        ? o.codigos.join(";")
         : (o.porQuilo ? limparCodigo(o.codigoInterno || o.codigo) : limparEan(o.ean)),
       codeType: o.porQuilo ? "Interno" : "EAN",
       unidade: o.unidade,
@@ -355,7 +351,11 @@ function PaginaOfertas() {
             <TableBody>{ofertas.map((o, i) => <TableRow
               key={`${o.nome}-${i}`}
               className={`${((!o.codigoInterno && !o.ean && !o.codigo && !o.codigos.length) || !o.imagem || o.nota < notaMinima) ? "bg-warn/40" : ""} cursor-pointer hover:bg-muted/60`}
-              onClick={() => setModalVisualizacao(o)}
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                if (target.closest("input,button")) return;
+                setModalVisualizacao(o);
+              }}
             >
               <TableCell>{o.imagem ? <img src={o.imagem} alt={o.nome} loading="lazy" className="size-10 rounded-md object-contain bg-white" /> : <span className="flex size-10 items-center justify-center rounded-md bg-muted text-muted-foreground"><ImageIcon className="size-4" /></span>}</TableCell>
               <TableCell className="max-w-64 font-medium">{o.nome}</TableCell>
@@ -367,16 +367,28 @@ function PaginaOfertas() {
               <TableCell>{o.unidade}</TableCell>
               <TableCell>
                 {!o.porQuilo ? (
-                  <Input className="w-56" value={o.codigos.join(", ")} onClick={(e) => e.stopPropagation()} onChange={(e) => { const codigos = separarCodigos(e.target.value, true); alterar(i, { codigos, ean: codigos[0] || "" }); }} />
+                  <Input
+                    className="w-56"
+                    value={o.codigos.join(";")}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => { const codigos = separarCodigos(e.target.value, true); alterar(i, { codigos, ean: codigos[0] || "", codigo: codigos[0] || "" }); }}
+                  />
                 ) : "—"}
               </TableCell>
               <TableCell>
                 {o.porQuilo ? (
-                  <Input className="w-48" value={o.codigos.join(", ")} onClick={(e) => e.stopPropagation()} onChange={(e) => { const codigos = separarCodigos(e.target.value); alterar(i, { codigos, codigo: codigos[0] || "" }); }} />
+                  <Input
+                    className="w-48"
+                    value={o.codigos.join(";")}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => { const codigos = separarCodigos(e.target.value); alterar(i, { codigos, codigo: codigos[0] || "" }); }}
+                  />
                 ) : "—"}
               </TableCell>
-              <TableCell><Input className="w-56" value={o.imagem} maxLength={1000} onClick={(e) => e.stopPropagation()} onChange={(e) => alterar(i, { imagem: e.target.value })} /></TableCell>
-              <TableCell><Button variant="ghost" size="icon" aria-label="Remover item" onClick={(e) => { e.stopPropagation(); setOfertas((atual) => atual.filter((_, x) => x !== i)); }}><Trash2 className="size-4" /></Button></TableCell>
+              <TableCell><Input className="w-56" value={o.imagem} maxLength={1000} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} onChange={(e) => alterar(i, { imagem: e.target.value })} /></TableCell>
+              <TableCell><Button variant="ghost" size="icon" aria-label="Remover item" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setOfertas((atual) => atual.filter((_, x) => x !== i)); }}><Trash2 className="size-4" /></Button></TableCell>
             </TableRow>)}</TableBody>
           </Table>
         </div>
@@ -411,7 +423,7 @@ function PaginaOfertas() {
               <div><span className="text-muted-foreground">Limite para o Clube</span><p className="font-medium">{modalVisualizacao.limite ?? "—"}</p></div>
               <div><span className="text-muted-foreground">Tipo de produto</span><p className="font-medium">{modalVisualizacao.unidade}</p></div>
               <div><span className="text-muted-foreground">Tipo do código</span><p className="font-medium">{modalVisualizacao.porQuilo ? "Interno" : "EAN"}</p></div>
-              <div><span className="text-muted-foreground">{modalVisualizacao.porQuilo ? "Códigos internos" : "EANs"}</span><p className="font-medium break-words">{modalVisualizacao.codigos.join(", ") || "—"}</p></div>
+              <div><span className="text-muted-foreground">{modalVisualizacao.porQuilo ? "Códigos internos" : "EANs"}</span><p className="font-medium break-words">{modalVisualizacao.codigos.join(";") || "—"}</p></div>
             </div>
           </div>}
         </DialogContent>
