@@ -97,23 +97,18 @@ export function valorDoCampo(linha: LinhaPlanilha, nomesPossiveis: string[]): un
 
   const procurandoLimite = nomesPossiveis.some((nome) => normalizarCabecalho(nome).includes("limite"));
   if (procurandoLimite) {
-    // Primeiro: qualquer cabeçalho que indique limite/quantidade máxima por cliente.
     const porCabecalho = campos.find(([chave, valor]) => {
       if (!temTexto(valor)) return false;
       return /\b(limite|qtd limite|quantidade limite|qtd max|quantidade max|maximo por cliente|max por cliente|cliente|cpf)\b/.test(chave);
     });
     if (porCabecalho && valorPareceLimite(porCabecalho[1])) return porCabecalho[1];
 
-    // Segundo: o próprio conteúdo. Isso cobre "LIMITE DE 03 UND POR CPF"
-    // mesmo quando a coluna veio sem um cabeçalho padrão.
     const porTexto = campos.find(([, valor]) => {
       const texto = normalizarTexto(String(valor ?? ""));
       return /\b(limite|limite de|por cpf|por cliente|fardo|fardos|kg|und|unidade)\b/.test(texto) && /\d/.test(texto);
     });
     if (porTexto) return porTexto[1];
 
-    // Terceiro: se existir uma coluna claramente quantitativa com número puro,
-    // usa-a como limite. Não considera preços porque eles têm cabeçalho de preço.
     const numerico = campos.find(([chave, valor]) => {
       if (!valorPareceLimite(valor)) return false;
       if (/preco|preço|valor|oferta|clube|promocional|ean|codigo|cod|produto|nome|descricao|descrição/.test(chave)) return false;
@@ -173,17 +168,26 @@ function normalizarCodigosParaExportacao(codigos: string): string {
     .join(";");
 }
 
+function carrosselParaExportacao(valor: string): string {
+  // O modal mantém os nomes reais dos carrosséis; o arquivo do Clube exige a versão sem acentos.
+  return String(valor ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function formatarMoedaPlanilha(celula: XLSX.CellObject | undefined) {
+  if (celula) celula.z = '"R$"\\ #,##0.00';
+}
+
 export function exportarModeloDoClube(ofertas: OfertaParaExportar[], opcoes: OpcoesExportacaoClube, nomeArquivo = "modelo para o clube.xlsx") {
   const dados = ofertas.map((oferta) => ({
     Nome: oferta.name,
-    Carrossel: opcoes.carrossel,
+    Carrossel: carrosselParaExportacao(opcoes.carrossel),
     "Check-In": "Não",
     Preço: oferta.price ?? 0,
     "Preço promocional": oferta.promotionalPrice ?? 0,
     "Limite por cliente": oferta.limit ?? 0,
     "Dias para Resgate após ativação": 1,
     Unidade: oferta.unidade,
-    "Não exigir ativação no App": "Não exigir ativação no App",
+    "Não exigir ativação no App": "Ativação automática",
     "Ativar em": opcoes.ativarEm,
     "Inativar em": opcoes.inativarEm,
     "URL da imagem": imagemQuadrada(oferta.imageUrl),
@@ -198,8 +202,8 @@ export function exportarModeloDoClube(ofertas: OfertaParaExportar[], opcoes: Opc
   aba["!autofilter"] = { ref: `A1:Q${Math.max(1, dados.length + 1)}` };
   aba["!cols"] = COLUNAS_DO_CLUBE.map((c) => ({ wch: Math.min(38, Math.max(14, c.length + 2)) }));
   for (let linha = 2; linha <= dados.length + 1; linha++) {
-    if (aba[`D${linha}`]) aba[`D${linha}`].z = "0.00";
-    if (aba[`E${linha}`]) aba[`E${linha}`].z = "0.00";
+    formatarMoedaPlanilha(aba[`D${linha}`]);
+    formatarMoedaPlanilha(aba[`E${linha}`]);
   }
   const arquivo = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(arquivo, aba, "Descontos");
