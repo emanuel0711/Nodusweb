@@ -4,7 +4,13 @@ import { limparCodigo, limparEan, type Produto } from "./catalogo";
 
 const TOKENS_GENERICOS = new Set([
   "kg", "un", "und", "unidade", "pct", "pcte", "cx", "caixa", "fardo", "fd",
-  "produto", "mercadoria", "bov", "bovina", "bovino",
+  "produto", "produtos", "mercadoria", "bov", "bovina", "bovino",
+]);
+
+// Palavras de ligação não podem impedir que dois cadastros da mesma família sejam reunidos.
+const TOKENS_IGNORADOS = new Set([
+  "a", "as", "o", "os", "e", "de", "da", "do", "das", "dos", "em", "no", "na",
+  "nos", "nas", "com", "sem", "por", "para", "pra", "ao", "aos", "um", "uma", "uns", "umas",
 ]);
 
 function compactarTexto(valor: string): string {
@@ -16,7 +22,11 @@ function compactarTexto(valor: string): string {
 }
 
 export function tokensFamilia(valor: string): string[] {
-  return [...new Set(compactarTexto(valor).split(/\s+/).filter((t) => t.length >= 2 && !TOKENS_GENERICOS.has(t)))];
+  return [...new Set(
+    compactarTexto(valor)
+      .split(/\s+/)
+      .filter((t) => t.length >= 2 && !TOKENS_GENERICOS.has(t) && !TOKENS_IGNORADOS.has(t)),
+  )];
 }
 
 function tamanhosDoProduto(valor: string): string[] {
@@ -49,9 +59,14 @@ export function extrairExcecoes(linha: Record<string, unknown>, nome: string): s
   return textos.flatMap(tokensExcecao).filter((tokens) => tokens.length > 0);
 }
 
+function contemToken(descricao: string, token: string): boolean {
+  const candidatos = tokensFamilia(descricao);
+  if (candidatos.includes(token)) return true;
+  return candidatos.some((candidato) => candidato.length >= 4 && token.length >= 4 && semelhanca(token, candidato) >= 0.82);
+}
+
 function contemTodosTokens(descricao: string, tokens: string[]): boolean {
-  const candidatos = new Set(tokensFamilia(descricao));
-  return tokens.every((token) => candidatos.has(token));
+  return tokens.every((token) => contemToken(descricao, token));
 }
 
 function candidatoExcluido(item: Produto, excecoes: string[][]): boolean {
@@ -68,7 +83,7 @@ function candidatoExcluido(item: Produto, excecoes: string[][]): boolean {
   });
 }
 
-/** Para Kg, prioriza código interno e usa promotion_code curto apenas em cadastros antigos. */
+/** Para Kg, prioriza código interno e nunca agrupa cortes/produtos parecidos. */
 function codigoDoProduto(item: Produto, porQuilo: boolean): string {
   if (porQuilo) {
     const interno = limparCodigo(item.internal_code);
@@ -80,29 +95,49 @@ function codigoDoProduto(item: Produto, porQuilo: boolean): string {
   return limparEan(item.ean);
 }
 
-function candidatosDaFamilia(nome: string, produto: Produto | undefined, catalogo: Produto[], porQuilo: boolean, excecoes: string[][]): Produto[] {
+function candidatosDaFamilia(
+  nome: string,
+  produto: Produto | undefined,
+  catalogo: Produto[],
+  porQuilo: boolean,
+  excecoes: string[][],
+): Produto[] {
+  if (porQuilo) return [];
+
   const tokensOferta = tokensFamilia(nome);
+  const tamanhoOferta = tamanhosDoProduto(nome);
+  const referencia = produto?.description || nome;
+
   return catalogo
     .filter((item) => !candidatoExcluido(item, excecoes))
-    .filter((item) => Boolean(codigoDoProduto(item, porQuilo)))
+    .filter((item) => Boolean(codigoDoProduto(item, false)))
+    // Tamanho é uma trava obrigatória: 70g nunca recebe 100g, 330ml nunca recebe 473ml etc.
     .filter((item) => tamanhosCompativeis(nome, item.description))
+    .filter((item) => !tamanhoOferta.length || tamanhosDoProduto(item.description).some((t) => tamanhoOferta.includes(t)))
     .filter((item) => !tokensOferta.length || contemTodosTokens(item.description, tokensOferta))
-    .map((item) => ({ item, score: semelhanca(nome.replace(/\bexceto\b.*$/i, ""), item.description) }))
-    .filter(({ item, score }) => {
+    .map((item) => ({ item, scoreNome: semelhanca(nome, item.description), scoreReferencia: semelhanca(referencia, item.description) }))
+    .filter(({ item, scoreNome, scoreReferencia }) => {
       if (produto && item.id === produto.id) return true;
-      if (porQuilo) return score >= 0.88;
-      return tokensOferta.length >= 3 ? score >= 0.45 : score >= 0.60;
+      // Depois das travas de tamanho + tokens, aceitamos cadastros da mesma família mesmo
+      // quando a descrição possui sabor, fabricante ou complemento adicional.
+      return scoreNome >= 0.38 || scoreReferencia >= 0.58;
     })
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => Math.max(b.scoreNome, b.scoreReferencia) - Math.max(a.scoreNome, a.scoreReferencia))
     .map(({ item }) => item);
 }
 
-export function codigosDaFamiliaOferta(nome: string, produto: Produto | undefined, catalogo: Produto[], porQuilo: boolean, excecoes: string[][] = []): string[] {
+export function codigosDaFamiliaOferta(
+  nome: string,
+  produto: Produto | undefined,
+  catalogo: Produto[],
+  porQuilo: boolean,
+  excecoes: string[][] = [],
+): string[] {
   const produtoCompativel = Boolean(produto && tamanhosCompativeis(nome, produto.description));
   const principal = produto && produtoCompativel ? codigoDoProduto(produto, porQuilo) : "";
   const principalExcluido = produto ? candidatoExcluido(produto, excecoes) : false;
 
-  // Kg é sempre individual: nunca agrupar cortes/produtos parecidos.
+  // Kg é sempre individual: o código da balança nunca deve receber o código de outro corte.
   if (porQuilo) {
     if (!principal || principalExcluido) return [];
     return [principal];
@@ -114,6 +149,12 @@ export function codigosDaFamiliaOferta(nome: string, produto: Produto | undefine
   return [...new Set(todos)];
 }
 
+/** Normaliza códigos digitados/importados e mantém o formato exigido pelo Clube: codigo1;codigo2;codigo3. */
 export function normalizarCodigos(codigos: string[]): string[] {
-  return [...new Set(codigos.flatMap((valor) => String(valor ?? "").split(/[;,|\n]+/).map((item) => item.trim()).filter(Boolean)))];
+  return [...new Set(
+    codigos
+      .flatMap((valor) => String(valor ?? "").split(/[;,|\n]+/))
+      .map((item) => item.trim())
+      .filter(Boolean),
+  )];
 }
