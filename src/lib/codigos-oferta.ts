@@ -1,4 +1,4 @@
-/** Regras para reunir os códigos de um item da planilha sem misturar variantes. */
+/** Regras para reunir códigos de um item da planilha sem misturar variantes. */
 import { normalizarTexto, semelhanca } from "./comparar-textos";
 import { limparCodigo, limparEan, type Produto } from "./catalogo";
 
@@ -89,6 +89,9 @@ function candidatosDaFamilia(
     .map((item) => ({ item, score: semelhanca(nome.replace(/\bexceto\b.*$/i, ""), item.description) }))
     .filter(({ item, score }) => {
       if (produto && item.id === produto.id) return true;
+      // Produtos de balança têm código interno próprio. Não agrupamos por texto
+      // com a mesma tolerância usada para EANs, porque isso mistura cortes/produtos.
+      if (porQuilo) return score >= 0.88;
       return tokensOferta.length >= 3 ? score >= 0.45 : score >= 0.60;
     })
     .sort((a, b) => b.score - a.score)
@@ -96,7 +99,7 @@ function candidatosDaFamilia(
 }
 
 /**
- * Retorna todos os códigos da mesma variante/família do item.
+ * Retorna os códigos da mesma variante/família do item.
  * Ex.: Divine 70g nunca recebe códigos do Divine 100g.
  * Variantes como ZERO/TRAD só são separadas quando a planilha especifica a variante.
  */
@@ -110,8 +113,16 @@ export function codigosDaFamiliaOferta(
   const produtoCompativel = Boolean(produto && tamanhosCompativeis(nome, produto.description));
   const principal = produto && produtoCompativel ? codigoDoProduto(produto, porQuilo) : "";
   const principalExcluido = produto ? candidatoExcluido(produto, excecoes) : false;
-  const candidatos = candidatosDaFamilia(nome, produtoCompativel ? produto : undefined, catalogo, porQuilo, excecoes);
-  const codigos = candidatos.map((item) => codigoDoProduto(item, porQuilo)).filter(Boolean);
+
+  // Para Kg, o código interno é a identidade do item. Se o catálogo encontrou
+  // o produto, usamos o código dele e não uma família aproximada de outros cortes.
+  if (porQuilo) {
+    if (!principal || principalExcluido) return [];
+    return [principal];
+  }
+
+  const candidatos = candidatosDaFamilia(nome, produtoCompativel ? produto : undefined, catalogo, false, excecoes);
+  const codigos = candidatos.map((item) => codigoDoProduto(item, false)).filter(Boolean);
   const todos = [...codigos, principalExcluido ? "" : principal].filter(Boolean);
   return [...new Set(todos)];
 }
