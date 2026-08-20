@@ -50,7 +50,7 @@ export async function lerPlanilha(arquivo: File): Promise<LinhaPlanilha[]> {
     return nome;
   });
 
-  // A primeira coluna dos CSVs de origem é um identificador auxiliar e não participa do cruzamento.
+  // A coluna A dos CSVs de origem é um identificador auxiliar e não participa do cruzamento.
   const indicesAtivos = colunas.map((_, indice) => indice).filter((indice) => !(ehCsv && indice === 0));
 
   return matriz.slice(cabecalho + 1).filter((linha) => linha.some(temTexto)).map((linha) => {
@@ -62,35 +62,64 @@ export async function lerPlanilha(arquivo: File): Promise<LinhaPlanilha[]> {
 
 export function valorDaColuna(linha: LinhaPlanilha, indice: number): unknown { return Object.values(linha)[indice] ?? ""; }
 
+function normalizarCabecalho(valor: string): string {
+  return normalizarTexto(valor).replace(/[._\-\/]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function valorPareceLimite(valor: unknown): boolean {
+  const texto = normalizarTexto(String(valor ?? ""));
+  if (!texto) return false;
+  if (/^[-–—]+$/.test(texto)) return false;
+  return /\d/.test(texto) && (
+    /\b(limite|qtd|quantidade|maximo|max|cliente|cpf|und|unidade|fardo|fd|kg)\b/.test(texto) ||
+    /^\d+(?:[,.]\d+)?$/.test(texto)
+  );
+}
+
 /**
- * Procura primeiro pelo cabeçalho informado. Para limites, também aceita planilhas
- * cujo cabeçalho não contém a palavra "limite", desde que o valor traga a unidade
- * ou a indicação de cliente/fardo/CPF.
+ * Procura primeiro pelo cabeçalho informado. Para limites, também procura
+ * cabeçalhos equivalentes e textos de limite espalhados na linha.
  */
 export function valorDoCampo(linha: LinhaPlanilha, nomesPossiveis: string[]): unknown {
-  const campos = Object.entries(linha).map(([chave, valor]) => [normalizarTexto(chave), valor] as const);
+  const campos = Object.entries(linha).map(([chave, valor]) => [normalizarCabecalho(chave), valor] as const);
 
   for (const nome of nomesPossiveis) {
-    const alvo = normalizarTexto(nome);
-    const exato = campos.find(([chave]) => chave === alvo);
-    if (exato && temTexto(exato[1])) return exato[1];
-  }
-  for (const nome of nomesPossiveis) {
-    const alvo = normalizarTexto(nome);
-    const parcial = campos.find(([chave]) => chave.includes(alvo) || alvo.includes(chave));
-    if (parcial && temTexto(parcial[1])) return parcial[1];
+    const alvo = normalizarCabecalho(nome);
+    const exato = campos.find(([chave, valor]) => chave === alvo && temTexto(valor));
+    if (exato) return exato[1];
   }
 
-  const procurandoLimite = nomesPossiveis.some((nome) => normalizarTexto(nome).includes("limite"));
+  for (const nome of nomesPossiveis) {
+    const alvo = normalizarCabecalho(nome);
+    const parcial = campos.find(([chave, valor]) => temTexto(valor) && (chave.includes(alvo) || alvo.includes(chave)));
+    if (parcial) return parcial[1];
+  }
+
+  const procurandoLimite = nomesPossiveis.some((nome) => normalizarCabecalho(nome).includes("limite"));
   if (procurandoLimite) {
-    const candidato = Object.entries(linha).find(([chave, valor]) => {
+    // Primeiro: qualquer cabeçalho que indique limite/quantidade máxima por cliente.
+    const porCabecalho = campos.find(([chave, valor]) => {
       if (!temTexto(valor)) return false;
-      const cabecalho = normalizarTexto(chave);
-      const texto = normalizarTexto(String(valor));
-      if (/limite|qtd limite|quantidade limite|cliente|cpf/.test(cabecalho)) return true;
-      return /\b(fardo|fardos|fd|und|un|unidade|kg|quilo|kilo|por cpf)\b/.test(texto);
+      return /\b(limite|qtd limite|quantidade limite|qtd max|quantidade max|maximo por cliente|max por cliente|cliente|cpf)\b/.test(chave);
     });
-    if (candidato) return candidato[1];
+    if (porCabecalho && valorPareceLimite(porCabecalho[1])) return porCabecalho[1];
+
+    // Segundo: o próprio conteúdo. Isso cobre "LIMITE DE 03 UND POR CPF"
+    // mesmo quando a coluna veio sem um cabeçalho padrão.
+    const porTexto = campos.find(([, valor]) => {
+      const texto = normalizarTexto(String(valor ?? ""));
+      return /\b(limite|limite de|por cpf|por cliente|fardo|fardos|kg|und|unidade)\b/.test(texto) && /\d/.test(texto);
+    });
+    if (porTexto) return porTexto[1];
+
+    // Terceiro: se existir uma coluna claramente quantitativa com número puro,
+    // usa-a como limite. Não considera preços porque eles têm cabeçalho de preço.
+    const numerico = campos.find(([chave, valor]) => {
+      if (!valorPareceLimite(valor)) return false;
+      if (/preco|preço|valor|oferta|clube|promocional|ean|codigo|cod|produto|nome|descricao|descrição/.test(chave)) return false;
+      return /^\d+(?:[,.]\d+)?$/.test(normalizarTexto(String(valor)));
+    });
+    if (numerico) return numerico[1];
   }
 
   return "";
