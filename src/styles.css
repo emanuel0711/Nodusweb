@@ -202,3 +202,131 @@ tbody tr:hover { background: oklch(0.985 0.012 130); }
 @media (max-width: 768px) {
   .surface { border-radius: 0.9rem; }
 }
+
+/* Ofertas: tabela larga, confortável e com ações sempre acessíveis. */
+.surface:has(table th:nth-child(12)) {
+  position: relative;
+  overflow: auto;
+  max-height: min(68vh, 760px);
+  scrollbar-gutter: stable both-edges;
+}
+
+.surface:has(table th:nth-child(12)) table {
+  min-width: 1560px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.surface:has(table th:nth-child(12)) thead th {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  height: 48px;
+  padding: 0.7rem 0.85rem;
+  white-space: nowrap;
+  background: oklch(0.97 0.012 130);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.surface:has(table th:nth-child(12)) tbody td {
+  padding: 0.72rem 0.85rem;
+  vertical-align: middle;
+  height: 72px;
+}
+
+.surface:has(table th:nth-child(12)) tbody tr {
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.surface:has(table th:nth-child(12)) tbody tr:hover {
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+/* Lixeira/ações: não desaparece quando a tabela é rolada horizontalmente. */
+.surface:has(table th:nth-child(12)) thead th:last-child,
+.surface:has(table th:nth-child(12)) tbody td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 9;
+  width: 58px;
+  min-width: 58px;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  text-align: center;
+  background: var(--color-card);
+  box-shadow: -10px 0 18px -18px oklch(0.2 0.03 150 / 0.65);
+}
+
+.surface:has(table th:nth-child(12)) thead th:last-child {
+  background: oklch(0.97 0.012 130);
+  z-index: 12;
+}
+
+.surface:has(table th:nth-child(12)) tbody tr:hover td:last-child {
+  background: oklch(0.985 0.012 130);
+}
+
+.surface:has(table th:nth-child(12)) tbody td:first-child {
+  width: 66px;
+  min-width: 66px;
+}
+
+.surface:has(table th:nth-child(12)) tbody td:first-child img,
+.surface:has(table th:nth-child(12)) tbody td:first-child > span {
+  width: 48px;
+  height: 48px;
+}
+
+.surface:has(table th:nth-child(12)) tbody td:nth-child(2) {
+  width: 210px;
+  min-width: 210px;
+  white-space: normal;
+}
+
+.surface:has(table th:nth-child(12)) tbody td:nth-child(3) {
+  width: 240px;
+  min-width: 240px;
+  white-space: normal;
+}
+
+.surface:has(table th:nth-child(12)) tbody td:nth-child(4),
+.surface:has(table th:nth-child(12)) tbody td:nth-child(5),
+.surface:has(table th:nth-child(12)) tbody td:nth-child(6),
+.surface:has(table th:nth-child(12)) tbody td:nth-child(7),
+.surface:has(table th:nth-child(12)) tbody td:nth-child(8) {
+  min-width: 105px;
+  white-space: nowrap;
+}
+
+.surface:has(table th:nth-child(12)) tbody td:nth-child(9) {
+  min-width: 245px;
+}
+
+.surface:has(table th:nth-child(12)) tbody td:nth-child(10) {
+  min-width: 210px;
+}
+
+.surface:has(table th:nth-child(12)) tbody td:nth-child(11) {
+  min-width: 270px;
+}
+
+.surface:has(table th:nth-child(12)) tbody td input {
+  min-height: 42px;
+}
+
+/* Área superior da aba: mantém os controles alinhados e respira melhor. */
+main .surface.flex.flex-wrap.items-center {
+  min-height: 76px;
+  padding: 1rem 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .surface:has(table th:nth-child(12)) {
+    max-height: 72vh;
+  }
+
+  .surface:has(table th:nth-child(12)) tbody td {
+    height: 68px;
+    padding: 0.6rem 0.7rem;
+  }
+}
