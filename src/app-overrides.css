@@ -104,32 +104,54 @@ thead th {
 tbody tr { border-color: var(--of-line) !important; transition: background 120ms ease; }
 tbody tr:hover { background: var(--of-orange-soft) !important; }
 
-/* Ofertas: espaço suficiente para nomes, fotos, códigos e ações. */
+/* Ofertas: proporções fixas para evitar colunas espremidas e campos inacessíveis. */
 .surface:has(table th:nth-child(12)) {
   width: 100%; max-width: none; max-height: min(74vh, 900px);
   overflow: auto; scrollbar-width: thin; scrollbar-color: var(--of-line) transparent;
 }
 .surface:has(table th:nth-child(12)) table {
-  width: max-content; min-width: 1380px; border-collapse: separate; border-spacing: 0;
+  width: max-content; min-width: 1660px; border-collapse: separate; border-spacing: 0;
+  table-layout: fixed;
 }
 .surface:has(table th:nth-child(12)) thead th {
   position: sticky; top: 0; z-index: 8; height: 46px; padding: 10px 12px;
   white-space: nowrap; background: var(--of-panel) !important; border-bottom: 1px solid var(--of-line) !important;
 }
-.surface:has(table th:nth-child(12)) tbody td { min-height: 72px; padding: 10px 12px; vertical-align: middle; }
-.surface:has(table th:nth-child(12)) tbody td:first-child { width: 74px; min-width: 74px; }
+.surface:has(table th:nth-child(12)) tbody td {
+  height: 76px; padding: 10px 12px; vertical-align: middle; overflow: hidden;
+}
+.surface:has(table th:nth-child(12)) tbody td:first-child { width: 78px; min-width: 78px; }
 .surface:has(table th:nth-child(12)) tbody td:first-child img,
 .surface:has(table th:nth-child(12)) tbody td:first-child > span {
-  width: 54px; height: 54px; border-radius: 5px; object-fit: contain;
+  width: 54px; height: 54px; display: block; border-radius: 5px; object-fit: contain;
   background: var(--of-orange-soft); box-shadow: none;
 }
-.surface:has(table th:nth-child(12)) tbody td:nth-child(2) { width: 240px; min-width: 240px; white-space: normal; }
-.surface:has(table th:nth-child(12)) tbody td:nth-child(3) { width: 250px; min-width: 250px; white-space: normal; }
-.surface:has(table th:nth-child(12)) tbody td:nth-child(n+4):nth-child(-n+8) { min-width: 105px; white-space: nowrap; }
-.surface:has(table th:nth-child(12)) tbody td:nth-child(9) { min-width: 230px; }
-.surface:has(table th:nth-child(12)) tbody td:nth-child(10) { min-width: 210px; }
-.surface:has(table th:nth-child(12)) tbody td:nth-child(11) { min-width: 270px; }
-.surface:has(table th:nth-child(12)) tbody td input { min-width: 180px; min-height: 40px; }
+/* Nome */
+.surface:has(table th:nth-child(12)) tbody td:nth-child(2) { width: 250px; min-width: 250px; white-space: normal; line-height: 1.25; }
+/* Produto encontrado */
+.surface:has(table th:nth-child(12)) tbody td:nth-child(3) { width: 260px; min-width: 260px; white-space: normal; line-height: 1.25; }
+/* Confiança, preços e limite */
+.surface:has(table th:nth-child(12)) tbody td:nth-child(4) { width: 88px; min-width: 88px; white-space: nowrap; }
+.surface:has(table th:nth-child(12)) tbody td:nth-child(5),
+.surface:has(table th:nth-child(12)) tbody td:nth-child(6) { width: 92px; min-width: 92px; white-space: nowrap; }
+.surface:has(table th:nth-child(12)) tbody td:nth-child(7) { width: 100px; min-width: 100px; white-space: nowrap; }
+/* Tipo */
+.surface:has(table th:nth-child(12)) tbody td:nth-child(8) { width: 120px; min-width: 120px; white-space: nowrap; }
+/* EAN e código interno */
+.surface:has(table th:nth-child(12)) tbody td:nth-child(9) { width: 230px; min-width: 230px; }
+.surface:has(table th:nth-child(12)) tbody td:nth-child(10) { width: 250px; min-width: 250px; }
+/* URL da imagem */
+.surface:has(table th:nth-child(12)) tbody td:nth-child(11) { width: 330px; min-width: 330px; }
+.surface:has(table th:nth-child(12)) tbody td:nth-child(12) { width: 58px; min-width: 58px; }
+.surface:has(table th:nth-child(12)) tbody td input {
+  width: 100% !important; min-width: 0 !important; min-height: 40px;
+}
+
+/* Textos longos continuam legíveis sem aumentar indefinidamente a linha. */
+.surface:has(table th:nth-child(12)) tbody td:nth-child(2) > *,
+.surface:has(table th:nth-child(12)) tbody td:nth-child(3) > * {
+  overflow: hidden; text-overflow: ellipsis;
+}
 
 /* Dialogs: opaque, crisp and lightweight. */
 [role="dialog"] > div { border-radius: 8px !important; }
