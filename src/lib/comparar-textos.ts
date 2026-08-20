@@ -2,7 +2,6 @@
  * Comparação de nomes de produtos e leitura de números (preço, limite).
  */
 
-/** Tira acentos, pontuação e maiúsculas: "Café Pilão 500g" -> "cafe pilao 500g". */
 export function normalizarTexto(valor: string): string {
   return (valor ?? "")
     .toString()
@@ -23,7 +22,19 @@ function pares(valor: string): Map<string, number> {
   return mapa;
 }
 
-/** Nota de semelhança entre dois nomes, de 0 (nada a ver) a 1 (igual). */
+const PALAVRAS_GENERICAS = new Set(["kg", "un", "und", "unidade", "pct", "pcte", "cx", "caixa", "fardo", "fd", "bov", "bovina", "bovino", "produto", "mercadoria"]);
+
+function tokensUteis(valor: string): string[] {
+  return [...new Set(normalizarTexto(valor).split(" ").filter((t) => t.length >= 2 && !PALAVRAS_GENERICAS.has(t)))];
+}
+
+function similaridadeToken(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a))) return Math.min(a.length, b.length) / Math.max(a.length, b.length);
+  return 0;
+}
+
+/** Nota de semelhança entre dois nomes, reforçando palavras distintivas. */
 export function semelhanca(a: string, b: string): number {
   const x = normalizarTexto(a);
   const y = normalizarTexto(b);
@@ -42,18 +53,21 @@ export function semelhanca(a: string, b: string): number {
     if (outro) iguais += Math.min(qtd, outro);
   });
   pb.forEach((qtd) => (totalB += qtd));
-
   const porLetras = (2 * iguais) / (totalA + totalB);
 
-  const palavrasA = new Set(x.split(" "));
-  const palavrasB = new Set(y.split(" "));
-  let compartilhadas = 0;
-  palavrasA.forEach((palavra) => {
-    if (palavrasB.has(palavra)) compartilhadas += 1;
-  });
-  const porPalavras = compartilhadas / new Set([...palavrasA, ...palavrasB]).size;
+  const aTokens = tokensUteis(a);
+  const bTokens = tokensUteis(b);
+  let correspondencias = 0;
+  for (const ta of aTokens) {
+    let melhor = 0;
+    for (const tb of bTokens) melhor = Math.max(melhor, similaridadeToken(ta, tb));
+    if (melhor >= 0.72) correspondencias += melhor;
+  }
+  const coberturaA = aTokens.length ? correspondencias / aTokens.length : 0;
+  const coberturaB = bTokens.length ? correspondencias / bTokens.length : 0;
+  const porPalavras = (2 * coberturaA * coberturaB) / Math.max(0.0001, coberturaA + coberturaB);
 
-  return porLetras * 0.7 + porPalavras * 0.3;
+  return porLetras * 0.45 + porPalavras * 0.55;
 }
 
 export interface ItemComparavel {
@@ -61,7 +75,6 @@ export interface ItemComparavel {
   description: string;
 }
 
-/** Encontra o produto mais parecido dentro da lista, se passar da nota mínima. */
 export function melhorCorrespondencia<T extends ItemComparavel>(
   nome: string,
   lista: T[],
@@ -92,7 +105,6 @@ export function lerLimite(valor: unknown): number | null {
   return Number.isFinite(numero) ? Math.trunc(numero) : null;
 }
 
-/** "R$ 12,90" -> 12.9 */
 export function lerPreco(valor: unknown): number | null {
   if (valor == null || valor === "") return null;
   if (typeof valor === "number") return Number.isFinite(valor) ? valor : null;
