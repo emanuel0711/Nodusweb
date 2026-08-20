@@ -24,14 +24,43 @@ const PRECOS_CLUBE = ["CLUBE", "Preço Clube", "Preco Clube", "Preço promociona
 const LIMITES = ["LIMITE", "Limite por CPF", "Limite", "Limite por cliente"];
 
 function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): Oferta | null {
-  const nome = String(valorDoCampo(linha, NOMES) || "").trim(); if (!nome) return null;
-  const ean = limparEan(valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN"]));
-  const codigo = limparCodigo(valorDoCampo(linha, ["Código da promoção", "Cód. Promoção", "Cód. Interno", "Codigo Interno", "Código"]));
+  const nome = String(valorDoCampo(linha, NOMES) || "").trim();
+  if (!nome) return null;
+
+  // Algumas planilhas do supermercado colocam o código interno na coluna EAN
+  // para produtos de balança. EAN real tem pelo menos 8 dígitos (EAN-8).
+  // Não podemos tratar "1718" como EAN, senão o sistema tenta achar um GTIN
+  // inexistente e perde a correspondência pelo código interno.
+  const valorEAN = limparEan(valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN"]));
+  let ean = valorEAN.length >= 8 ? valorEAN : "";
+  let codigo = limparCodigo(valorDoCampo(linha, ["Código da promoção", "Cód. Promoção", "Cód. Interno", "Codigo Interno", "Código"]));
+  if (!codigo && valorEAN.length > 0 && valorEAN.length < 8) codigo = valorEAN;
+
   const limiteBruto = String(valorDoCampo(linha, LIMITES) || "").trim();
-  const exato = (ean && catalogo.find((p) => limparEan(p.ean) === ean)) || (codigo && catalogo.find((p) => limparCodigo(p.promotion_code) === codigo || limparCodigo(p.internal_code) === codigo)) || undefined;
-  const achado = exato ? { item: exato, score: 1 } : melhorCorrespondencia(nome, catalogo, notaMinima); const produto = achado?.item;
-  const regras = aplicarRegras(nome, limiteBruto, limparCodigo(produto?.internal_code) || codigo, limparEan(produto?.ean) || ean);
-  return { nome, preco: lerPreco(valorDoCampo(linha, PRECOS)), precoClube: lerPreco(valorDoCampo(linha, PRECOS_CLUBE)), limiteBruto, ...regras, ean: limparEan(produto?.ean) || ean, codigo: limparCodigo(produto?.promotion_code) || limparCodigo(produto?.internal_code) || codigo, imagem: produto?.image_url ?? "", encontrado: produto?.description ?? null, nota: achado?.score ?? 0 };
+  const exato = (ean && catalogo.find((p) => limparEan(p.ean) === ean)) ||
+    (codigo && catalogo.find((p) => limparCodigo(p.promotion_code) === codigo || limparCodigo(p.internal_code) === codigo)) || undefined;
+  const achado = exato ? { item: exato, score: 1 } : melhorCorrespondencia(nome, catalogo, notaMinima);
+  const produto = achado?.item;
+  const codigoInterno = limparCodigo(produto?.internal_code) || codigo;
+  const eanProduto = limparEan(produto?.ean) || ean;
+  const regras = aplicarRegras(nome, limiteBruto, codigoInterno, eanProduto);
+
+  // Se a regra identificou produto por KG, código curto nunca deve aparecer
+  // como EAN na tela/exportação.
+  if (regras.porQuilo && eanProduto.length < 8) ean = "";
+
+  return {
+    nome,
+    preco: lerPreco(valorDoCampo(linha, PRECOS)),
+    precoClube: lerPreco(valorDoCampo(linha, PRECOS_CLUBE)),
+    limiteBruto,
+    ...regras,
+    ean: eanProduto.length >= 8 ? eanProduto : "",
+    codigo: limparCodigo(produto?.promotion_code) || codigoInterno || codigo,
+    imagem: produto?.image_url ?? "",
+    encontrado: produto?.description ?? null,
+    nota: achado?.score ?? 0,
+  };
 }
 
 function dataParaClube(valor: string): string {
@@ -50,13 +79,23 @@ function PaginaOfertas() {
   async function processar(arquivo: File) {
     setProcessando(true);
     try {
-      const [linhas, catalogo] = await Promise.all([lerPlanilha(arquivo), carregarTodosProdutos()]); if (!linhas.length) throw new Error("A planilha não possui linhas de produtos reconhecíveis.");
-      const cruzadas = linhas.map((l) => cruzar(l, catalogo, notaMinima)).filter((x): x is Oferta => x !== null); if (!cruzadas.length) throw new Error("Não encontrei uma coluna com o nome do produto na planilha.");
-      const imagens = await buscarImagens(cruzadas.filter((i) => i.ean && !i.imagem).map((i) => i.ean)); const finais = cruzadas.map((item) => ({ ...item, imagem: item.imagem || imagens.get(item.ean) || "" }));
-      setOfertas(finais); setNomeArquivo(arquivo.name); const correspondidas = finais.filter((i) => i.nota >= notaMinima && (i.codigo || i.ean)).length; const { data } = await supabase.auth.getUser();
+      const [linhas, catalogo] = await Promise.all([lerPlanilha(arquivo), carregarTodosProdutos()]);
+      if (!linhas.length) throw new Error("A planilha não possui linhas de produtos reconhecíveis.");
+      const cruzadas = linhas.map((l) => cruzar(l, catalogo, notaMinima)).filter((x): x is Oferta => x !== null);
+      if (!cruzadas.length) throw new Error("Não encontrei uma coluna com o nome do produto na planilha.");
+
+      // Só envia para busca por EAN códigos que realmente são EAN/GTIN.
+      // Códigos curtos de balança não são enviados ao Cosmos nem ao Open Food Facts.
+      const imagens = await buscarImagens(cruzadas.filter((i) => i.ean && !i.imagem).map((i) => i.ean));
+      const finais = cruzadas.map((item) => ({ ...item, imagem: item.imagem || imagens.get(item.ean) || "" }));
+
+      setOfertas(finais); setNomeArquivo(arquivo.name);
+      const correspondidas = finais.filter((i) => i.nota >= notaMinima && (i.codigo || i.ean)).length;
+      const { data } = await supabase.auth.getUser();
       if (data.user) { await supabase.from("offer_runs").insert({ user_id: data.user.id, file_name: arquivo.name, total_items: finais.length, matched_items: correspondidas }); queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }); }
       toast.success(`${finais.length} oferta(s) processada(s) — ${correspondidas} com código encontrado.`);
-    } catch (erro) { toast.error(erro instanceof Error ? erro.message : "Falha ao processar a planilha"); } finally { setProcessando(false); if (campoArquivo.current) campoArquivo.current.value = ""; }
+    } catch (erro) { toast.error(erro instanceof Error ? erro.message : "Falha ao processar a planilha"); }
+    finally { setProcessando(false); if (campoArquivo.current) campoArquivo.current.value = ""; }
   }
   function exportar() {
     if (!ofertas.length || !carrossel.trim() || !ativarEm || !inativarEm) { toast.error("Preencha Carrossel, Ativar em e Inativar em."); return; }
