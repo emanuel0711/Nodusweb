@@ -1,4 +1,4 @@
-/** Regras para reunir os códigos de um item da planilha sem incluir produtos marcados como "exceto". */
+/** Regras para reunir os códigos de um item da planilha sem misturar variantes. */
 import { normalizarTexto, semelhanca } from "./comparar-textos";
 import { limparCodigo, limparEan, type Produto } from "./catalogo";
 
@@ -9,7 +9,7 @@ const TOKENS_GENERICOS = new Set([
 
 function compactarTexto(valor: string): string {
   return normalizarTexto(valor)
-    .replace(/(\d+)\s+(ml|l|g|kg)\b/g, "$1$2")
+    .replace(/(\d+(?:[.,]\d+)?)\s+(ml|l|g|kg)\b/g, "$1$2")
     .replace(/\btrad\b/g, "tradicional")
     .replace(/\bexceto\b.*$/i, "")
     .trim();
@@ -17,6 +17,21 @@ function compactarTexto(valor: string): string {
 
 export function tokensFamilia(valor: string): string[] {
   return [...new Set(compactarTexto(valor).split(/\s+/).filter((t) => t.length >= 2 && !TOKENS_GENERICOS.has(t)))];
+}
+
+/** Tamanho é parte da identidade do produto e nunca pode ser misturado. */
+function tamanhosDoProduto(valor: string): string[] {
+  const texto = compactarTexto(valor);
+  return [...new Set(
+    [...texto.matchAll(/\b(\d+(?:[.,]\d+)?)(ml|l|g|kg)\b/g)].map((m) => `${m[1].replace(",", ".")}${m[2]}`),
+  )];
+}
+
+function tamanhosCompativeis(oferta: string, descricao: string): boolean {
+  const tamanhosOferta = tamanhosDoProduto(oferta);
+  if (!tamanhosOferta.length) return true;
+  const tamanhosProduto = tamanhosDoProduto(descricao);
+  return tamanhosOferta.every((tamanho) => tamanhosProduto.includes(tamanho));
 }
 
 function tokensExcecao(valor: string): string[][] {
@@ -54,10 +69,36 @@ function candidatoExcluido(item: Produto, excecoes: string[][]): boolean {
   });
 }
 
+function codigoDoProduto(item: Produto, porQuilo: boolean): string {
+  return porQuilo ? limparCodigo(item.internal_code) : limparEan(item.ean);
+}
+
+function candidatosDaFamilia(
+  nome: string,
+  produto: Produto | undefined,
+  catalogo: Produto[],
+  porQuilo: boolean,
+  excecoes: string[][],
+): Produto[] {
+  const tokensOferta = tokensFamilia(nome);
+  return catalogo
+    .filter((item) => !candidatoExcluido(item, excecoes))
+    .filter((item) => Boolean(codigoDoProduto(item, porQuilo)))
+    .filter((item) => tamanhosCompativeis(nome, item.description))
+    .filter((item) => !tokensOferta.length || contemTodosTokens(item.description, tokensOferta))
+    .map((item) => ({ item, score: semelhanca(nome.replace(/\bexceto\b.*$/i, ""), item.description) }))
+    .filter(({ item, score }) => {
+      if (produto && item.id === produto.id) return true;
+      return tokensOferta.length >= 3 ? score >= 0.45 : score >= 0.60;
+    })
+    .sort((a, b) => b.score - a.score)
+    .map(({ item }) => item);
+}
+
 /**
- * Retorna todos os códigos da família do item. O nome da oferta define o núcleo
- * da família; tamanho e variantes presentes no nome continuam sendo considerados,
- * portanto TRAD e ZERO só são reunidos quando a própria planilha for genérica.
+ * Retorna todos os códigos da mesma variante/família do item.
+ * Ex.: Divine 70g nunca recebe códigos do Divine 100g.
+ * Variantes como ZERO/TRAD só são separadas quando a planilha especifica a variante.
  */
 export function codigosDaFamiliaOferta(
   nome: string,
@@ -66,30 +107,12 @@ export function codigosDaFamiliaOferta(
   porQuilo: boolean,
   excecoes: string[][] = [],
 ): string[] {
-  if (!produto) return [];
-
-  const tokensOferta = tokensFamilia(nome);
-  const principal = porQuilo ? limparCodigo(produto.internal_code) : limparEan(produto.ean);
-  const principalExcluido = candidatoExcluido(produto, excecoes);
-
-  if (tokensOferta.length < 2) return principal && !principalExcluido ? [principal] : [];
-
-  const candidatos = catalogo
-    .filter((item) => !candidatoExcluido(item, excecoes))
-    .filter((item) => contemTodosTokens(item.description, tokensOferta))
-    .filter((item) => porQuilo ? Boolean(limparCodigo(item.internal_code)) : Boolean(limparEan(item.ean)))
-    .map((item) => ({ item, score: semelhanca(nome.replace(/\bexceto\b.*$/i, ""), item.description) }))
-    .filter(({ item, score }) => {
-      if (item.id === produto.id) return true;
-      return tokensOferta.length >= 3 || score >= 0.45;
-    })
-    .sort((a, b) => b.score - a.score);
-
-  const codigos = candidatos
-    .map(({ item }) => porQuilo ? limparCodigo(item.internal_code) : limparEan(item.ean))
-    .filter(Boolean);
-
-  return [...new Set([(principalExcluido ? "" : principal), ...codigos].filter(Boolean))];
+  const principal = produto ? codigoDoProduto(produto, porQuilo) : "";
+  const principalExcluido = produto ? candidatoExcluido(produto, excecoes) : false;
+  const candidatos = candidatosDaFamilia(nome, produto, catalogo, porQuilo, excecoes);
+  const codigos = candidatos.map((item) => codigoDoProduto(item, porQuilo)).filter(Boolean);
+  const todos = [...codigos, principalExcluido ? "" : principal].filter(Boolean);
+  return [...new Set(todos)];
 }
 
 export function normalizarCodigos(codigos: string[]): string[] {
