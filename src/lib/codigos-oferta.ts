@@ -7,7 +7,6 @@ const TOKENS_GENERICOS = new Set([
   "produto", "produtos", "mercadoria", "bov", "bovina", "bovino",
 ]);
 
-// Palavras de ligação não podem impedir que dois cadastros da mesma família sejam reunidos.
 const TOKENS_IGNORADOS = new Set([
   "a", "as", "o", "os", "e", "de", "da", "do", "das", "dos", "em", "no", "na",
   "nos", "nas", "com", "sem", "por", "para", "pra", "ao", "aos", "um", "uma", "uns", "umas",
@@ -83,14 +82,15 @@ function candidatoExcluido(item: Produto, excecoes: string[][]): boolean {
   });
 }
 
-/** Para Kg, prioriza código interno e nunca agrupa cortes/produtos parecidos. */
+/**
+ * Define o código que pode ser exportado para o Clube.
+ * Unidade = somente EAN. Kg = somente código interno.
+ * Código de promoção nunca entra como fallback de nenhum dos dois.
+ */
 function codigoDoProduto(item: Produto, porQuilo: boolean): string {
   if (porQuilo) {
     const interno = limparCodigo(item.internal_code);
-    if (interno && !/^\d{8,14}$/.test(limparEan(interno))) return interno;
-    const promocao = limparCodigo(item.promotion_code);
-    if (promocao && !/^\d{8,14}$/.test(limparEan(promocao))) return promocao;
-    return "";
+    return interno && !/^\d{8,14}$/.test(limparEan(interno)) ? interno : "";
   }
   return limparEan(item.ean);
 }
@@ -111,15 +111,12 @@ function candidatosDaFamilia(
   return catalogo
     .filter((item) => !candidatoExcluido(item, excecoes))
     .filter((item) => Boolean(codigoDoProduto(item, false)))
-    // Tamanho é uma trava obrigatória: 70g nunca recebe 100g, 330ml nunca recebe 473ml etc.
     .filter((item) => tamanhosCompativeis(nome, item.description))
     .filter((item) => !tamanhoOferta.length || tamanhosDoProduto(item.description).some((t) => tamanhoOferta.includes(t)))
     .filter((item) => !tokensOferta.length || contemTodosTokens(item.description, tokensOferta))
     .map((item) => ({ item, scoreNome: semelhanca(nome, item.description), scoreReferencia: semelhanca(referencia, item.description) }))
     .filter(({ item, scoreNome, scoreReferencia }) => {
       if (produto && item.id === produto.id) return true;
-      // Depois das travas de tamanho + tokens, aceitamos cadastros da mesma família mesmo
-      // quando a descrição possui sabor, fabricante ou complemento adicional.
       return scoreNome >= 0.38 || scoreReferencia >= 0.58;
     })
     .sort((a, b) => Math.max(b.scoreNome, b.scoreReferencia) - Math.max(a.scoreNome, a.scoreReferencia))
@@ -137,7 +134,6 @@ export function codigosDaFamiliaOferta(
   const principal = produto && produtoCompativel ? codigoDoProduto(produto, porQuilo) : "";
   const principalExcluido = produto ? candidatoExcluido(produto, excecoes) : false;
 
-  // Kg é sempre individual: o código da balança nunca deve receber o código de outro corte.
   if (porQuilo) {
     if (!principal || principalExcluido) return [];
     return [principal];
