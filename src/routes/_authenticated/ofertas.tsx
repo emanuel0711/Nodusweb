@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { lerPlanilha, valorDoCampo, exportarModeloDoClube, type LinhaPlanilha, type OfertaParaExportar } from "@/lib/planilha";
+import { lerPlanilha, valorDaColuna, valorDoCampo, exportarModeloDoClube, type LinhaPlanilha, type OfertaParaExportar } from "@/lib/planilha";
 import { melhorCorrespondencia, lerPreco } from "@/lib/comparar-textos";
 import { buscarImagens, buscarImagensPorProduto } from "@/lib/imagens";
 import { carregarTodosProdutos, limparCodigo, limparEan, type Produto } from "@/lib/catalogo";
@@ -53,11 +53,31 @@ function separarCodigos(valor: unknown, ean = false): string[] {
 }
 
 function valorDeLimite(linha: LinhaPlanilha): string {
-  return String(valorDoCampo(linha, ["Limite por cliente", "Limite por cliente (CPF)", "Limite por CPF", "LIMITE", "Limite"]) ?? "").trim();
+  return String(valorDoCampo(linha, [
+    "Limite por cliente",
+    "Limite por cliente (CPF)",
+    "Limite por CPF",
+    "Limite cliente",
+    "Limite por pessoa",
+    "Qtd. limite",
+    "Quantidade limite",
+    "LIMITE",
+    "Limite",
+  ]) ?? "").trim();
+}
+
+function pareceCodigoNumerico(valor: unknown): boolean {
+  const texto = String(valor ?? "").trim();
+  if (!texto) return false;
+  return texto.split(/[;,|\n]+/).every((parte) => /^\d{1,14}$/.test(parte.trim()));
 }
 
 function valorDeCodigo(linha: LinhaPlanilha): string {
-  const prioridades = ["Código da promoção", "Cód. Promoção", "Código do produto", "Cód. Interno", "Codigo Interno", "Código Interno", "Código", "Codigo"];
+  const prioridades = [
+    "Código da promoção", "Cód. Promoção", "Código do produto",
+    "Cód. Interno", "Codigo Interno", "Código Interno", "Código", "Codigo", "Cod.", "Cod",
+  ];
+
   for (const prioridade of prioridades) {
     const alvo = prioridade.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     const encontrado = Object.entries(linha).find(([cabecalho, valor]) => {
@@ -67,16 +87,25 @@ function valorDeCodigo(linha: LinhaPlanilha): string {
     });
     if (encontrado) return limparCodigo(encontrado[1]);
   }
-  return "";
+
+  // Nos CSVs do mercado, a coluna A é removida em lerPlanilha; portanto,
+  // o primeiro valor ativo é a antiga coluna B, onde fica o código útil.
+  const primeiraColunaAtiva = valorDaColuna(linha, 0);
+  return pareceCodigoNumerico(primeiraColunaAtiva) ? limparCodigo(primeiraColunaAtiva) : "";
 }
 
 function acharPorCodigo(nome: string, codigo: string, catalogo: Produto[], notaMinima: number): { item: Produto; score: number } | null {
   if (!codigo) return null;
-  const alvo = limparCodigo(codigo);
-  const candidatos = catalogo.filter((p) => limparCodigo(p.promotion_code) === alvo || limparCodigo(p.internal_code) === alvo);
-  if (!candidatos.length) return null;
-  if (candidatos.length === 1) return { item: candidatos[0], score: 1 };
-  return melhorCorrespondencia(nome, candidatos, Math.max(0.55, notaMinima));
+  const codigos = separarCodigos(codigo);
+  for (const alvo of codigos) {
+    const candidatos = catalogo.filter((p) => limparCodigo(p.promotion_code) === alvo || limparCodigo(p.internal_code) === alvo);
+    if (candidatos.length === 1) return { item: candidatos[0], score: 1 };
+    if (candidatos.length > 1) {
+      const achado = melhorCorrespondencia(nome, candidatos, Math.max(0.55, notaMinima));
+      if (achado) return achado;
+    }
+  }
+  return null;
 }
 
 function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): Oferta | null {
@@ -176,8 +205,6 @@ function PaginaOfertas() {
         const produto = achado.item;
         const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, limparCodigo(produto.internal_code), limparEan(produto.ean), produto.unit || "");
         const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || []);
-        // O catálogo é a fonte da verdade para códigos ainda não editados.
-        // Isso também limpa códigos antigos incorretos que ficaram no sessionStorage.
         const codigos = oferta.codigosEditados
           ? normalizarCodigos(oferta.codigos || [])
           : normalizarCodigos(descobertos);
@@ -192,7 +219,9 @@ function PaginaOfertas() {
           nota: Math.max(oferta.nota, achado.score),
           porQuilo: regras.porQuilo,
           unidade: regras.unidade,
-          limite: oferta.limite ?? regras.limite,
+          // Recalcula o limite sempre que o rascunho é reaberto, evitando manter regra antiga.
+          limite: regras.limite,
+          limiteBruto: oferta.limiteBruto,
         };
       }));
     }).catch(() => {});
