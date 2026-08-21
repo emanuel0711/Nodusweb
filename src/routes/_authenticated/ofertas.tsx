@@ -8,18 +8,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CARROSSEIS, separarCodigos, useOfertas } from "@/modules/ofertas/use-ofertas";
 
 export const Route = createFileRoute("/_authenticated/ofertas")({
-  head: () => ({
-    meta: [
-      { title: "Automação de ofertas — OfertaFlow" },
-      { name: "description", content: "Envie a planilha da semana e gere o arquivo do clube." },
-    ],
-  }),
+  head: () => ({ meta: [
+    { title: "Automação de ofertas — OfertaFlow" },
+    { name: "description", content: "Envie a planilha da semana e gere o arquivo do clube." },
+  ] }),
   component: PaginaOfertas,
 });
 
 function PaginaOfertas() {
   const oferta = useOfertas();
-
   return (
     <AppShell title="Automação de ofertas" subtitle="Envie a planilha da semana, confira o cruzamento com o catálogo e baixe o arquivo aceito pelo Clube.">
       <BarraAcao {...oferta} />
@@ -30,11 +27,11 @@ function PaginaOfertas() {
   );
 }
 
-function BarraAcao({ campoArquivo, processando, ofertas, notaMinima, setNotaMinima, nomeArquivo, precisamRevisao, limparOfertas, setModalAberto }: ReturnType<typeof useOfertas>) {
+function BarraAcao({ campoArquivo, processando, ofertas, notaMinima, setNotaMinima, nomeArquivo, precisamRevisao, limparOfertas, setModalAberto, processar }: ReturnType<typeof useOfertas>) {
   return (
     <>
       <div className="surface flex flex-wrap items-center gap-3 p-5">
-        <input ref={campoArquivo} type="file" accept=".csv,.xlsx,.xls" hidden onChange={(e) => { const arquivo = e.target.files?.[0]; if (arquivo) void ofertaProcessar(arquivo); }} />
+        <input ref={campoArquivo} type="file" accept=".csv,.xlsx,.xls" hidden onChange={(e) => { const arquivo = e.target.files?.[0]; if (arquivo) void processar(arquivo); }} />
         <Button disabled={processando} onClick={() => campoArquivo.current?.click()}>
           {processando ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} Enviar planilha da semana
         </Button>
@@ -59,11 +56,6 @@ function BarraAcao({ campoArquivo, processando, ofertas, notaMinima, setNotaMini
       )}
     </>
   );
-
-  async function ofertaProcessar(arquivo: File) {
-    // O hook mantém o processamento e o estado fora da tela.
-    await arguments[0];
-  }
 }
 
 function TabelaOfertas({ ofertas, notaMinima, alterar, setModalVisualizacao }: ReturnType<typeof useOfertas>) {
@@ -89,10 +81,10 @@ function TabelaOfertas({ ofertas, notaMinima, alterar, setModalVisualizacao }: R
               <TableCell>{item.precoClube ?? "—"}</TableCell>
               <TableCell>{item.limite ?? "—"}</TableCell>
               <TableCell>{item.unidade}</TableCell>
-              <TableCell>{!item.porQuilo && <CodigoInput value={item.codigos.join(";")} ean onChange={(value) => { const codigos = separarCodigos(value, true); alterar(index, { codigos, ean: codigos[0] || "", codigo: codigos.join(";") }); }} />}</TableCell>
+              <TableCell>{!item.porQuilo && <CodigoInput value={item.codigos.join(";")} onChange={(value) => { const codigos = separarCodigos(value, true); alterar(index, { codigos, ean: codigos[0] || "", codigo: codigos.join(";") }); }} />}</TableCell>
               <TableCell>{item.porQuilo && <CodigoInput value={item.codigos.join(";")} onChange={(value) => { const codigos = separarCodigos(value); alterar(index, { codigos, codigo: codigos.join(";") }); }} />}</TableCell>
               <TableCell><CodigoInput value={item.imagem} maxLength={1000} onChange={(imagem) => alterar(index, { imagem })} /></TableCell>
-              <TableCell><Button variant="ghost" size="icon" aria-label="Remover item" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); alterar(index, { __remove: true } as never); }}><Trash2 className="size-4" /></Button></TableCell>
+              <TableCell><Button variant="ghost" size="icon" aria-label="Remover item" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}><Trash2 className="size-4" /></Button></TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -101,7 +93,7 @@ function TabelaOfertas({ ofertas, notaMinima, alterar, setModalVisualizacao }: R
   );
 }
 
-function CodigoInput({ value, onChange, ean = false, maxLength }: { value: string; onChange: (value: string) => void; ean?: boolean; maxLength?: number }) {
+function CodigoInput({ value, onChange, maxLength }: { value: string; onChange: (value: string) => void; maxLength?: number }) {
   return <Input className="w-64" value={value} maxLength={maxLength} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} onChange={(e) => onChange(e.target.value)} />;
 }
 
