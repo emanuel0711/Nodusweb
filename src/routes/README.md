@@ -1,21 +1,13 @@
-# Routes
+# Rotas
 
-TanStack Start uses **file-based routing**. Every `.tsx` file in this directory
-defines a route. Do **not** create `src/pages/`, `src/routes/_app/index.tsx`, or
-`app/layout.tsx` — those are Next.js / Remix conventions. The only root layout
-is `src/routes/__root.tsx`.
+As telas ficam aqui; regras de negócio devem ficar em `src/modules` ou `src/shared`.
 
-## Conventions
+- `index.tsx` — página inicial pública.
+- `auth.tsx` — login, cadastro e Google OAuth.
+- `_authenticated/painel.tsx` — dashboard.
+- `_authenticated/catalogo.tsx` — importação e manutenção do catálogo.
+- `_authenticated/ofertas.tsx` — importação, conferência e exportação das ofertas.
+- `_authenticated/route.tsx` — proteção das rotas autenticadas.
+- `__root.tsx` — shell raiz, estilos globais e notificações.
 
-| File | URL |
-| --- | --- |
-| `index.tsx` | `/` |
-| `about.tsx` | `/about` |
-| `users/index.tsx` | `/users` |
-| `users/$id.tsx` | `/users/:id` (dynamic — bare `$`, no curly braces) |
-| `posts/{-$category}.tsx` | `/posts/:category?` (optional segment) |
-| `files/$.tsx` | `/files/*` (splat — read via `_splat` param, never `*`) |
-| `_layout.tsx` | layout route (renders children via `<Outlet />`) |
-| `__root.tsx` | app shell — wraps every page; preserve `<Outlet />` |
-
-`routeTree.gen.ts` is auto-generated. Don't edit it by hand.
+**Regra:** componentes de tela podem chamar funções dos módulos, mas não devem duplicar as regras de código, limite, unidade ou imagem.
