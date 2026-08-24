@@ -231,7 +231,8 @@ function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
   if (!candidato) return oferta;
   if (oferta.encontrado && candidato.item.description !== oferta.encontrado) return oferta;
 
-  const produto = oferta.porQuilo ? (recuperarCodigoKg(oferta.nome, candidato.item, catalogo) ?? candidato.item) : candidato.item;
+  const encontrado = oferta.porQuilo ? (recuperarCodigoKg(oferta.nome, candidato.item, catalogo) ?? candidato.item) : candidato.item;
+  const produto = oferta.porQuilo ? (produtoComCodigoInterno(encontrado, catalogo) ?? encontrado) : encontrado;
   const codigoCatalogo = limparCodigo(produto.internal_code);
   const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, codigoCatalogo, limparEan(produto.ean), produto.unit || "");
   const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || []);
