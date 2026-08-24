@@ -2,13 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  exportarModeloDoClube,
-  lerPlanilha,
-  valorDoCampo,
-  type LinhaPlanilha,
-  type OfertaParaExportar,
-} from "@/lib/planilha";
+import { exportarModeloDoClube, lerPlanilha, valorDoCampo, type LinhaPlanilha, type OfertaParaExportar } from "@/lib/planilha";
 import { lerPreco, melhorCorrespondencia, normalizarTexto, semelhanca } from "@/lib/comparar-textos";
 import { buscarImagens, buscarImagensPorProduto } from "@/lib/imagens";
 import { carregarTodosProdutos, limparCodigo, limparEan, type Produto } from "@/lib/catalogo";
@@ -43,18 +37,12 @@ export function separarCodigos(valor: unknown, ean = false): string[] {
 }
 
 function valorDeLimite(linha: LinhaPlanilha): string {
-  return String(valorDoCampo(linha, [
-    "Limite por cliente", "Limite por cliente (CPF)", "Limite por CPF", "Limite cliente", "Limite por pessoa",
-    "Qtd. limite", "Quantidade limite", "LIMITE", "Limite",
-  ]) ?? "").trim();
+  return String(valorDoCampo(linha, ["Limite por cliente", "Limite por cliente (CPF)", "Limite por CPF", "Limite cliente", "Limite por pessoa", "Qtd. limite", "Quantidade limite", "LIMITE", "Limite"]) ?? "").trim();
 }
 
 /** Só lê campos explicitamente identificados como código interno. */
 function valorDeCodigoInterno(linha: LinhaPlanilha): string {
-  const prioridades = [
-    "Cód. Interno", "Cod. Interno", "Codigo Interno", "Código Interno",
-    "Código do produto", "Codigo do produto",
-  ];
+  const prioridades = ["Cód. Interno", "Cod. Interno", "Codigo Interno", "Código Interno", "Código do produto", "Codigo do produto"];
   for (const prioridade of prioridades) {
     const alvo = prioridade.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
     const encontrado = Object.entries(linha).find(([cabecalho, valor]) => {
@@ -89,20 +77,10 @@ function acharPorCodigo(nome: string, codigoInterno: string, ean: string, catalo
   return null;
 }
 
-const TOKENS_KG_GENERICO = new Set([
-  "kg", "quilo", "kilo", "quilograma", "carne", "bov", "bovina", "bovino", "suina", "suino",
-  "suina", "res", "resf", "com", "sem", "capa", "pessoa", "por", "cliente",
-]);
+const TOKENS_KG_GENERICO = new Set(["kg", "quilo", "kilo", "quilograma", "carne", "bov", "bovina", "bovino", "suina", "suino", "suina", "res", "resf", "com", "sem", "capa", "pessoa", "por", "cliente"]);
 
-/**
- * Carnes e outros produtos de Kg costumam ter descrições comerciais diferentes.
- * Em vez de exigir o nome inteiro, usa as palavras distintivas do corte/produto.
- * O código só é aceito depois que o produto do catálogo foi identificado.
- */
 function tokensDistintivosKg(nome: string): string[] {
-  return [...new Set(normalizarTexto(nome)
-    .split(/\s+/)
-    .filter((token) => token.length >= 3 && !TOKENS_KG_GENERICO.has(token)))];
+  return [...new Set(normalizarTexto(nome).split(/\s+/).filter((token) => token.length >= 3 && !TOKENS_KG_GENERICO.has(token)))];
 }
 
 function unidadeEhKg(produto: Produto): boolean {
@@ -115,7 +93,6 @@ function pontuarProdutoKg(nome: string, produto: Produto): number {
   const alvo = normalizarTexto(nome);
   const descricao = normalizarTexto(produto.description);
   if (alvo === descricao) return 1;
-
   const tokens = tokensDistintivosKg(nome);
   if (!tokens.length) return 0;
   const candidatos = [...new Set(descricao.split(/\s+/))];
@@ -129,7 +106,6 @@ function pontuarProdutoKg(nome: string, produto: Produto): number {
   return cobertura * 0.7 + semelhanca(alvo, descricao) * 0.3;
 }
 
-/** Busca específica para Kg quando a descrição completa da planilha diverge do catálogo. */
 function melhorCorrespondenciaKg(nome: string, catalogo: Produto[]): { item: Produto; score: number } | null {
   if (!/\bkg\b|\bquilo\b|\bkilo\b|\bquilograma\b/.test(normalizarTexto(nome))) return null;
   const candidatos = catalogo
@@ -140,43 +116,52 @@ function melhorCorrespondenciaKg(nome: string, catalogo: Produto[]): { item: Pro
   return melhor ? { item: melhor.item, score: melhor.score } : null;
 }
 
-/**
- * Para Kg, se o primeiro produto encontrado não tiver código interno, procura
- * uma correspondência equivalente no catálogo que realmente possua internal_code.
- */
 function recuperarCodigoKg(nome: string, produto: Produto | undefined, catalogo: Produto[]): Produto | undefined {
   if (!produto) return melhorCorrespondenciaKg(nome, catalogo)?.item;
   if (limparCodigo(produto.internal_code)) return produto;
-
-  const exatos = catalogo.filter((item) =>
-    unidadeEhKg(item) &&
-    normalizarTexto(item.description) === normalizarTexto(produto.description) &&
-    Boolean(limparCodigo(item.internal_code)),
-  );
+  const exatos = catalogo.filter((item) => unidadeEhKg(item) && normalizarTexto(item.description) === normalizarTexto(produto.description) && Boolean(limparCodigo(item.internal_code)));
   if (exatos.length) return exatos[0];
-
   return melhorCorrespondenciaKg(nome, catalogo)?.item || produto;
 }
 
-/** Só serve como código interno de Kg um código curto (o que parece EAN é descartado). */
 function codigoInternoValido(produto: Produto | undefined): boolean {
   const interno = limparCodigo(produto?.internal_code);
   return Boolean(interno) && !/^\d{8,14}$/.test(limparEan(interno));
 }
 
-/**
- * O catálogo tem descrições repetidas: uma cópia com código interno e outra sem.
- * Quando o item escolhido não tem código, procura a cópia equivalente que tenha.
- */
 function produtoComCodigoInterno(produto: Produto | undefined, catalogo: Produto[]): Produto | undefined {
   if (!produto || codigoInternoValido(produto)) return produto;
   const descricao = normalizarTexto(produto.description);
   return catalogo.find((item) => normalizarTexto(item.description) === descricao && codigoInternoValido(item));
 }
 
+/** Penaliza somente custos claramente incompatíveis com o preço da oferta. */
+function custoCompativel(custo: number | null, precoOferta: number | null): boolean {
+  if (custo == null || precoOferta == null || !Number.isFinite(custo) || !Number.isFinite(precoOferta) || precoOferta <= 0) return true;
+  return custo <= precoOferta * 1.15;
+}
+
+function melhorCorrespondenciaComCusto(nome: string, catalogo: Produto[], notaMinima: number, precoOferta: number | null): { item: Produto; score: number } | null {
+  const alvo = normalizarTexto(nome);
+  if (!alvo) return null;
+  const candidatos = catalogo
+    .map((item) => {
+      const texto = semelhanca(alvo, item.description);
+      const custoPenalidade = custoCompativel(item.cost, precoOferta) ? 0 : 0.35;
+      return { item, score: texto - custoPenalidade, texto };
+    })
+    .filter(({ texto }) => texto >= notaMinima)
+    .sort((a, b) => b.score - a.score || b.texto - a.texto);
+  const melhor = candidatos[0];
+  return melhor ? { item: melhor.item, score: melhor.score } : null;
+}
+
 function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): Oferta | null {
   const nome = String(valorDoCampo(linha, NOMES) || "").trim();
   if (!nome) return null;
+  const preco = lerPreco(valorDoCampo(linha, PRECOS));
+  const precoClube = lerPreco(valorDoCampo(linha, PRECOS_CLUBE));
+  const precoParaCusto = precoClube ?? preco;
   const valorEAN = limparEan(valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN", "EAN13"]));
   const eanOrigem = valorEAN.length >= 8 ? valorEAN : "";
   const codigoOrigem = valorDeCodigoInterno(linha);
@@ -184,32 +169,28 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
   const excecoes = extrairExcecoes(linha, nome);
   const porQuiloPeloNome = /\bkg\b|\bquilo\b|\bkilo\b|\bquilograma\b/.test(normalizarTexto(nome));
 
-  // Ordem: código correto da origem → nome completo → busca específica de Kg.
   const achadoPorCodigo = acharPorCodigo(nome, codigoOrigem, eanOrigem, catalogo, notaMinima);
-  const achadoNome = melhorCorrespondencia(nome, catalogo, notaMinima);
+  const achadoNome = melhorCorrespondenciaComCusto(nome, catalogo, notaMinima, precoParaCusto) || melhorCorrespondencia(nome, catalogo, notaMinima);
   const achadoKg = porQuiloPeloNome ? melhorCorrespondenciaKg(nome, catalogo) : null;
   const achado = achadoPorCodigo || achadoNome || achadoKg;
   const produtoInicial = achado?.item;
   const produtoBase = porQuiloPeloNome ? (recuperarCodigoKg(nome, produtoInicial, catalogo) ?? produtoInicial) : produtoInicial;
 
-  // Se as regras apontarem Kg (mesmo sem "kg" no nome), garante um produto com código interno válido.
   const regrasPrevias = aplicarRegras(nome, limiteBruto, limparCodigo(produtoBase?.internal_code), limparEan(produtoBase?.ean) || eanOrigem, produtoBase?.unit || "");
   const produto = regrasPrevias.porQuilo
     ? (produtoComCodigoInterno(produtoBase, catalogo) ?? recuperarCodigoKg(nome, produtoBase, catalogo) ?? produtoBase)
     : produtoBase;
 
-  // O código exportado nunca vem do nome do arquivo, da promoção ou de um fallback de coluna.
   const codigoCatalogo = limparCodigo(produto?.internal_code);
   const codigoInterno = !eanOrigem ? codigoCatalogo : "";
   const eanProduto = limparEan(produto?.ean) || eanOrigem;
   const regras = aplicarRegras(nome, limiteBruto, codigoInterno, eanProduto, produto?.unit || "");
-  const familia = codigosDaFamiliaOferta(nome, produto, catalogo, regras.porQuilo, excecoes);
+  const familia = codigosDaFamiliaOferta(nome, produto, catalogo, regras.porQuilo, excecoes, precoParaCusto);
   const codigos = normalizarCodigos(familia);
 
   return {
-    nome,
-    preco: lerPreco(valorDoCampo(linha, PRECOS)), precoClube: lerPreco(valorDoCampo(linha, PRECOS_CLUBE)),
-    limiteBruto, ...regras, ean: eanProduto.length >= 8 ? eanProduto : "",
+    nome, preco, precoClube, limiteBruto, ...regras,
+    ean: eanProduto.length >= 8 ? eanProduto : "",
     codigo: codigos.join(";"), codigoInterno, codigos, codigosEditados: false, excecoes,
     imagem: produto?.image_url ?? "", encontrado: produto?.description ?? null, nota: achado?.score ?? 0,
   };
@@ -223,11 +204,10 @@ function dataParaClube(valor: string): string {
   return `${p(data.getDate())}/${p(data.getMonth() + 1)}/${data.getFullYear()} ${p(data.getHours())}:${p(data.getMinutes())}:00`;
 }
 
-/** Complementa imagem/códigos sem trocar um produto já encontrado por outro de nome parecido. */
 function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
   const candidato = oferta.porQuilo
-    ? (melhorCorrespondenciaKg(oferta.nome, catalogo) || melhorCorrespondencia(oferta.nome, catalogo, 0.72))
-    : melhorCorrespondencia(oferta.nome, catalogo, 0.72);
+    ? (melhorCorrespondenciaKg(oferta.nome, catalogo) || melhorCorrespondenciaComCusto(oferta.nome, catalogo, 0.72, oferta.precoClube ?? oferta.preco) || melhorCorrespondencia(oferta.nome, catalogo, 0.72))
+    : (melhorCorrespondenciaComCusto(oferta.nome, catalogo, 0.72, oferta.precoClube ?? oferta.preco) || melhorCorrespondencia(oferta.nome, catalogo, 0.72));
   if (!candidato) return oferta;
   if (oferta.encontrado && candidato.item.description !== oferta.encontrado) return oferta;
 
@@ -235,7 +215,7 @@ function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
   const produto = oferta.porQuilo ? (produtoComCodigoInterno(encontrado, catalogo) ?? encontrado) : encontrado;
   const codigoCatalogo = limparCodigo(produto.internal_code);
   const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, codigoCatalogo, limparEan(produto.ean), produto.unit || "");
-  const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || []);
+  const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || [], oferta.precoClube ?? oferta.preco);
   const codigos = oferta.codigosEditados ? normalizarCodigos(oferta.codigos || []) : normalizarCodigos(descobertos);
   return {
     ...oferta, imagem: oferta.imagem || produto.image_url || "", encontrado: oferta.encontrado || produto.description,
@@ -274,8 +254,7 @@ export function useOfertas() {
   }, []);
 
   function alterar(indice: number, mudanca: Partial<Oferta>) {
-    setOfertas((atual) => atual.map((oferta, i) => i === indice
-      ? { ...oferta, ...mudanca, ...(Object.hasOwn(mudanca, "codigos") ? { codigosEditados: true } : {}) } : oferta));
+    setOfertas((atual) => atual.map((oferta, i) => i === indice ? { ...oferta, ...mudanca, ...(Object.hasOwn(mudanca, "codigos") ? { codigosEditados: true } : {}) } : oferta));
   }
 
   async function processar(arquivo: File) {
