@@ -174,7 +174,13 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
   const achadoKg = porQuiloPeloNome ? melhorCorrespondenciaKg(nome, catalogo) : null;
   const achado = achadoPorCodigo || achadoNome || achadoKg;
   const produtoInicial = achado?.item;
-  const produto = porQuiloPeloNome ? recuperarCodigoKg(nome, produtoInicial, catalogo) : produtoInicial;
+  const produtoBase = porQuiloPeloNome ? (recuperarCodigoKg(nome, produtoInicial, catalogo) ?? produtoInicial) : produtoInicial;
+
+  // Se as regras apontarem Kg (mesmo sem "kg" no nome), garante um produto com código interno válido.
+  const regrasPrevias = aplicarRegras(nome, limiteBruto, limparCodigo(produtoBase?.internal_code), limparEan(produtoBase?.ean) || eanOrigem, produtoBase?.unit || "");
+  const produto = regrasPrevias.porQuilo
+    ? (produtoComCodigoInterno(produtoBase, catalogo) ?? recuperarCodigoKg(nome, produtoBase, catalogo) ?? produtoBase)
+    : produtoBase;
 
   // O código exportado nunca vem do nome do arquivo, da promoção ou de um fallback de coluna.
   const codigoCatalogo = limparCodigo(produto?.internal_code);
