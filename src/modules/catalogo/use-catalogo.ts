@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { lerPlanilha, categoriaPeloNomeDoArquivo } from "@/lib/planilha";
 import { lerPreco } from "@/lib/comparar-textos";
-import { buscarImagens } from "@/lib/imagens";
+import { buscarImagens, buscarImagensPorProduto } from "@/lib/imagens";
 import { COLUNAS_PRODUTO, COLUNAS_PRODUTO_BASE, carregarTodosProdutos, chaveDoProduto, erroDeCustoAusente, limparCodigo, limparEan, linhaParaProduto, type Produto } from "@/lib/catalogo";
 
 export const POR_PAGINA = 20;
@@ -12,6 +12,7 @@ export const TODAS = "__all__";
 export const SEM_CATEGORIA = "__uncategorized__";
 export const FORMULARIO_VAZIO = { description: "", internal_code: "", promotion_code: "", ean: "", unit: "", category: "", unit_price: "", cost: "", image_url: "" };
 export type FormularioProduto = typeof FORMULARIO_VAZIO;
+type ImagemPendente = { id: string; ean: string | null; nome: string };
 
 async function carregarCategorias(): Promise<string[]> {
   const produtos = await carregarTodosProdutos();
@@ -22,37 +23,44 @@ async function carregarCategorias(): Promise<string[]> {
   return semCategoria ? [SEM_CATEGORIA, ...lista] : lista;
 }
 
-async function completarImagens(novos: Array<{ id: string; ean: string | null }>) {
-  const eans = novos.map((item) => item.ean).filter((ean): ean is string => Boolean(ean));
-  if (!eans.length) return;
-  const imagens = await buscarImagens(eans);
-  await Promise.all(novos.map(async (item) => {
-    const url = item.ean ? imagens.get(item.ean) : undefined;
+/** Preenche imagens por EAN e, para itens sem EAN (ex.: Kg), por nome. */
+async function completarImagens(itens: ImagemPendente[]) {
+  const pendentes = itens.filter((item) => item.nome.trim());
+  if (!pendentes.length) return;
+
+  const porEan = await buscarImagens(pendentes.map((item) => item.ean ?? ""));
+  const semEan = pendentes.filter((item) => !item.ean);
+  const porNome = semEan.length
+    ? await buscarImagensPorProduto(semEan.map((item) => ({ ean: "", nome: item.nome })))
+    : new Map<string, string>();
+
+  await Promise.all(pendentes.map(async (item) => {
+    const url = item.ean ? porEan.get(item.ean) : porNome.get(item.nome);
     if (url) await supabase.from("products").update({ image_url: url }).eq("id", item.id);
   }));
 }
 
-async function atualizarCustos(atualizacoes: Array<{ id: string; cost: number }>): Promise<boolean> {
+async function verificarColunaDeCusto() {
+  const { error } = await supabase.from("products").select("id, cost").limit(1);
+  if (error && erroDeCustoAusente(error)) {
+    throw new Error("O banco do Nódus ainda não possui a coluna de custo. A migração de custo precisa ser aplicada no Supabase/Lovable antes de importar o catálogo.");
+  }
+  if (error) throw error;
+}
+
+async function atualizarCustos(atualizacoes: Array<{ id: string; cost: number }>) {
   for (let i = 0; i < atualizacoes.length; i += 50) {
     const lote = atualizacoes.slice(i, i + 50);
     const resultados = await Promise.all(lote.map(({ id, cost }) => supabase.from("products").update({ cost }).eq("id", id)));
     const erro = resultados.find((resultado) => resultado.error)?.error;
-    if (erro) {
-      if (erroDeCustoAusente(erro)) return false;
-      throw erro;
-    }
+    if (erro) throw erro;
   }
-  return true;
 }
 
 async function inserirLote(lote: Array<Record<string, unknown>>) {
-  let resultado = await supabase.from("products").insert(lote).select("id, ean");
-  if (resultado.error && erroDeCustoAusente(resultado.error)) {
-    const semCusto = lote.map(({ cost: _cost, ...produto }) => produto);
-    resultado = await supabase.from("products").insert(semCusto).select("id, ean");
-  }
+  const resultado = await supabase.from("products").insert(lote).select("id, ean, description, image_url");
   if (resultado.error) throw resultado.error;
-  return (resultado.data ?? []) as Array<{ id: string; ean: string | null }>;
+  return (resultado.data ?? []) as Array<{ id: string; ean: string | null; description: string; image_url: string | null }>;
 }
 
 export function useCatalogo() {
@@ -85,7 +93,6 @@ export function useCatalogo() {
         else if (categoria !== TODAS) consulta = consulta.eq("category", categoria);
         return consulta;
       };
-
       let consulta = await consultar(COLUNAS_PRODUTO);
       if (consulta.error && erroDeCustoAusente(consulta.error)) consulta = await consultar(COLUNAS_PRODUTO_BASE);
       if (consulta.error) throw consulta.error;
@@ -109,15 +116,9 @@ export function useCatalogo() {
         unit_price: lerPreco(formulario.unit_price),
         cost: lerPreco(formulario.cost),
       };
-      let resultado = editando
+      const resultado = editando
         ? await supabase.from("products").update(dados).eq("id", editando.id)
         : await supabase.from("products").insert({ ...dados, user_id: sessao.user.id });
-      if (resultado.error && erroDeCustoAusente(resultado.error)) {
-        const { cost: _cost, ...dadosSemCusto } = dados;
-        resultado = editando
-          ? await supabase.from("products").update(dadosSemCusto).eq("id", editando.id)
-          : await supabase.from("products").insert({ ...dadosSemCusto, user_id: sessao.user.id });
-      }
       if (resultado.error) throw resultado.error;
     },
     onSuccess: () => {
@@ -157,47 +158,55 @@ export function useCatalogo() {
     setImportando(true);
     const inicio = performance.now();
     try {
+      await verificarColunaDeCusto();
       const { data: sessao } = await supabase.auth.getUser();
       if (!sessao.user) throw new Error("Sessão expirada. Entre novamente.");
+
       const existentes = await carregarTodosProdutos();
       const existentesPorChave = new Map(existentes.map((produto) => [chaveDoProduto(produto), produto]));
       const imagemPorEan = new Map(existentes.filter((item) => item.ean && item.image_url).map((item) => [item.ean as string, item.image_url as string]));
       let importados = 0; let repetidos = 0; let semNome = 0;
       const atualizacoesCusto: Array<{ id: string; cost: number }> = [];
-      const novos: Array<{ id: string; ean: string | null }> = [];
+      const imagensPendentes: ImagemPendente[] = [];
 
       for (const arquivo of Array.from(arquivos)) {
         const linhas = await lerPlanilha(arquivo);
         const categoriaArquivo = categoriaPeloNomeDoArquivo(arquivo.name);
         const paraInserir: Array<Record<string, unknown>> = [];
+
         for (const linha of linhas) {
           const produto = linhaParaProduto(linha, categoriaArquivo);
           if (!produto) { semNome++; continue; }
           const chave = chaveDoProduto(produto);
           const existente = existentesPorChave.get(chave);
+
           if (existente) {
             repetidos++;
             if (produto.cost != null && produto.cost !== existente.cost) atualizacoesCusto.push({ id: existente.id, cost: produto.cost });
+            if (!existente.image_url) imagensPendentes.push({ id: existente.id, ean: existente.ean, nome: existente.description });
             continue;
           }
+
           existentesPorChave.set(chave, { ...produto, id: `novo-${chave}` } as Produto);
           paraInserir.push({ ...produto, user_id: sessao.user.id, image_url: produto.image_url || (produto.ean ? imagemPorEan.get(produto.ean) ?? null : null) });
         }
+
         for (let i = 0; i < paraInserir.length; i += 500) {
-          const lote = paraInserir.slice(i, i + 500);
-          const data = await inserirLote(lote);
-          novos.push(...data);
-          importados += lote.length;
+          const data = await inserirLote(paraInserir.slice(i, i + 500));
+          data.forEach((item) => {
+            if (!item.image_url) imagensPendentes.push({ id: item.id, ean: item.ean, nome: item.description });
+          });
+          importados += data.length;
         }
       }
 
-      const custoDisponivel = await atualizarCustos(atualizacoesCusto);
+      await atualizarCustos(atualizacoesCusto);
       const segundos = ((performance.now() - inicio) / 1000).toFixed(1);
       if (!importados && !atualizacoesCusto.length) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
-      else if (atualizacoesCusto.length && !custoDisponivel) toast.success(`${importados} produto(s) importado(s). O catálogo ainda não possui a coluna de custo no banco.`);
       else toast.success(`${importados} produto(s) importado(s), ${atualizacoesCusto.length} custo(s) atualizado(s) em ${segundos}s.`);
+
       atualizarListas();
-      void completarImagens(novos).then(atualizarListas).catch(() => undefined);
+      void completarImagens(imagensPendentes).then(atualizarListas).catch((erro) => console.error("Falha ao completar imagens", erro));
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Falha na importação");
     } finally {
