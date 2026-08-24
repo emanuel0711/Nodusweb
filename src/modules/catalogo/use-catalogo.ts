@@ -32,6 +32,15 @@ async function completarImagens(novos: Array<{ id: string; ean: string | null }>
   }));
 }
 
+async function atualizarCustos(atualizacoes: Array<{ id: string; cost: number }>) {
+  for (let i = 0; i < atualizacoes.length; i += 50) {
+    const lote = atualizacoes.slice(i, i + 50);
+    const resultados = await Promise.all(lote.map(({ id, cost }) => supabase.from("products").update({ cost }).eq("id", id)));
+    const erro = resultados.find((resultado) => resultado.error)?.error;
+    if (erro) throw erro;
+  }
+}
+
 export function useCatalogo() {
   const queryClient = useQueryClient();
   const campoArquivo = useRef<HTMLInputElement>(null);
@@ -126,9 +135,10 @@ export function useCatalogo() {
       const { data: sessao } = await supabase.auth.getUser();
       if (!sessao.user) throw new Error("Sessão expirada. Entre novamente.");
       const existentes = await carregarTodosProdutos();
-      const chaves = new Set(existentes.map(chaveDoProduto));
+      const existentesPorChave = new Map(existentes.map((produto) => [chaveDoProduto(produto), produto]));
       const imagemPorEan = new Map(existentes.filter((item) => item.ean && item.image_url).map((item) => [item.ean as string, item.image_url as string]));
       let importados = 0; let repetidos = 0; let semNome = 0;
+      const atualizacoesCusto: Array<{ id: string; cost: number }> = [];
       const novos: Array<{ id: string; ean: string | null }> = [];
 
       for (const arquivo of Array.from(arquivos)) {
@@ -139,8 +149,13 @@ export function useCatalogo() {
           const produto = linhaParaProduto(linha, categoriaArquivo);
           if (!produto) { semNome++; continue; }
           const chave = chaveDoProduto(produto);
-          if (chaves.has(chave)) { repetidos++; continue; }
-          chaves.add(chave);
+          const existente = existentesPorChave.get(chave);
+          if (existente) {
+            repetidos++;
+            if (produto.cost != null && produto.cost !== existente.cost) atualizacoesCusto.push({ id: existente.id, cost: produto.cost });
+            continue;
+          }
+          existentesPorChave.set(chave, { ...produto, id: `novo-${chave}` } as Produto);
           paraInserir.push({ ...produto, user_id: sessao.user.id, image_url: produto.image_url || (produto.ean ? imagemPorEan.get(produto.ean) ?? null : null) });
         }
         for (let i = 0; i < paraInserir.length; i += 500) {
@@ -152,9 +167,10 @@ export function useCatalogo() {
         }
       }
 
+      await atualizarCustos(atualizacoesCusto);
       const segundos = ((performance.now() - inicio) / 1000).toFixed(1);
-      if (!importados) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
-      else toast.success(`${importados} produto(s) importado(s) em ${segundos}s. ${repetidos} repetido(s) ignorado(s). As imagens que faltam são buscadas em segundo plano.`);
+      if (!importados && !atualizacoesCusto.length) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
+      else toast.success(`${importados} produto(s) importado(s), ${atualizacoesCusto.length} custo(s) atualizado(s) em ${segundos}s.`);
       atualizarListas();
       void completarImagens(novos).then(atualizarListas).catch(() => undefined);
     } catch (erro) {
@@ -181,9 +197,7 @@ export function useCatalogo() {
     setDialogoAberto(true);
   }
 
-  function novoProduto() {
-    setEditando(null); setFormulario(FORMULARIO_VAZIO); setDialogoAberto(true);
-  }
+  function novoProduto() { setEditando(null); setFormulario(FORMULARIO_VAZIO); setDialogoAberto(true); }
 
   return {
     campoArquivo, busca, setBusca, categoria, setCategoria, selecionadas, setSelecionadas,
