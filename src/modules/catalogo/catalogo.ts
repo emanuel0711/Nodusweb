@@ -28,12 +28,16 @@ function unidadeEhKg(unidade: string | null, descricao: string): boolean {
 }
 
 function normalizarProduto(produto: Produto): Produto {
-  if (!unidadeEhKg(produto.unit, produto.description)) return produto;
-  const interno = limparCodigo(produto.internal_code);
-  if (interno) return { ...produto, ean: null };
-  const ean = limparEan(produto.ean);
-  if (ean && !pareceEan(ean)) return { ...produto, internal_code: ean, ean: null };
-  return { ...produto, ean: null };
+  const porQuilo = unidadeEhKg(produto.unit, produto.description);
+  if (porQuilo) {
+    const interno = limparCodigo(produto.internal_code);
+    const ean = limparEan(produto.ean);
+    const codigoInterno = interno || (!pareceEan(ean) ? ean : "");
+    return { ...produto, internal_code: codigoInterno || null, ean: null };
+  }
+
+  // Produto por unidade usa EAN; código interno nunca participa da chave de busca.
+  return { ...produto, internal_code: null, ean: limparEan(produto.ean) || null };
 }
 
 /** Carrega o catálogo em páginas, usando custo quando a coluna existe. */
@@ -89,11 +93,10 @@ export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): Produ
   const codigoInternoExplicito = limparCodigo(valorDoCampo(linha, ["Cód. Interno", "Cod. Interno", "Código Interno", "Codigo Interno", "Código da balança", "Codigo da balanca"]));
   const codigoGenerico = limparCodigo(valorDoCampo(linha, ["Código do produto", "Codigo do produto", "Código", "Codigo", "Cod.", "Cod"]));
 
-  let internalCode = codigoInternoExplicito;
-  let ean = eanInformado;
+  let internalCode = "";
+  let ean = "";
   if (porQuilo) {
     internalCode = codigoInternoExplicito || (!pareceEan(eanInformado) ? eanInformado : "") || (!pareceEan(codigoGenerico) ? codigoGenerico : "");
-    ean = "";
   } else {
     ean = eanInformado || (pareceEan(codigoGenerico) ? limparEan(codigoGenerico) : "");
   }
@@ -104,9 +107,8 @@ export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): Produ
     "Preço de custo", "Preco de custo", "Valor de custo", "CMV",
   ]);
 
-  // CSV: a coluna A é removida pelo leitor, então O original vira índice 13.
-  // XLSX: a coluna A permanece no registro, então O original fica no índice 14.
-  // O cabeçalho continua tendo prioridade; os índices são apenas fallback.
+  // CSV: A é descartada, então O original fica no índice 13.
+  // XLSX: A permanece, então O original fica no índice 14.
   const custoPorPosicaoCsv = valorDaColuna(linha, 13);
   const custoPorPosicaoXlsx = valorDaColuna(linha, 14);
   const custoImportado = primeiroCustoValido(custoPorCabecalho, custoPorPosicaoCsv, custoPorPosicaoXlsx);
