@@ -9,7 +9,7 @@ function compactarTexto(valor: string): string {
   return normalizarTexto(valor).replace(/(\d+(?:[.,]\d+)?)\s+(ml|l|g|kg)\b/g, "$1$2").replace(/\btrad\b/g, "tradicional").replace(/\bexceto\b.*$/i, "").trim();
 }
 export function tokensFamilia(valor: string): string[] { return [...new Set(compactarTexto(valor).split(/\s+/).filter((t) => t.length >= 2 && !TOKENS_GENERICOS.has(t) && !TOKENS_IGNORADOS.has(t)))]; }
-function tamanhosDoProduto(valor: string): string[] { return [...new Set([...compactarTexto(valor).matchAll(/\b(\d+(?:[.,]\d+)?)(ml|l|g|kg)\b/g)].map((m) => `${m[1].replace(",", ".")}${m[2]}`))]; }
+function tamanhosDoProduto(valor: string): string[] { return [...new Set([...compactarTexto(valor).matchAll(/\b(\d+(?:[.,]\d+)?)(ml|l|g|kg)\b/g)].map((m) => `${m[1]!.replace(",", ".")}${m[2]!}`))]; }
 function tamanhosCompativeis(oferta: string, descricao: string): boolean { const tamanhos = tamanhosDoProduto(oferta); return !tamanhos.length || tamanhos.every((t) => tamanhosDoProduto(descricao).includes(t)); }
 function tokensExcecao(valor: string): string[][] { const texto = normalizarTexto(valor); if (!texto.includes("exceto")) return []; return texto.split(/\bexceto\b/).slice(1).join(" exceto ").split(/[,;|]|\s+e\s+|\s+\/\s+/).map((parte) => tokensFamilia(parte.trim())).filter((tokens) => tokens.length); }
 export function extrairExcecoes(linha: Record<string, unknown>, nome: string): string[][] { return [nome, ...Object.values(linha).map((valor) => String(valor ?? ""))].flatMap(tokensExcecao).filter((tokens) => tokens.length); }

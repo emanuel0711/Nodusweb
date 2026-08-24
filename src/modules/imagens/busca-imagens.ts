@@ -81,7 +81,7 @@ async function buscarUma(ean: string): Promise<string> {
 export async function buscarImagens(eans: string[]): Promise<Map<string, string>> {
   const lista = [...new Set(eans.map(somenteNumeros).filter((ean) => ean.length >= 8))];
   const resultado = new Map<string, string>(); let indice = 0;
-  async function trabalhador() { while (indice < lista.length) { const ean = lista[indice++]; const url = await buscarUma(ean); if (url) resultado.set(ean, url); } }
+  async function trabalhador() { while (indice < lista.length) { const ean = lista[indice++]!; const url = await buscarUma(ean); if (url) resultado.set(ean, url); } }
   await Promise.all(Array.from({ length: Math.min(MAX_PARALELO, lista.length) }, trabalhador));
   return resultado;
 }
@@ -89,7 +89,7 @@ export async function buscarImagens(eans: string[]): Promise<Map<string, string>
 export async function buscarImagensPorProduto(itens: Array<{ ean: string; nome: string }>): Promise<Map<string, string>> {
   const lista = itens.filter((item) => !item.ean && item.nome.trim());
   const resultado = new Map<string, string>(); let indice = 0;
-  async function trabalhador() { while (indice < lista.length) { const item = lista[indice++]; const url = await buscarPorNome(item.nome); if (url) resultado.set(item.nome, url); } }
+  async function trabalhador() { while (indice < lista.length) { const item = lista[indice++]!; const url = await buscarPorNome(item.nome); if (url) resultado.set(item.nome, url); } }
   await Promise.all(Array.from({ length: Math.min(4, lista.length) }, trabalhador));
   return resultado;
 }

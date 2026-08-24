@@ -52,7 +52,7 @@ export async function lerPlanilha(arquivo: File): Promise<LinhaPlanilha[]> {
   const indicesAtivos = colunas.map((_, indice) => indice).filter((indice) => !(ehCsv && indice === 0));
   return matriz.slice(cabecalho + 1).filter((linha) => linha.some(temTexto)).map((linha) => {
     const registro: LinhaPlanilha = {};
-    indicesAtivos.forEach((indice) => { registro[colunas[indice]] = linha[indice] ?? ""; });
+    indicesAtivos.forEach((indice) => { registro[colunas[indice]!] = linha[indice] ?? ""; });
     return registro;
   });
 }
