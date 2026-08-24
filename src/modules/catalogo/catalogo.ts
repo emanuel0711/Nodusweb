@@ -13,13 +13,28 @@ export function limparEan(valor: unknown): string { return String(valor ?? "").r
 export function limparCodigo(valor: unknown): string { return String(valor ?? "").trim().replace(/\.0+$/, ""); }
 export function pareceEan(valor: unknown): boolean { return /^(\d{12}|\d{13}|\d{14})$/.test(limparEan(valor)); }
 
+function unidadeEhKg(unidade: string | null, descricao: string): boolean {
+  return /\b(kg|quilo|kilo|quilograma)\b/.test(normalizarTexto(`${unidade ?? ""} ${descricao}`));
+}
+
+/** Corrige em memória cadastros antigos que guardaram código de Kg no campo EAN. */
+function normalizarProduto(produto: Produto): Produto {
+  if (!unidadeEhKg(produto.unit, produto.description)) return produto;
+  const interno = limparCodigo(produto.internal_code);
+  if (interno) return { ...produto, ean: null };
+
+  const ean = limparEan(produto.ean);
+  if (ean && !pareceEan(ean)) return { ...produto, internal_code: ean, ean: null };
+  return { ...produto, ean: null };
+}
+
 /** Busca o catálogo completo em páginas de 1000 registros. */
 export async function carregarTodosProdutos(): Promise<Produto[]> {
   const todos: Produto[] = [];
   for (let inicio = 0; ; inicio += 1000) {
     const { data, error } = await supabase.from("products").select(COLUNAS_PRODUTO).range(inicio, inicio + 999);
     if (error) throw error;
-    const pagina = (data ?? []) as unknown as Produto[];
+    const pagina = ((data ?? []) as unknown as Produto[]).map(normalizarProduto);
     todos.push(...pagina);
     if (pagina.length < 1000) return todos;
   }
@@ -28,10 +43,6 @@ export async function carregarTodosProdutos(): Promise<Produto[]> {
 export interface ProdutoImportado {
   internal_code: string | null; promotion_code: string | null; ean: string | null; description: string;
   unit: string | null; unit_price: number | null; category: string; image_url: string | null;
-}
-
-function unidadeEhKg(unidade: string, descricao: string): boolean {
-  return /\b(kg|quilo|kilo|quilograma)\b/.test(normalizarTexto(`${unidade} ${descricao}`));
 }
 
 /**
