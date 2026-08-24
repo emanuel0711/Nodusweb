@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { LayoutDashboard, Package, Sparkles, LogOut, ShoppingBasket, Moon, Sun } from "lucide-react";
+import { LayoutDashboard, Package, Sparkles, LogOut, PackageOpen, Moon, Sun } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -13,17 +13,9 @@ const NAV = [
   { to: "/ofertas", label: "Ofertas", icon: Sparkles },
 ] as const;
 
-const THEME_STORAGE_KEY = "ofertaflow:tema";
+const THEME_STORAGE_KEY = "varejoflow:tema";
 
-export function AppShell({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: ReactNode;
-}) {
+export function AppShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   const navigate = useNavigate();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -59,26 +51,19 @@ export function AppShell({
         <div className="app-sidebar__brand">
           <Link to="/painel" className="flex items-center gap-2 font-display text-lg font-semibold">
             <span className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <ShoppingBasket className="size-5" />
+              <PackageOpen className="size-5" />
             </span>
-            OfertaFlow
+            VarejoFlow
           </Link>
         </div>
-
         <nav className="app-sidebar__nav">
           {NAV.map(({ to, label, icon: Icon }) => (
-            <Link
-              key={to}
-              to={to}
-              className="app-sidebar__link"
-              activeProps={{ "data-active": "true" }}
-            >
+            <Link key={to} to={to} className="app-sidebar__link" activeProps={{ "data-active": "true" }}>
               <Icon className="size-5 shrink-0" />
               <span>{label}</span>
             </Link>
           ))}
         </nav>
-
         <div className="app-sidebar__footer">
           <Button variant="ghost" size="sm" onClick={alternarTema} title={darkMode ? "Usar tema claro" : "Usar tema escuro"}>
             {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
@@ -93,12 +78,7 @@ export function AppShell({
 
       <nav className="app-mobile-nav" aria-label="Navegação móvel">
         {NAV.map(({ to, label, icon: Icon }) => (
-          <Link
-            key={to}
-            to={to}
-            className="app-sidebar__link"
-            activeProps={{ "data-active": "true" }}
-          >
+          <Link key={to} to={to} className="app-sidebar__link" activeProps={{ "data-active": "true" }}>
             <Icon className="size-4" />
             {label}
           </Link>
