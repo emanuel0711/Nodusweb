@@ -16,29 +16,14 @@ import { aplicarRegras, type RegraOferta } from "@/lib/regras-oferta";
 import { codigosDaFamiliaOferta, extrairExcecoes, normalizarCodigos } from "@/lib/codigos-oferta";
 
 export interface Oferta extends RegraOferta {
-  nome: string;
-  preco: number | null;
-  precoClube: number | null;
-  limiteBruto: string;
-  ean: string;
-  codigo: string;
-  codigoInterno: string;
-  codigos: string[];
-  codigosEditados?: boolean;
-  excecoes: string[][];
-  imagem: string;
-  encontrado: string | null;
-  nota: number;
+  nome: string; preco: number | null; precoClube: number | null; limiteBruto: string;
+  ean: string; codigo: string; codigoInterno: string; codigos: string[]; codigosEditados?: boolean;
+  excecoes: string[][]; imagem: string; encontrado: string | null; nota: number;
 }
 
 export const CARROSSEIS = [
-  "6431 - Promoções",
-  "6432 - Pra Você",
-  "13533 - Hortifruti",
-  "14036 - TERÇA DAS BEBIDAS",
-  "13715 - SUPER SABADO",
-  "6433 - Especial",
-  "6434 - Cashback",
+  "6431 - Promoções", "6432 - Pra Você", "13533 - Hortifruti", "14036 - TERÇA DAS BEBIDAS",
+  "13715 - SUPER SABADO", "6433 - Especial", "6434 - Cashback",
 ] as const;
 
 const STORAGE_KEY = "ofertaflow:rascunho-ofertas";
@@ -46,72 +31,42 @@ const NOMES = ["PRODUTO", "Produto", "Nome do Produto", "Nome", "Descrição", "
 const PRECOS = ["OFERTA", "Preço Normal", "Preco Normal", "Preço", "Preco", "Valor"];
 const PRECOS_CLUBE = ["CLUBE", "Preço Clube", "Preco Clube", "Preço promocional"];
 
-interface Rascunho {
-  ofertas: Oferta[];
-  nomeArquivo: string;
-  carrossel: string;
-  ativarEm: string;
-  inativarEm: string;
-  notaMinima: number;
-}
+interface Rascunho { ofertas: Oferta[]; nomeArquivo: string; carrossel: string; ativarEm: string; inativarEm: string; notaMinima: number; }
 
 function lerRascunho(): Rascunho | null {
-  try {
-    const salvo = sessionStorage.getItem(STORAGE_KEY);
-    return salvo ? JSON.parse(salvo) as Rascunho : null;
-  } catch {
-    return null;
-  }
+  try { const salvo = sessionStorage.getItem(STORAGE_KEY); return salvo ? JSON.parse(salvo) as Rascunho : null; }
+  catch { return null; }
 }
 
 export function separarCodigos(valor: unknown, ean = false): string[] {
-  return normalizarCodigos([
-    String(valor ?? "")
-      .split(/[;,|\n]+/)
-      .map((codigo) => ean ? limparEan(codigo) : limparCodigo(codigo))
-      .filter(Boolean)
-      .join(";"),
-  ]);
+  return normalizarCodigos([String(valor ?? "").split(/[;,|\n]+/).map((codigo) => ean ? limparEan(codigo) : limparCodigo(codigo)).filter(Boolean).join(";")]);
 }
 
 function valorDeLimite(linha: LinhaPlanilha): string {
   return String(valorDoCampo(linha, [
-    "Limite por cliente", "Limite por cliente (CPF)", "Limite por CPF",
-    "Limite cliente", "Limite por pessoa", "Qtd. limite", "Quantidade limite",
-    "LIMITE", "Limite",
+    "Limite por cliente", "Limite por cliente (CPF)", "Limite por CPF", "Limite cliente", "Limite por pessoa",
+    "Qtd. limite", "Quantidade limite", "LIMITE", "Limite",
   ]) ?? "").trim();
 }
 
-/**
- * Lê somente códigos que realmente identificam produto.
- * Código de promoção nunca participa da identificação.
- * A primeira coluna também não é fallback: no CSV ela é descartada e, no XLSX,
- * não podemos assumir que uma coluna numérica seja um código de produto.
- */
+/** Só lê campos explicitamente identificados como código interno. */
 function valorDeCodigoInterno(linha: LinhaPlanilha): string {
   const prioridades = [
     "Cód. Interno", "Cod. Interno", "Codigo Interno", "Código Interno",
-    "Código do produto", "Codigo do produto", "Código", "Codigo", "Cod.", "Cod",
+    "Código do produto", "Codigo do produto",
   ];
-
   for (const prioridade of prioridades) {
     const alvo = prioridade.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
     const encontrado = Object.entries(linha).find(([cabecalho, valor]) => {
       const h = cabecalho.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-      return !/ean|gtin|codigo de barras|promocao|promoção/.test(h)
-        && h === alvo
-        && String(valor ?? "").trim() !== "";
+      return h === alvo && String(valor ?? "").trim() !== "";
     });
     if (encontrado) return limparCodigo(encontrado[1]);
   }
   return "";
 }
 
-/**
- * Busca por código em campos com significado operacional.
- * EAN procura somente EAN; código interno procura somente código interno.
- * Nunca tratamos código de promoção como código de produto.
- */
+/** EAN procura EAN; código interno procura código interno. Código de promoção nunca identifica produto. */
 function acharPorCodigo(nome: string, codigoInterno: string, ean: string, catalogo: Produto[], notaMinima: number) {
   const eanLimpo = limparEan(ean);
   if (eanLimpo.length >= 8) {
@@ -122,7 +77,6 @@ function acharPorCodigo(nome: string, codigoInterno: string, ean: string, catalo
       if (achado) return achado;
     }
   }
-
   const interno = limparCodigo(codigoInterno);
   if (interno) {
     const porInterno = catalogo.filter((p) => limparCodigo(p.internal_code) === interno);
@@ -138,20 +92,18 @@ function acharPorCodigo(nome: string, codigoInterno: string, ean: string, catalo
 function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): Oferta | null {
   const nome = String(valorDoCampo(linha, NOMES) || "").trim();
   if (!nome) return null;
-
   const valorEAN = limparEan(valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN", "EAN13"]));
   const eanOrigem = valorEAN.length >= 8 ? valorEAN : "";
   const codigoOrigem = valorDeCodigoInterno(linha);
   const limiteBruto = valorDeLimite(linha);
   const excecoes = extrairExcecoes(linha, nome);
 
-  // Ordem determinística: EAN → código interno → nome.
+  // Ordem fixa: EAN → código interno → nome.
   const achadoPorCodigo = acharPorCodigo(nome, codigoOrigem, eanOrigem, catalogo, notaMinima);
   const achado = achadoPorCodigo || melhorCorrespondencia(nome, catalogo, notaMinima);
   const produto = achado?.item;
 
-  // O código final de Kg vem SEMPRE do cadastro do produto encontrado.
-  // Nunca reaproveitamos um valor externo que possa ser data, promoção ou outro identificador.
+  // O código exportado nunca vem do nome do arquivo, da promoção ou de um fallback de coluna.
   const codigoCatalogo = limparCodigo(produto?.internal_code);
   const codigoInterno = !eanOrigem ? codigoCatalogo : "";
   const eanProduto = limparEan(produto?.ean) || eanOrigem;
@@ -161,19 +113,10 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
 
   return {
     nome,
-    preco: lerPreco(valorDoCampo(linha, PRECOS)),
-    precoClube: lerPreco(valorDoCampo(linha, PRECOS_CLUBE)),
-    limiteBruto,
-    ...regras,
-    ean: eanProduto.length >= 8 ? eanProduto : "",
-    codigo: codigos.join(";"),
-    codigoInterno,
-    codigos,
-    codigosEditados: false,
-    excecoes,
-    imagem: produto?.image_url ?? "",
-    encontrado: produto?.description ?? null,
-    nota: achado?.score ?? 0,
+    preco: lerPreco(valorDoCampo(linha, PRECOS)), precoClube: lerPreco(valorDoCampo(linha, PRECOS_CLUBE)),
+    limiteBruto, ...regras, ean: eanProduto.length >= 8 ? eanProduto : "",
+    codigo: codigos.join(";"), codigoInterno, codigos, codigosEditados: false, excecoes,
+    imagem: produto?.image_url ?? "", encontrado: produto?.description ?? null, nota: achado?.score ?? 0,
   };
 }
 
@@ -185,33 +128,19 @@ function dataParaClube(valor: string): string {
   return `${p(data.getDate())}/${p(data.getMonth() + 1)}/${data.getFullYear()} ${p(data.getHours())}:${p(data.getMinutes())}:00`;
 }
 
-/**
- * Atualiza somente informações complementares do catálogo.
- * Não troca o produto já encontrado apenas por uma nova semelhança de nome.
- */
+/** Complementa imagem/códigos sem trocar um produto já encontrado por outro de nome parecido. */
 function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
   const candidato = melhorCorrespondencia(oferta.nome, catalogo, 0.72);
-  if (!candidato) return oferta;
+  if (!candidato || candidato.item.description !== oferta.encontrado) return oferta;
   const produto = candidato.item;
-  const mesmaDescricao = oferta.encontrado && produto.description === oferta.encontrado;
-  if (!mesmaDescricao) return oferta;
-
   const codigoCatalogo = limparCodigo(produto.internal_code);
   const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, codigoCatalogo, limparEan(produto.ean), produto.unit || "");
   const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || []);
   const codigos = oferta.codigosEditados ? normalizarCodigos(oferta.codigos || []) : normalizarCodigos(descobertos);
-
   return {
-    ...oferta,
-    imagem: oferta.imagem || produto.image_url || "",
-    codigos,
-    codigo: codigos.join(";"),
-    ean: oferta.ean || limparEan(produto.ean),
-    codigoInterno: regras.porQuilo ? codigoCatalogo : oferta.codigoInterno,
-    nota: Math.max(oferta.nota, candidato.score),
-    porQuilo: regras.porQuilo,
-    unidade: regras.unidade,
-    limite: regras.limite,
+    ...oferta, imagem: oferta.imagem || produto.image_url || "", codigos, codigo: codigos.join(";"),
+    ean: oferta.ean || limparEan(produto.ean), codigoInterno: regras.porQuilo ? codigoCatalogo : oferta.codigoInterno,
+    nota: Math.max(oferta.nota, candidato.score), porQuilo: regras.porQuilo, unidade: regras.unidade, limite: regras.limite,
   };
 }
 
@@ -230,10 +159,7 @@ export function useOfertas() {
   const [inativarEm, setInativarEm] = useState(rascunho?.inativarEm ?? "");
 
   useEffect(() => {
-    if (!ofertas.length && !nomeArquivo) {
-      sessionStorage.removeItem(STORAGE_KEY);
-      return;
-    }
+    if (!ofertas.length && !nomeArquivo) { sessionStorage.removeItem(STORAGE_KEY); return; }
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ofertas, nomeArquivo, carrossel, ativarEm, inativarEm, notaMinima }));
   }, [ofertas, nomeArquivo, carrossel, ativarEm, inativarEm, notaMinima]);
 
@@ -248,8 +174,7 @@ export function useOfertas() {
 
   function alterar(indice: number, mudanca: Partial<Oferta>) {
     setOfertas((atual) => atual.map((oferta, i) => i === indice
-      ? { ...oferta, ...mudanca, ...(Object.hasOwn(mudanca, "codigos") ? { codigosEditados: true } : {}) }
-      : oferta));
+      ? { ...oferta, ...mudanca, ...(Object.hasOwn(mudanca, "codigos") ? { codigosEditados: true } : {}) } : oferta));
   }
 
   async function processar(arquivo: File) {
@@ -259,19 +184,13 @@ export function useOfertas() {
       if (!linhas.length) throw new Error("A planilha não possui linhas de produtos reconhecíveis.");
       const cruzadas = linhas.map((linha) => cruzar(linha, catalogo, notaMinima)).filter((item): item is Oferta => item !== null);
       if (!cruzadas.length) throw new Error("Não encontrei uma coluna com o nome do produto na planilha.");
-
       const eans = cruzadas.filter((item) => !item.imagem && !item.porQuilo).flatMap((item) => item.codigos.filter((codigo) => codigo.length >= 8));
       const [imagens, imagensPorNome] = await Promise.all([
         buscarImagens(eans),
         buscarImagensPorProduto(cruzadas.filter((item) => !item.imagem && item.porQuilo).map((item) => ({ ean: "", nome: item.nome }))),
       ]);
-      const finais = cruzadas.map((item) => ({
-        ...item,
-        imagem: item.imagem || item.codigos.map((codigo) => imagens.get(codigo)).find(Boolean) || imagensPorNome.get(item.nome) || "",
-      }));
-
-      setOfertas(finais);
-      setNomeArquivo(arquivo.name);
+      const finais = cruzadas.map((item) => ({ ...item, imagem: item.imagem || item.codigos.map((codigo) => imagens.get(codigo)).find(Boolean) || imagensPorNome.get(item.nome) || "" }));
+      setOfertas(finais); setNomeArquivo(arquivo.name);
       const correspondidas = finais.filter((item) => item.nota >= notaMinima && item.codigos.length > 0).length;
       const { data } = await supabase.auth.getUser();
       if (data.user) {
@@ -282,46 +201,27 @@ export function useOfertas() {
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Falha ao processar a planilha");
     } finally {
-      setProcessando(false);
-      if (campoArquivo.current) campoArquivo.current.value = "";
+      setProcessando(false); if (campoArquivo.current) campoArquivo.current.value = "";
     }
   }
 
-  function limparOfertas() {
-    setOfertas([]);
-    setNomeArquivo("");
-    toast.success("Planilha removida");
-  }
+  function limparOfertas() { setOfertas([]); setNomeArquivo(""); toast.success("Planilha removida"); }
 
   function exportar() {
-    if (!ofertas.length || !carrossel.trim() || !ativarEm || !inativarEm) {
-      toast.error("Preencha Carrossel, Ativação automática e Inativar em.");
-      return;
-    }
+    if (!ofertas.length || !carrossel.trim() || !ativarEm || !inativarEm) { toast.error("Preencha Carrossel, Ativação automática e Inativar em."); return; }
     const linhas: OfertaParaExportar[] = ofertas.map((oferta) => ({
-      name: oferta.nome,
-      price: oferta.preco,
-      promotionalPrice: oferta.precoClube,
-      limit: oferta.limite,
-      imageUrl: oferta.imagem,
+      name: oferta.nome, price: oferta.preco, promotionalPrice: oferta.precoClube, limit: oferta.limite, imageUrl: oferta.imagem,
       code: normalizarCodigos(oferta.codigos.length ? oferta.codigos : [oferta.codigo]).join(";"),
-      codeType: oferta.porQuilo ? "Interno" : "EAN",
-      unidade: oferta.unidade,
+      codeType: oferta.porQuilo ? "Interno" : "EAN", unidade: oferta.unidade,
     }));
-    exportarModeloDoClube(linhas, {
-      carrossel,
-      ativarEm: dataParaClube(ativarEm),
-      inativarEm: dataParaClube(inativarEm),
-    });
-    setModalAberto(false);
-    toast.success("Planilha do Clube gerada.");
+    exportarModeloDoClube(linhas, { carrossel, ativarEm: dataParaClube(ativarEm), inativarEm: dataParaClube(inativarEm) });
+    setModalAberto(false); toast.success("Planilha do Clube gerada.");
   }
 
   return {
     campoArquivo, processando, ofertas, notaMinima, setNotaMinima, nomeArquivo,
     precisamRevisao: ofertas.filter((item) => item.nota < notaMinima || !item.codigos.length || !item.imagem).length,
-    alterar, limparOfertas, setModalAberto, processar,
-    modalAberto, carrossel, setCarrossel, ativarEm, setAtivarEm, inativarEm, setInativarEm,
-    exportar, modalVisualizacao, setModalVisualizacao,
+    alterar, limparOfertas, setModalAberto, processar, modalAberto, carrossel, setCarrossel,
+    ativarEm, setAtivarEm, inativarEm, setInativarEm, exportar, modalVisualizacao, setModalVisualizacao,
   };
 }
