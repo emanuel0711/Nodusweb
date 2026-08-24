@@ -5,7 +5,6 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   exportarModeloDoClube,
   lerPlanilha,
-  valorDaColuna,
   valorDoCampo,
   type LinhaPlanilha,
   type OfertaParaExportar,
@@ -83,40 +82,53 @@ function valorDeLimite(linha: LinhaPlanilha): string {
   ]) ?? "").trim();
 }
 
-function pareceCodigoNumerico(valor: unknown): boolean {
-  const texto = String(valor ?? "").trim();
-  return Boolean(texto) && texto.split(/[;,|\n]+/).every((parte) => /^\d{1,14}$/.test(parte.trim()));
-}
-
-function valorDeCodigo(linha: LinhaPlanilha): string {
+/**
+ * Lê somente códigos que realmente identificam produto.
+ * Código de promoção nunca participa da identificação.
+ * A primeira coluna também não é fallback: no CSV ela é descartada e, no XLSX,
+ * não podemos assumir que uma coluna numérica seja um código de produto.
+ */
+function valorDeCodigoInterno(linha: LinhaPlanilha): string {
   const prioridades = [
-    "Código da promoção", "Cód. Promoção", "Código do produto",
-    "Cód. Interno", "Codigo Interno", "Código Interno", "Código", "Codigo", "Cod.", "Cod",
+    "Cód. Interno", "Cod. Interno", "Codigo Interno", "Código Interno",
+    "Código do produto", "Codigo do produto", "Código", "Codigo", "Cod.", "Cod",
   ];
 
   for (const prioridade of prioridades) {
-    const alvo = prioridade.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const alvo = prioridade.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
     const encontrado = Object.entries(linha).find(([cabecalho, valor]) => {
-      const h = cabecalho.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-      return !/ean|gtin|codigo de barras/.test(h) && h === alvo && String(valor ?? "").trim() !== "";
+      const h = cabecalho.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+      return !/ean|gtin|codigo de barras|promocao|promoção/.test(h)
+        && h === alvo
+        && String(valor ?? "").trim() !== "";
     });
     if (encontrado) return limparCodigo(encontrado[1]);
   }
-
-  const primeiraColuna = valorDaColuna(linha, 0);
-  return pareceCodigoNumerico(primeiraColuna) ? limparCodigo(primeiraColuna) : "";
+  return "";
 }
 
-function acharPorCodigo(nome: string, codigo: string, catalogo: Produto[], notaMinima: number) {
-  for (const alvo of separarCodigos(codigo)) {
-    const candidatos = catalogo.filter((p) =>
-      limparEan(p.ean) === limparEan(alvo) ||
-      limparCodigo(p.internal_code) === limparCodigo(alvo) ||
-      limparCodigo(p.promotion_code) === limparCodigo(alvo),
-    );
-    if (candidatos.length === 1) return { item: candidatos[0], score: 1 };
-    if (candidatos.length > 1) {
-      const achado = melhorCorrespondencia(nome, candidatos, Math.max(0.55, notaMinima));
+/**
+ * Busca por código em campos com significado operacional.
+ * EAN procura somente EAN; código interno procura somente código interno.
+ * Nunca tratamos código de promoção como código de produto.
+ */
+function acharPorCodigo(nome: string, codigoInterno: string, ean: string, catalogo: Produto[], notaMinima: number) {
+  const eanLimpo = limparEan(ean);
+  if (eanLimpo.length >= 8) {
+    const porEan = catalogo.filter((p) => limparEan(p.ean) === eanLimpo);
+    if (porEan.length === 1) return { item: porEan[0], score: 1 };
+    if (porEan.length > 1) {
+      const achado = melhorCorrespondencia(nome, porEan, Math.max(0.55, notaMinima));
+      if (achado) return achado;
+    }
+  }
+
+  const interno = limparCodigo(codigoInterno);
+  if (interno) {
+    const porInterno = catalogo.filter((p) => limparCodigo(p.internal_code) === interno);
+    if (porInterno.length === 1) return { item: porInterno[0], score: 1 };
+    if (porInterno.length > 1) {
+      const achado = melhorCorrespondencia(nome, porInterno, Math.max(0.55, notaMinima));
       if (achado) return achado;
     }
   }
@@ -129,21 +141,23 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
 
   const valorEAN = limparEan(valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN", "EAN13"]));
   const eanOrigem = valorEAN.length >= 8 ? valorEAN : "";
-  const codigoOrigem = valorDeCodigo(linha) || (valorEAN.length > 0 && valorEAN.length < 8 ? valorEAN : "");
+  const codigoOrigem = valorDeCodigoInterno(linha);
   const limiteBruto = valorDeLimite(linha);
   const excecoes = extrairExcecoes(linha, nome);
-  const exatoPorEan = eanOrigem ? catalogo.find((p) => limparEan(p.ean) === eanOrigem) : undefined;
-  const exatoPorCodigo = !exatoPorEan ? acharPorCodigo(nome, codigoOrigem, catalogo, notaMinima) : null;
-  const achado = exatoPorEan ? { item: exatoPorEan, score: 1 } : exatoPorCodigo || melhorCorrespondencia(nome, catalogo, notaMinima);
+
+  // Ordem determinística: EAN → código interno → nome.
+  const achadoPorCodigo = acharPorCodigo(nome, codigoOrigem, eanOrigem, catalogo, notaMinima);
+  const achado = achadoPorCodigo || melhorCorrespondencia(nome, catalogo, notaMinima);
   const produto = achado?.item;
+
+  // O código final de Kg vem SEMPRE do cadastro do produto encontrado.
+  // Nunca reaproveitamos um valor externo que possa ser data, promoção ou outro identificador.
   const codigoCatalogo = limparCodigo(produto?.internal_code);
-  const codigoInterno = !eanOrigem && (codigoOrigem || codigoCatalogo) ? (codigoOrigem || codigoCatalogo) : "";
+  const codigoInterno = !eanOrigem ? codigoCatalogo : "";
   const eanProduto = limparEan(produto?.ean) || eanOrigem;
   const regras = aplicarRegras(nome, limiteBruto, codigoInterno, eanProduto, produto?.unit || "");
   const familia = codigosDaFamiliaOferta(nome, produto, catalogo, regras.porQuilo, excecoes);
-  const codigos = regras.porQuilo
-    ? normalizarCodigos(familia.length ? familia : (codigoOrigem ? [codigoOrigem] : [codigoInterno]))
-    : normalizarCodigos(familia);
+  const codigos = normalizarCodigos(familia);
 
   return {
     nome,
@@ -171,27 +185,30 @@ function dataParaClube(valor: string): string {
   return `${p(data.getDate())}/${p(data.getMonth() + 1)}/${data.getFullYear()} ${p(data.getHours())}:${p(data.getMinutes())}:00`;
 }
 
+/**
+ * Atualiza somente informações complementares do catálogo.
+ * Não troca o produto já encontrado apenas por uma nova semelhança de nome.
+ */
 function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
-  const achado = melhorCorrespondencia(oferta.nome, catalogo, 0.72);
-  if (!achado) return oferta;
-  const produto = achado.item;
+  const candidato = melhorCorrespondencia(oferta.nome, catalogo, 0.72);
+  if (!candidato) return oferta;
+  const produto = candidato.item;
+  const mesmaDescricao = oferta.encontrado && produto.description === oferta.encontrado;
+  if (!mesmaDescricao) return oferta;
+
   const codigoCatalogo = limparCodigo(produto.internal_code);
-  const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, oferta.codigoInterno || codigoCatalogo, limparEan(produto.ean), produto.unit || "");
+  const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, codigoCatalogo, limparEan(produto.ean), produto.unit || "");
   const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || []);
-  const fallbackKg = regras.porQuilo ? [oferta.codigoInterno, codigoCatalogo].filter(Boolean) : [];
-  const codigos = oferta.codigosEditados
-    ? normalizarCodigos(oferta.codigos || [])
-    : normalizarCodigos(descobertos.length ? descobertos : fallbackKg);
+  const codigos = oferta.codigosEditados ? normalizarCodigos(oferta.codigos || []) : normalizarCodigos(descobertos);
 
   return {
     ...oferta,
-    encontrado: oferta.encontrado || produto.description,
     imagem: oferta.imagem || produto.image_url || "",
     codigos,
     codigo: codigos.join(";"),
     ean: oferta.ean || limparEan(produto.ean),
-    codigoInterno: oferta.codigoInterno || codigoCatalogo,
-    nota: Math.max(oferta.nota, achado.score),
+    codigoInterno: regras.porQuilo ? codigoCatalogo : oferta.codigoInterno,
+    nota: Math.max(oferta.nota, candidato.score),
     porQuilo: regras.porQuilo,
     unidade: regras.unidade,
     limite: regras.limite,
@@ -291,20 +308,20 @@ export function useOfertas() {
       codeType: oferta.porQuilo ? "Interno" : "EAN",
       unidade: oferta.unidade,
     }));
-    try {
-      exportarModeloDoClube(linhas, { carrossel: carrossel.trim(), ativarEm: dataParaClube(ativarEm), inativarEm: dataParaClube(inativarEm) });
-      setModalAberto(false);
-      toast.success("Arquivo do Clube gerado e enviado para download.");
-    } catch (erro) {
-      toast.error(erro instanceof Error ? erro.message : "Não foi possível gerar o arquivo.");
-    }
+    exportarModeloDoClube(linhas, {
+      carrossel,
+      ativarEm: dataParaClube(ativarEm),
+      inativarEm: dataParaClube(inativarEm),
+    });
+    setModalAberto(false);
+    toast.success("Planilha do Clube gerada.");
   }
 
   return {
-    campoArquivo, processando, nomeArquivo, ofertas, notaMinima, setNotaMinima,
-    modalAberto, setModalAberto, modalVisualizacao, setModalVisualizacao,
-    carrossel, setCarrossel, ativarEm, setAtivarEm, inativarEm, setInativarEm,
-    alterar, processar, limparOfertas, exportar,
-    precisamRevisao: ofertas.filter((item) => !item.codigos.length || !item.imagem || item.nota < notaMinima).length,
+    campoArquivo, processando, ofertas, notaMinima, setNotaMinima, nomeArquivo,
+    precisamRevisao: ofertas.filter((item) => item.nota < notaMinima || !item.codigos.length || !item.imagem).length,
+    alterar, limparOfertas, setModalAberto, processar,
+    modalAberto, carrossel, setCarrossel, ativarEm, setAtivarEm, inativarEm, setInativarEm,
+    exportar, modalVisualizacao, setModalVisualizacao,
   };
 }
