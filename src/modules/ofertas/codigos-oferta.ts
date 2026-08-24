@@ -22,7 +22,6 @@ function candidatoExcluido(item: Produto, excecoes: string[][]): boolean {
   return excecoes.some((tokens) => tokens.length && (tokens.join(" ").match(/^\d{8,14}$/) ? codigos.includes(tokens.join(" ")) : tokens.every((token) => descricao.includes(token))));
 }
 
-/** Unidade usa EAN; Kg usa código interno. Código promocional nunca substitui os dois. */
 function codigoDoProduto(item: Produto, porQuilo: boolean): string {
   if (porQuilo) {
     const interno = limparCodigo(item.internal_code);
@@ -31,12 +30,23 @@ function codigoDoProduto(item: Produto, porQuilo: boolean): string {
   return limparEan(item.ean);
 }
 
-function candidatosDaFamilia(nome: string, produto: Produto | undefined, catalogo: Produto[], excecoes: string[][]): Produto[] {
+/**
+ * Custo alto demais para o preço da oferta é um forte sinal de que o código pertence
+ * a outra variação. Uma pequena diferença é permitida porque há vendas próximas do custo.
+ */
+function custoCompativel(item: Produto, precoOferta: number | null): boolean {
+  if (precoOferta == null || !Number.isFinite(precoOferta) || precoOferta <= 0) return true;
+  if (item.cost == null || !Number.isFinite(item.cost)) return true;
+  return item.cost <= precoOferta * 1.15;
+}
+
+function candidatosDaFamilia(nome: string, produto: Produto | undefined, catalogo: Produto[], excecoes: string[][], precoOferta: number | null): Produto[] {
   const tokensOferta = tokensFamilia(nome);
   const tamanhosOferta = tamanhosDoProduto(nome);
   const referencia = produto?.description || nome;
   return catalogo
     .filter((item) => !candidatoExcluido(item, excecoes))
+    .filter((item) => custoCompativel(item, precoOferta))
     .filter((item) => Boolean(codigoDoProduto(item, false)))
     .filter((item) => tamanhosCompativeis(nome, item.description))
     .filter((item) => !tamanhosOferta.length || tamanhosDoProduto(item.description).some((t) => tamanhosOferta.includes(t)))
@@ -47,11 +57,11 @@ function candidatosDaFamilia(nome: string, produto: Produto | undefined, catalog
     .map(({ item }) => item);
 }
 
-export function codigosDaFamiliaOferta(nome: string, produto: Produto | undefined, catalogo: Produto[], porQuilo: boolean, excecoes: string[][] = []): string[] {
-  const principalValido = Boolean(produto && tamanhosCompativeis(nome, produto.description) && !candidatoExcluido(produto, excecoes));
+export function codigosDaFamiliaOferta(nome: string, produto: Produto | undefined, catalogo: Produto[], porQuilo: boolean, excecoes: string[][] = [], precoOferta: number | null = null): string[] {
+  const principalValido = Boolean(produto && tamanhosCompativeis(nome, produto.description) && !candidatoExcluido(produto, excecoes) && custoCompativel(produto, precoOferta));
   const principal = principalValido ? codigoDoProduto(produto!, porQuilo) : "";
   if (porQuilo) return principal ? [principal] : [];
-  const familia = candidatosDaFamilia(nome, principalValido ? produto : undefined, catalogo, excecoes).map((item) => codigoDoProduto(item, false)).filter(Boolean);
+  const familia = candidatosDaFamilia(nome, principalValido ? produto : undefined, catalogo, excecoes, precoOferta).map((item) => codigoDoProduto(item, false)).filter(Boolean);
   return [...new Set([...familia, principal].filter(Boolean))];
 }
 
