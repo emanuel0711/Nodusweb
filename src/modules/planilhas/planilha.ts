@@ -53,11 +53,18 @@ export async function lerPlanilha(arquivo: File): Promise<LinhaPlanilha[]> {
   return matriz.slice(cabecalho + 1).filter((linha) => linha.some(temTexto)).map((linha) => {
     const registro: LinhaPlanilha = {};
     indicesAtivos.forEach((indice) => { registro[colunas[indice]!] = linha[indice] ?? ""; });
+    Object.defineProperty(registro, "__valoresAtivos", {
+      value: indicesAtivos.map((indice) => linha[indice] ?? ""),
+      enumerable: false,
+    });
     return registro;
   });
 }
 
-export function valorDaColuna(linha: LinhaPlanilha, indice: number): unknown { return Object.values(linha)[indice] ?? ""; }
+export function valorDaColuna(linha: LinhaPlanilha, indice: number): unknown {
+  const valoresAtivos = (linha as { __valoresAtivos?: unknown[] }).__valoresAtivos;
+  return valoresAtivos ? valoresAtivos[indice] ?? "" : Object.values(linha)[indice] ?? "";
+}
 
 function normalizarCabecalho(valor: string): string { return normalizarTexto(valor).replace(/[._\-\/]+/g, " ").replace(/\s+/g, " ").trim(); }
 function valorPareceLimite(valor: unknown): boolean {
