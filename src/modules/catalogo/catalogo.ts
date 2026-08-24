@@ -36,11 +36,7 @@ function normalizarProduto(produto: Produto): Produto {
   return { ...produto, ean: null };
 }
 
-/**
- * Carrega o catálogo em páginas.
- * Se o banco ainda não recebeu a migração de cost, mantém compatibilidade
- * para que a tela e a importação não parem por causa dessa coluna opcional.
- */
+/** Carrega o catálogo em páginas, usando custo quando a coluna existe. */
 export async function carregarTodosProdutos(): Promise<Produto[]> {
   const todos: Produto[] = [];
   let usarCusto = true;
@@ -69,9 +65,17 @@ export interface ProdutoImportado {
   unit: string | null; unit_price: number | null; cost: number | null; category: string; image_url: string | null;
 }
 
+function primeiroCustoValido(...valores: unknown[]): number | null {
+  for (const valor of valores) {
+    const custo = lerPreco(valor);
+    if (custo != null && custo >= 0) return custo;
+  }
+  return null;
+}
+
 /**
  * Converte uma linha da origem em produto.
- * Coluna A do CSV é ignorada. Coluna O é o custo.
+ * Coluna A do CSV é ignorada. A coluna O da origem é o custo.
  * Produtos por Kg usam código interno e deixam EAN vazio; unidades usam EAN.
  */
 export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): ProdutoImportado | null {
@@ -94,10 +98,18 @@ export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): Produ
     ean = eanInformado || (pareceEan(codigoGenerico) ? limparEan(codigoGenerico) : "");
   }
 
-  const custoPorCabecalho = valorDoCampo(linha, ["Custo", "Custo unitário", "Custo unitario", "Custo Un.", "Preço de custo", "Preco de custo", "Valor de custo"]);
-  // A coluna A é removida antes de criar o registro; a coluna O original vira índice 13.
-  const custoPorPosicao = valorDaColuna(linha, 13);
-  const custoImportado = lerPreco(custoPorCabecalho || custoPorPosicao);
+  const custoPorCabecalho = valorDoCampo(linha, [
+    "Custo", "Custo unitário", "Custo unitario", "Custo Un.",
+    "Custo médio", "Custo medio", "Custo produto", "Custo do produto",
+    "Preço de custo", "Preco de custo", "Valor de custo", "CMV",
+  ]);
+
+  // CSV: a coluna A é removida pelo leitor, então O original vira índice 13.
+  // XLSX: a coluna A permanece no registro, então O original fica no índice 14.
+  // O cabeçalho continua tendo prioridade; os índices são apenas fallback.
+  const custoPorPosicaoCsv = valorDaColuna(linha, 13);
+  const custoPorPosicaoXlsx = valorDaColuna(linha, 14);
+  const custoImportado = primeiroCustoValido(custoPorCabecalho, custoPorPosicaoCsv, custoPorPosicaoXlsx);
 
   return {
     internal_code: internalCode || null,
