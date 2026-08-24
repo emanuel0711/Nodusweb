@@ -158,6 +158,22 @@ function recuperarCodigoKg(nome: string, produto: Produto | undefined, catalogo:
   return melhorCorrespondenciaKg(nome, catalogo)?.item || produto;
 }
 
+/** Só serve como código interno de Kg um código curto (o que parece EAN é descartado). */
+function codigoInternoValido(produto: Produto | undefined): boolean {
+  const interno = limparCodigo(produto?.internal_code);
+  return Boolean(interno) && !/^\d{8,14}$/.test(limparEan(interno));
+}
+
+/**
+ * O catálogo tem descrições repetidas: uma cópia com código interno e outra sem.
+ * Quando o item escolhido não tem código, procura a cópia equivalente que tenha.
+ */
+function produtoComCodigoInterno(produto: Produto | undefined, catalogo: Produto[]): Produto | undefined {
+  if (!produto || codigoInternoValido(produto)) return produto;
+  const descricao = normalizarTexto(produto.description);
+  return catalogo.find((item) => normalizarTexto(item.description) === descricao && codigoInternoValido(item));
+}
+
 function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): Oferta | null {
   const nome = String(valorDoCampo(linha, NOMES) || "").trim();
   if (!nome) return null;
@@ -174,7 +190,13 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
   const achadoKg = porQuiloPeloNome ? melhorCorrespondenciaKg(nome, catalogo) : null;
   const achado = achadoPorCodigo || achadoNome || achadoKg;
   const produtoInicial = achado?.item;
-  const produto = porQuiloPeloNome ? recuperarCodigoKg(nome, produtoInicial, catalogo) : produtoInicial;
+  const produtoBase = porQuiloPeloNome ? (recuperarCodigoKg(nome, produtoInicial, catalogo) ?? produtoInicial) : produtoInicial;
+
+  // Se as regras apontarem Kg (mesmo sem "kg" no nome), garante um produto com código interno válido.
+  const regrasPrevias = aplicarRegras(nome, limiteBruto, limparCodigo(produtoBase?.internal_code), limparEan(produtoBase?.ean) || eanOrigem, produtoBase?.unit || "");
+  const produto = regrasPrevias.porQuilo
+    ? (produtoComCodigoInterno(produtoBase, catalogo) ?? recuperarCodigoKg(nome, produtoBase, catalogo) ?? produtoBase)
+    : produtoBase;
 
   // O código exportado nunca vem do nome do arquivo, da promoção ou de um fallback de coluna.
   const codigoCatalogo = limparCodigo(produto?.internal_code);
@@ -209,7 +231,8 @@ function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
   if (!candidato) return oferta;
   if (oferta.encontrado && candidato.item.description !== oferta.encontrado) return oferta;
 
-  const produto = oferta.porQuilo ? (recuperarCodigoKg(oferta.nome, candidato.item, catalogo) ?? candidato.item) : candidato.item;
+  const encontrado = oferta.porQuilo ? (recuperarCodigoKg(oferta.nome, candidato.item, catalogo) ?? candidato.item) : candidato.item;
+  const produto = oferta.porQuilo ? (produtoComCodigoInterno(encontrado, catalogo) ?? encontrado) : encontrado;
   const codigoCatalogo = limparCodigo(produto.internal_code);
   const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, codigoCatalogo, limparEan(produto.ean), produto.unit || "");
   const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || []);
