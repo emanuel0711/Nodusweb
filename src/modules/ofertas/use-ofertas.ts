@@ -158,6 +158,22 @@ function recuperarCodigoKg(nome: string, produto: Produto | undefined, catalogo:
   return melhorCorrespondenciaKg(nome, catalogo)?.item || produto;
 }
 
+/** Só serve como código interno de Kg um código curto (o que parece EAN é descartado). */
+function codigoInternoValido(produto: Produto | undefined): boolean {
+  const interno = limparCodigo(produto?.internal_code);
+  return Boolean(interno) && !/^\d{8,14}$/.test(limparEan(interno));
+}
+
+/**
+ * O catálogo tem descrições repetidas: uma cópia com código interno e outra sem.
+ * Quando o item escolhido não tem código, procura a cópia equivalente que tenha.
+ */
+function produtoComCodigoInterno(produto: Produto | undefined, catalogo: Produto[]): Produto | undefined {
+  if (!produto || codigoInternoValido(produto)) return produto;
+  const descricao = normalizarTexto(produto.description);
+  return catalogo.find((item) => normalizarTexto(item.description) === descricao && codigoInternoValido(item));
+}
+
 function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): Oferta | null {
   const nome = String(valorDoCampo(linha, NOMES) || "").trim();
   if (!nome) return null;
