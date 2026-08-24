@@ -12,7 +12,7 @@ export interface Produto {
 export const COLUNAS_PRODUTO_BASE = "id, internal_code, promotion_code, ean, description, unit, unit_price, category, image_url";
 export const COLUNAS_PRODUTO = `${COLUNAS_PRODUTO_BASE}, cost`;
 
-/** O catálogo continua funcionando mesmo se a coluna cost ainda não estiver no Supabase. */
+/** Identifica erros do PostgREST causados pela ausência da coluna de custo. */
 export function erroDeCustoAusente(error: { code?: string | null; message?: string | null; details?: string | null } | null): boolean {
   if (!error) return false;
   const texto = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
@@ -38,17 +38,8 @@ function normalizarProduto(produto: Produto): Produto {
 
 export async function carregarTodosProdutos(): Promise<Produto[]> {
   const todos: Produto[] = [];
-  let usarCusto = true;
-
   for (let inicio = 0; ; inicio += 1000) {
-    const colunas = usarCusto ? COLUNAS_PRODUTO : COLUNAS_PRODUTO_BASE;
-    let { data, error } = await supabase.from("products").select(colunas).range(inicio, inicio + 999);
-
-    if (error && usarCusto && erroDeCustoAusente(error)) {
-      usarCusto = false;
-      ({ data, error } = await supabase.from("products").select(COLUNAS_PRODUTO_BASE).range(inicio, inicio + 999));
-    }
-
+    const { data, error } = await supabase.from("products").select(COLUNAS_PRODUTO).range(inicio, inicio + 999);
     if (error) throw error;
     const pagina = ((data ?? []) as unknown as Produto[]).map((produto) => normalizarProduto({ ...produto, cost: produto.cost ?? null }));
     todos.push(...pagina);
@@ -89,7 +80,7 @@ export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): Produ
   const custoPorCabecalho = valorDoCampo(linha, ["Custo", "Custo unitário", "Custo unitario", "Custo Un.", "Preço de custo", "Preco de custo", "Valor de custo"]);
   // Depois de ignorar a coluna A, a coluna O original ocupa o índice 13 nos valores do registro.
   const custoPorPosicao = valorDaColuna(linha, 13);
-  const custo = lerPreco(custoPorCabecalho || custoPorPosicao);
+  const custoImportado = lerPreco(custoPorCabecalho || custoPorPosicao);
 
   return {
     internal_code: internalCode || null,
@@ -98,7 +89,7 @@ export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): Produ
     description: descricao,
     unit: unidade || null,
     unit_price: lerPreco(valorDoCampo(linha, ["Preço Un.", "Preco Un", "Preço", "Preco", "Valor"])),
-    cost,
+    cost: custoImportado,
     category: String(valorDoCampo(linha, ["Categoria"]) || categoria).trim() || categoria,
     image_url: String(valorDoCampo(linha, ["URL da imagem", "URL Imagem", "Imagem", "Foto"]) || "").trim() || null,
   };
