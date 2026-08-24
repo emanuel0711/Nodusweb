@@ -9,7 +9,16 @@ export interface Produto {
   category: string | null; image_url: string | null;
 }
 
-export const COLUNAS_PRODUTO = "id, internal_code, promotion_code, ean, description, unit, unit_price, cost, category, image_url";
+export const COLUNAS_PRODUTO_BASE = "id, internal_code, promotion_code, ean, description, unit, unit_price, category, image_url";
+export const COLUNAS_PRODUTO = `${COLUNAS_PRODUTO_BASE}, cost`;
+
+/** O catálogo continua funcionando mesmo se a coluna cost ainda não estiver no Supabase. */
+export function erroDeCustoAusente(error: { code?: string | null; message?: string | null; details?: string | null } | null): boolean {
+  if (!error) return false;
+  const texto = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+  return (error.code === "PGRST204" || error.code === "42703") && /\bcost\b|custo/.test(texto);
+}
+
 export function limparEan(valor: unknown): string { return String(valor ?? "").replace(/\D/g, ""); }
 export function limparCodigo(valor: unknown): string { return String(valor ?? "").trim().replace(/\.0+$/, ""); }
 export function pareceEan(valor: unknown): boolean { return /^(\d{12}|\d{13}|\d{14})$/.test(limparEan(valor)); }
@@ -29,10 +38,19 @@ function normalizarProduto(produto: Produto): Produto {
 
 export async function carregarTodosProdutos(): Promise<Produto[]> {
   const todos: Produto[] = [];
+  let usarCusto = true;
+
   for (let inicio = 0; ; inicio += 1000) {
-    const { data, error } = await supabase.from("products").select(COLUNAS_PRODUTO).range(inicio, inicio + 999);
+    const colunas = usarCusto ? COLUNAS_PRODUTO : COLUNAS_PRODUTO_BASE;
+    let { data, error } = await supabase.from("products").select(colunas).range(inicio, inicio + 999);
+
+    if (error && usarCusto && erroDeCustoAusente(error)) {
+      usarCusto = false;
+      ({ data, error } = await supabase.from("products").select(COLUNAS_PRODUTO_BASE).range(inicio, inicio + 999));
+    }
+
     if (error) throw error;
-    const pagina = ((data ?? []) as unknown as Produto[]).map(normalizarProduto);
+    const pagina = ((data ?? []) as unknown as Produto[]).map((produto) => normalizarProduto({ ...produto, cost: produto.cost ?? null }));
     todos.push(...pagina);
     if (pagina.length < 1000) return todos;
   }
