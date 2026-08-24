@@ -36,12 +36,29 @@ function normalizarProduto(produto: Produto): Produto {
   return { ...produto, ean: null };
 }
 
+/**
+ * Carrega o catálogo em páginas.
+ * Se o banco ainda não recebeu a migração de cost, mantém compatibilidade
+ * para que a tela e a importação não parem por causa dessa coluna opcional.
+ */
 export async function carregarTodosProdutos(): Promise<Produto[]> {
   const todos: Produto[] = [];
+  let usarCusto = true;
+
   for (let inicio = 0; ; inicio += 1000) {
-    const { data, error } = await supabase.from("products").select(COLUNAS_PRODUTO).range(inicio, inicio + 999);
+    const colunas = usarCusto ? COLUNAS_PRODUTO : COLUNAS_PRODUTO_BASE;
+    let { data, error } = await supabase.from("products").select(colunas).range(inicio, inicio + 999);
+
+    if (error && usarCusto && erroDeCustoAusente(error)) {
+      usarCusto = false;
+      ({ data, error } = await supabase.from("products").select(COLUNAS_PRODUTO_BASE).range(inicio, inicio + 999));
+    }
+
     if (error) throw error;
-    const pagina = ((data ?? []) as unknown as Produto[]).map((produto) => normalizarProduto({ ...produto, cost: produto.cost ?? null }));
+
+    const pagina = ((data ?? []) as unknown as Produto[]).map((produto) =>
+      normalizarProduto({ ...produto, cost: produto.cost ?? null }),
+    );
     todos.push(...pagina);
     if (pagina.length < 1000) return todos;
   }
@@ -78,7 +95,7 @@ export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): Produ
   }
 
   const custoPorCabecalho = valorDoCampo(linha, ["Custo", "Custo unitário", "Custo unitario", "Custo Un.", "Preço de custo", "Preco de custo", "Valor de custo"]);
-  // Depois de ignorar a coluna A, a coluna O original ocupa o índice 13 nos valores do registro.
+  // A coluna A é removida antes de criar o registro; a coluna O original vira índice 13.
   const custoPorPosicao = valorDaColuna(linha, 13);
   const custoImportado = lerPreco(custoPorCabecalho || custoPorPosicao);
 
