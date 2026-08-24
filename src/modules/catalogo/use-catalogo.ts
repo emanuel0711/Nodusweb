@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { lerPlanilha, categoriaPeloNomeDoArquivo } from "@/lib/planilha";
 import { lerPreco } from "@/lib/comparar-textos";
 import { buscarImagens } from "@/lib/imagens";
-import { COLUNAS_PRODUTO, carregarTodosProdutos, chaveDoProduto, limparCodigo, limparEan, linhaParaProduto, type Produto } from "@/lib/catalogo";
+import { COLUNAS_PRODUTO, COLUNAS_PRODUTO_BASE, carregarTodosProdutos, chaveDoProduto, erroDeCustoAusente, limparCodigo, limparEan, linhaParaProduto, type Produto } from "@/lib/catalogo";
 
 export const POR_PAGINA = 20;
 export const TODAS = "__all__";
@@ -32,13 +32,27 @@ async function completarImagens(novos: Array<{ id: string; ean: string | null }>
   }));
 }
 
-async function atualizarCustos(atualizacoes: Array<{ id: string; cost: number }>) {
+async function atualizarCustos(atualizacoes: Array<{ id: string; cost: number }>): Promise<boolean> {
   for (let i = 0; i < atualizacoes.length; i += 50) {
     const lote = atualizacoes.slice(i, i + 50);
     const resultados = await Promise.all(lote.map(({ id, cost }) => supabase.from("products").update({ cost }).eq("id", id)));
     const erro = resultados.find((resultado) => resultado.error)?.error;
-    if (erro) throw erro;
+    if (erro) {
+      if (erroDeCustoAusente(erro)) return false;
+      throw erro;
+    }
   }
+  return true;
+}
+
+async function inserirLote(lote: Array<Record<string, unknown>>) {
+  let resultado = await supabase.from("products").insert(lote).select("id, ean");
+  if (resultado.error && erroDeCustoAusente(resultado.error)) {
+    const semCusto = lote.map(({ cost: _cost, ...produto }) => produto);
+    resultado = await supabase.from("products").insert(semCusto).select("id, ean");
+  }
+  if (resultado.error) throw resultado.error;
+  return (resultado.data ?? []) as Array<{ id: string; ean: string | null }>;
 }
 
 export function useCatalogo() {
@@ -62,15 +76,20 @@ export function useCatalogo() {
   const produtos = useQuery({
     queryKey: ["products", busca, categoria, pagina],
     queryFn: async () => {
-      let consulta = supabase.from("products").select(COLUNAS_PRODUTO, { count: "exact" })
-        .order("description").range(pagina * POR_PAGINA, pagina * POR_PAGINA + POR_PAGINA - 1);
       const termo = busca.trim().replace(/[,%]/g, " ");
-      if (termo) consulta = consulta.or(`description.ilike.%${termo}%,ean.ilike.%${termo}%,internal_code.ilike.%${termo}%,promotion_code.ilike.%${termo}%`);
-      if (categoria === SEM_CATEGORIA) consulta = consulta.is("category", null);
-      else if (categoria !== TODAS) consulta = consulta.eq("category", categoria);
-      const { data, error, count } = await consulta;
-      if (error) throw error;
-      return { linhas: (data ?? []) as unknown as Produto[], total: count ?? 0 };
+      const consultar = async (colunas: string) => {
+        let consulta = supabase.from("products").select(colunas, { count: "exact" })
+          .order("description").range(pagina * POR_PAGINA, pagina * POR_PAGINA + POR_PAGINA - 1);
+        if (termo) consulta = consulta.or(`description.ilike.%${termo}%,ean.ilike.%${termo}%,internal_code.ilike.%${termo}%,promotion_code.ilike.%${termo}%`);
+        if (categoria === SEM_CATEGORIA) consulta = consulta.is("category", null);
+        else if (categoria !== TODAS) consulta = consulta.eq("category", categoria);
+        return consulta;
+      };
+
+      let consulta = await consultar(COLUNAS_PRODUTO);
+      if (consulta.error && erroDeCustoAusente(consulta.error)) consulta = await consultar(COLUNAS_PRODUTO_BASE);
+      if (consulta.error) throw consulta.error;
+      return { linhas: ((consulta.data ?? []) as unknown as Produto[]).map((produto) => ({ ...produto, cost: produto.cost ?? null })), total: consulta.count ?? 0 };
     },
   });
 
@@ -90,9 +109,15 @@ export function useCatalogo() {
         unit_price: lerPreco(formulario.unit_price),
         cost: lerPreco(formulario.cost),
       };
-      const resultado = editando
+      let resultado = editando
         ? await supabase.from("products").update(dados).eq("id", editando.id)
         : await supabase.from("products").insert({ ...dados, user_id: sessao.user.id });
+      if (resultado.error && erroDeCustoAusente(resultado.error)) {
+        const { cost: _cost, ...dadosSemCusto } = dados;
+        resultado = editando
+          ? await supabase.from("products").update(dadosSemCusto).eq("id", editando.id)
+          : await supabase.from("products").insert({ ...dadosSemCusto, user_id: sessao.user.id });
+      }
       if (resultado.error) throw resultado.error;
     },
     onSuccess: () => {
@@ -144,7 +169,7 @@ export function useCatalogo() {
       for (const arquivo of Array.from(arquivos)) {
         const linhas = await lerPlanilha(arquivo);
         const categoriaArquivo = categoriaPeloNomeDoArquivo(arquivo.name);
-        const paraInserir = [];
+        const paraInserir: Array<Record<string, unknown>> = [];
         for (const linha of linhas) {
           const produto = linhaParaProduto(linha, categoriaArquivo);
           if (!produto) { semNome++; continue; }
@@ -160,16 +185,16 @@ export function useCatalogo() {
         }
         for (let i = 0; i < paraInserir.length; i += 500) {
           const lote = paraInserir.slice(i, i + 500);
-          const { data, error } = await supabase.from("products").insert(lote).select("id, ean");
-          if (error) throw error;
-          novos.push(...((data ?? []) as Array<{ id: string; ean: string | null }>));
+          const data = await inserirLote(lote);
+          novos.push(...data);
           importados += lote.length;
         }
       }
 
-      await atualizarCustos(atualizacoesCusto);
+      const custoDisponivel = await atualizarCustos(atualizacoesCusto);
       const segundos = ((performance.now() - inicio) / 1000).toFixed(1);
       if (!importados && !atualizacoesCusto.length) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
+      else if (atualizacoesCusto.length && !custoDisponivel) toast.success(`${importados} produto(s) importado(s). O catálogo ainda não possui a coluna de custo no banco.`);
       else toast.success(`${importados} produto(s) importado(s), ${atualizacoesCusto.length} custo(s) atualizado(s) em ${segundos}s.`);
       atualizarListas();
       void completarImagens(novos).then(atualizarListas).catch(() => undefined);
