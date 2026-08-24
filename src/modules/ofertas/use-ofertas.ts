@@ -9,7 +9,7 @@ import {
   type LinhaPlanilha,
   type OfertaParaExportar,
 } from "@/lib/planilha";
-import { lerPreco, melhorCorrespondencia } from "@/lib/comparar-textos";
+import { lerPreco, melhorCorrespondencia, normalizarTexto, semelhanca } from "@/lib/comparar-textos";
 import { buscarImagens, buscarImagensPorProduto } from "@/lib/imagens";
 import { carregarTodosProdutos, limparCodigo, limparEan, type Produto } from "@/lib/catalogo";
 import { aplicarRegras, type RegraOferta } from "@/lib/regras-oferta";
@@ -89,6 +89,75 @@ function acharPorCodigo(nome: string, codigoInterno: string, ean: string, catalo
   return null;
 }
 
+const TOKENS_KG_GENERICO = new Set([
+  "kg", "quilo", "kilo", "quilograma", "carne", "bov", "bovina", "bovino", "suina", "suino",
+  "suina", "res", "resf", "com", "sem", "capa", "pessoa", "por", "cliente",
+]);
+
+/**
+ * Carnes e outros produtos de Kg costumam ter descrições comerciais diferentes.
+ * Em vez de exigir o nome inteiro, usa as palavras distintivas do corte/produto.
+ * O código só é aceito depois que o produto do catálogo foi identificado.
+ */
+function tokensDistintivosKg(nome: string): string[] {
+  return [...new Set(normalizarTexto(nome)
+    .split(/\s+/)
+    .filter((token) => token.length >= 3 && !TOKENS_KG_GENERICO.has(token)))];
+}
+
+function unidadeEhKg(produto: Produto): boolean {
+  const unidade = normalizarTexto(produto.unit || "");
+  return /^(kg|quilo|kilo|quilograma)$/.test(unidade) || /\bkg\b|\bquilograma\b/.test(normalizarTexto(produto.description));
+}
+
+function pontuarProdutoKg(nome: string, produto: Produto): number {
+  if (!unidadeEhKg(produto)) return 0;
+  const alvo = normalizarTexto(nome);
+  const descricao = normalizarTexto(produto.description);
+  if (alvo === descricao) return 1;
+
+  const tokens = tokensDistintivosKg(nome);
+  if (!tokens.length) return 0;
+  const candidatos = [...new Set(descricao.split(/\s+/))];
+  let correspondencias = 0;
+  for (const token of tokens) {
+    if (candidatos.includes(token)) { correspondencias += 1; continue; }
+    if (candidatos.some((candidato) => token.length >= 4 && candidato.length >= 4 && semelhanca(token, candidato) >= 0.82)) correspondencias += 0.75;
+  }
+  const cobertura = correspondencias / tokens.length;
+  if (correspondencias === 0) return 0;
+  return cobertura * 0.7 + semelhanca(alvo, descricao) * 0.3;
+}
+
+/** Busca específica para Kg quando a descrição completa da planilha diverge do catálogo. */
+function melhorCorrespondenciaKg(nome: string, catalogo: Produto[]): { item: Produto; score: number } | null {
+  if (!/\bkg\b|\bquilo\b|\bkilo\b|\bquilograma\b/.test(normalizarTexto(nome))) return null;
+  const candidatos = catalogo
+    .map((item) => ({ item, score: pontuarProdutoKg(nome, item), temCodigo: Boolean(limparCodigo(item.internal_code)) }))
+    .filter(({ score }) => score >= 0.42)
+    .sort((a, b) => b.score - a.score || Number(b.temCodigo) - Number(a.temCodigo));
+  const melhor = candidatos[0];
+  return melhor ? { item: melhor.item, score: melhor.score } : null;
+}
+
+/**
+ * Para Kg, se o primeiro produto encontrado não tiver código interno, procura
+ * uma correspondência equivalente no catálogo que realmente possua internal_code.
+ */
+function recuperarCodigoKg(nome: string, produto: Produto | undefined, catalogo: Produto[]): Produto | undefined {
+  if (!produto) return melhorCorrespondenciaKg(nome, catalogo)?.item;
+  if (limparCodigo(produto.internal_code)) return produto;
+
+  const exatos = catalogo.filter((item) =>
+    unidadeEhKg(item) &&
+    normalizarTexto(item.description) === normalizarTexto(produto.description) &&
+    Boolean(limparCodigo(item.internal_code)),
+  );
+  if (exatos.length) return exatos[0];
+
+  return melhorCorrespondenciaKg(nome, catalogo)?.item || produto;
+}
+
 function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): Oferta | null {
   const nome = String(valorDoCampo(linha, NOMES) || "").trim();
   if (!nome) return null;
@@ -97,11 +166,15 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
   const codigoOrigem = valorDeCodigoInterno(linha);
   const limiteBruto = valorDeLimite(linha);
   const excecoes = extrairExcecoes(linha, nome);
+  const porQuiloPeloNome = /\bkg\b|\bquilo\b|\bkilo\b|\bquilograma\b/.test(normalizarTexto(nome));
 
-  // Ordem fixa: EAN → código interno → nome.
+  // Ordem: código correto da origem → nome completo → busca específica de Kg.
   const achadoPorCodigo = acharPorCodigo(nome, codigoOrigem, eanOrigem, catalogo, notaMinima);
-  const achado = achadoPorCodigo || melhorCorrespondencia(nome, catalogo, notaMinima);
-  const produto = achado?.item;
+  const achadoNome = melhorCorrespondencia(nome, catalogo, notaMinima);
+  const achadoKg = porQuiloPeloNome ? melhorCorrespondenciaKg(nome, catalogo) : null;
+  const achado = achadoPorCodigo || achadoNome || achadoKg;
+  const produtoInicial = achado?.item;
+  const produto = porQuiloPeloNome ? recuperarCodigoKg(nome, produtoInicial, catalogo) : produtoInicial;
 
   // O código exportado nunca vem do nome do arquivo, da promoção ou de um fallback de coluna.
   const codigoCatalogo = limparCodigo(produto?.internal_code);
@@ -130,16 +203,21 @@ function dataParaClube(valor: string): string {
 
 /** Complementa imagem/códigos sem trocar um produto já encontrado por outro de nome parecido. */
 function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
-  const candidato = melhorCorrespondencia(oferta.nome, catalogo, 0.72);
-  if (!candidato || candidato.item.description !== oferta.encontrado) return oferta;
-  const produto = candidato.item;
+  const candidato = oferta.porQuilo
+    ? (melhorCorrespondenciaKg(oferta.nome, catalogo) || melhorCorrespondencia(oferta.nome, catalogo, 0.72))
+    : melhorCorrespondencia(oferta.nome, catalogo, 0.72);
+  if (!candidato) return oferta;
+  if (oferta.encontrado && candidato.item.description !== oferta.encontrado) return oferta;
+
+  const produto = oferta.porQuilo ? recuperarCodigoKg(oferta.nome, candidato.item, catalogo) : candidato.item;
   const codigoCatalogo = limparCodigo(produto.internal_code);
   const regras = aplicarRegras(oferta.nome, oferta.limiteBruto, codigoCatalogo, limparEan(produto.ean), produto.unit || "");
   const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || []);
   const codigos = oferta.codigosEditados ? normalizarCodigos(oferta.codigos || []) : normalizarCodigos(descobertos);
   return {
-    ...oferta, imagem: oferta.imagem || produto.image_url || "", codigos, codigo: codigos.join(";"),
-    ean: oferta.ean || limparEan(produto.ean), codigoInterno: regras.porQuilo ? codigoCatalogo : oferta.codigoInterno,
+    ...oferta, imagem: oferta.imagem || produto.image_url || "", encontrado: oferta.encontrado || produto.description,
+    codigos, codigo: codigos.join(";"), ean: oferta.ean || limparEan(produto.ean),
+    codigoInterno: regras.porQuilo ? codigoCatalogo : oferta.codigoInterno,
     nota: Math.max(oferta.nota, candidato.score), porQuilo: regras.porQuilo, unidade: regras.unidade, limite: regras.limite,
   };
 }
