@@ -40,14 +40,6 @@ async function completarImagens(itens: ImagemPendente[]) {
   }));
 }
 
-async function verificarColunaDeCusto() {
-  const { error } = await supabase.from("products").select("id, cost").limit(1);
-  if (error && erroDeCustoAusente(error)) {
-    throw new Error("O banco do Nódus ainda não possui a coluna de custo. A migração de custo precisa ser aplicada no Supabase/Lovable antes de importar o catálogo.");
-  }
-  if (error) throw error;
-}
-
 async function atualizarCustos(atualizacoes: Array<{ id: string; cost: number }>) {
   for (let i = 0; i < atualizacoes.length; i += 50) {
     const lote = atualizacoes.slice(i, i + 50);
@@ -158,7 +150,6 @@ export function useCatalogo() {
     setImportando(true);
     const inicio = performance.now();
     try {
-      await verificarColunaDeCusto();
       const { data: sessao } = await supabase.auth.getUser();
       if (!sessao.user) throw new Error("Sessão expirada. Entre novamente.");
 
