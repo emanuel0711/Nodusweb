@@ -10,7 +10,7 @@ import { COLUNAS_PRODUTO, carregarTodosProdutos, chaveDoProduto, limparCodigo, l
 export const POR_PAGINA = 20;
 export const TODAS = "__all__";
 export const SEM_CATEGORIA = "__uncategorized__";
-export const FORMULARIO_VAZIO = { description: "", internal_code: "", promotion_code: "", ean: "", unit: "", category: "", image_url: "", unit_price: "" };
+export const FORMULARIO_VAZIO = { description: "", internal_code: "", promotion_code: "", ean: "", unit: "", category: "", unit_price: "", cost: "", image_url: "" };
 export type FormularioProduto = typeof FORMULARIO_VAZIO;
 
 async function carregarCategorias(): Promise<string[]> {
@@ -79,6 +79,7 @@ export function useCatalogo() {
         category: formulario.category.trim() || null,
         image_url: formulario.image_url.trim() || null,
         unit_price: lerPreco(formulario.unit_price),
+        cost: lerPreco(formulario.cost),
       };
       const resultado = editando
         ? await supabase.from("products").update(dados).eq("id", editando.id)
@@ -173,8 +174,9 @@ export function useCatalogo() {
       ean: produto.ean ?? "",
       unit: produto.unit ?? "",
       category: produto.category ?? "",
-      image_url: produto.image_url ?? "",
       unit_price: produto.unit_price != null ? String(produto.unit_price) : "",
+      cost: produto.cost != null ? String(produto.cost) : "",
+      image_url: produto.image_url ?? "",
     });
     setDialogoAberto(true);
   }
