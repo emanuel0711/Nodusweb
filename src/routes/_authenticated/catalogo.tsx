@@ -24,7 +24,7 @@ function PaginaCatalogo() {
   const catalogo = useCatalogo();
   return <AppShell title="Catálogo de produtos" subtitle="Base usada no cruzamento automático das ofertas.">
     <BarraCatalogo {...catalogo} />
-    <ImagensPendentes />
+    <ImagensPendentes categoria={catalogo.categoria} />
     <TabelaCatalogo {...catalogo} />
     <Paginacao {...catalogo} />
     <DialogProduto {...catalogo} />
