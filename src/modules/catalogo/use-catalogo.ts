@@ -204,12 +204,21 @@ export function useCatalogo() {
       }
 
       await atualizarCustos(atualizacoesCusto);
+
+      let imagensSalvas = 0;
+      try {
+        imagensSalvas = await completarImagens(imagensPendentes);
+      } catch (erro) {
+        console.error("Falha ao completar imagens", erro);
+        toast.warning("Produtos importados, mas a busca de imagens falhou.");
+      }
+
       const segundos = ((performance.now() - inicio) / 1000).toFixed(1);
-      if (!importados && !atualizacoesCusto.length) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
-      else toast.success(`${importados} produto(s) importado(s), ${atualizacoesCusto.length} custo(s) atualizado(s) em ${segundos}s.`);
+      if (!importados && !atualizacoesCusto.length && !imagensSalvas) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
+      else toast.success(`${importados} produto(s) importado(s), ${atualizacoesCusto.length} custo(s) atualizado(s), ${imagensSalvas} imagem(ns) salva(s) em ${segundos}s.`);
 
       atualizarListas();
-      void completarImagens(imagensPendentes).then(atualizarListas).catch((erro) => console.error("Falha ao completar imagens", erro));
+
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Falha na importação");
     } finally {
