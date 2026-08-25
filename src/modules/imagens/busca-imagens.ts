@@ -1,111 +1,12 @@
-/** Busca de imagens por EAN. Ordem: catálogo/Cosmos -> EAN Pictures -> UPCitemdb -> Open Food Facts. */
-const OFF_API = "https://world.openfoodfacts.org/api/v2/product";
-const COSMOS_CDN = "https://cdn-cosmos.bluesoft.com.br/products";
-const EAN_PICTURES = "https://www.eanpictures.com.br:9000/api/gtin";
-const UPC_SEARCH_API = "https://api.upcitemdb.com/prod/trial/search";
-const MAX_PARALELO = 16;
-const cache = new Map<string, string>();
-const cacheNome = new Map<string, string>();
-
-const somenteNumeros = (valor: unknown) => String(valor ?? "").replace(/\D/g, "");
-
-function imagemCarrega(url: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const imagem = new Image();
-    const timer = window.setTimeout(() => { imagem.src = ""; resolve(false); }, 7000);
-    imagem.onload = () => { window.clearTimeout(timer); resolve(imagem.naturalWidth > 0 && imagem.naturalHeight > 0); };
-    imagem.onerror = () => { window.clearTimeout(timer); resolve(false); };
-    imagem.src = url;
-  });
-}
-
-async function buscarCosmos(ean: string) { const url = `${COSMOS_CDN}/${encodeURIComponent(ean)}`; return await imagemCarrega(url) ? url : ""; }
-async function buscarEanPictures(ean: string) { const url = `${EAN_PICTURES}/${encodeURIComponent(ean)}`; return await imagemCarrega(url) ? url : ""; }
-
-async function buscarUpc(ean: string): Promise<string> {
-  try {
-    const resposta = await fetch(`${UPC_SEARCH_API}?s=${encodeURIComponent(ean)}&match_mode=1`);
-    if (!resposta.ok) return "";
-    const dados = await resposta.json() as { items?: Array<{ images?: string[] }> };
-    for (const item of dados.items ?? []) for (const url of item.images ?? []) if (url && await imagemCarrega(url)) return url;
-  } catch { /* tenta a próxima fonte */ }
-  return "";
-}
-
-async function buscarOpenFoodFacts(ean: string): Promise<string> {
-  for (const codigo of ean.length === 12 ? [ean, `0${ean}`] : [ean]) {
-    try {
-      const resposta = await fetch(`${OFF_API}/${encodeURIComponent(codigo)}.json?fields=image_front_url,image_front_small_url,image_url`, { headers: { Accept: "application/json" } });
-      if (!resposta.ok) continue;
-      const dados = await resposta.json() as { status?: number; product?: { image_front_url?: string; image_front_small_url?: string; image_url?: string } };
-      if (dados.status !== 1) continue;
-      for (const url of [dados.product?.image_front_url, dados.product?.image_front_small_url, dados.product?.image_url].filter(Boolean) as string[]) if (await imagemCarrega(url)) return url;
-    } catch { /* tenta o próximo código */ }
-  }
-  return "";
-}
-
-/** Itens sem EAN usam busca textual apenas quando há correspondência suficiente. */
-async function buscarPorNome(nome: string): Promise<string> {
-  const chave = nome.trim().toLowerCase();
-  if (!chave) return "";
-  const guardada = cacheNome.get(chave);
-  if (guardada !== undefined) return guardada;
-  try {
-    const resposta = await fetch(`${UPC_SEARCH_API}?s=${encodeURIComponent(`${nome} produto`)}&match_mode=0`);
-    if (resposta.ok) {
-      const dados = await resposta.json() as { items?: Array<{ title?: string; images?: string[] }> };
-      const termos = chave.split(/\s+/).filter((t) => t.length >= 4 && !["produto", "bov", "bovina", "kg"].includes(t));
-      const candidatos = (dados.items ?? []).filter((item) => item.images?.length).map((item) => {
-        const titulo = String(item.title ?? "").toLowerCase();
-        return { item, acertos: termos.filter((termo) => titulo.includes(termo)).length };
-      }).filter((item) => !termos.length || item.acertos >= Math.min(2, termos.length)).sort((a, b) => b.acertos - a.acertos);
-      for (const { item } of candidatos) for (const url of item.images ?? []) if (url && await imagemCarrega(url)) { cacheNome.set(chave, url); return url; }
-    }
-  } catch { /* sem imagem textual confiável */ }
-  cacheNome.set(chave, "");
-  return "";
-}
-
-async function buscarUma(ean: string): Promise<string> {
-  const guardada = cache.get(ean);
-  if (guardada !== undefined) return guardada;
-  for (const buscar of [buscarCosmos, buscarEanPictures, buscarUpc, buscarOpenFoodFacts]) {
-    const url = await buscar(ean);
-    if (url) { cache.set(ean, url); return url; }
-  }
-  cache.set(ean, "");
-  return "";
-}
-
-export async function buscarImagens(eans: string[]): Promise<Map<string, string>> {
-  const lista = [...new Set(eans.map(somenteNumeros).filter((ean) => ean.length >= 8))];
-  const resultado = new Map<string, string>(); let indice = 0;
-  async function trabalhador() { while (indice < lista.length) { const ean = lista[indice++]!; const url = await buscarUma(ean); if (url) resultado.set(ean, url); } }
-  await Promise.all(Array.from({ length: Math.min(MAX_PARALELO, lista.length) }, trabalhador));
-  return resultado;
-}
-
-export async function buscarImagensPorProduto(itens: Array<{ ean: string; nome: string }>): Promise<Map<string, string>> {
-  const lista = itens.filter((item) => !item.ean && item.nome.trim());
-  const resultado = new Map<string, string>(); let indice = 0;
-  async function trabalhador() { while (indice < lista.length) { const item = lista[indice++]!; const url = await buscarPorNome(item.nome); if (url) resultado.set(item.nome, url); } }
-  await Promise.all(Array.from({ length: Math.min(4, lista.length) }, trabalhador));
-  return resultado;
-}
-
-/** Busca a imagem de um único EAN nas fontes confiáveis (Cosmos primeiro). */
-export async function buscarImagemPorEan(ean: string): Promise<string> {
-  const codigo = somenteNumeros(ean);
-  return codigo.length >= 8 ? buscarUma(codigo) : "";
-}
-
-/** Busca a imagem de um produto sem EAN pelo nome (fonte confiável, com corte de similaridade). */
-export async function buscarImagemPorNome(nome: string): Promise<string> {
-  return buscarPorNome(nome);
-}
-
-/** Valida se uma URL de imagem realmente carrega (usado para candidatos do Google). */
-export async function urlDeImagemValida(url: string): Promise<boolean> {
-  return imagemCarrega(url);
-}
+/** Busca de imagens por EAN/nome, priorizando fontes confiáveis e evitando requisições repetidas. */
+const OFF_API="https://world.openfoodfacts.org/api/v2/product";const COSMOS_CDN="https://cdn-cosmos.bluesoft.com.br/products";const EAN_PICTURES="https://www.eanpictures.com.br:9000/api/gtin";const UPC_SEARCH_API="https://api.upcitemdb.com/prod/trial/search";const MAX_PARALELO=12;const cache=new Map<string,string>();const cacheNome=new Map<string,string>();const emAndamento=new Map<string,Promise<string>>();
+const somenteNumeros=(v:unknown)=>String(v??"").replace(/\D/g,"");
+function imagemCarrega(url:string):Promise<boolean>{return new Promise(r=>{const i=new Image();const t=window.setTimeout(()=>{i.src="";r(false)},7000);i.onload=()=>{window.clearTimeout(t);r(i.naturalWidth>0&&i.naturalHeight>0)};i.onerror=()=>{window.clearTimeout(t);r(false)};i.src=url})}
+async function buscarCosmos(ean:string){const u=`${COSMOS_CDN}/${encodeURIComponent(ean)}`;return await imagemCarrega(u)?u:""}async function buscarEanPictures(ean:string){const u=`${EAN_PICTURES}/${encodeURIComponent(ean)}`;return await imagemCarrega(u)?u:""}
+async function buscarUpc(ean:string){try{const r=await fetch(`${UPC_SEARCH_API}?s=${encodeURIComponent(ean)}&match_mode=1`);if(!r.ok)return"";const d=await r.json() as{items?:Array<{images?:string[]}>};for(const x of d.items??[])for(const u of x.images??[])if(u&&await imagemCarrega(u))return u}catch{}return""}
+async function buscarOpenFoodFacts(ean:string){for(const c of ean.length===12?[ean,`0${ean}`]:[ean])try{const r=await fetch(`${OFF_API}/${encodeURIComponent(c)}.json?fields=image_front_url,image_front_small_url,image_url`,{headers:{Accept:"application/json"}});if(!r.ok)continue;const d=await r.json() as{status?:number;product?:{image_front_url?:string;image_front_small_url?:string;image_url?:string}};if(d.status!==1)continue;for(const u of[d.product?.image_front_url,d.product?.image_front_small_url,d.product?.image_url].filter(Boolean)as string[])if(await imagemCarrega(u))return u}catch{}return""}
+async function buscarPorNome(nome:string){const chave=nome.trim().toLowerCase();if(!chave)return"";const guardada=cacheNome.get(chave);if(guardada!==undefined)return guardada;try{const r=await fetch(`${UPC_SEARCH_API}?s=${encodeURIComponent(`${nome} produto`)}&match_mode=0`);if(r.ok){const d=await r.json() as{items?:Array<{title?:string;images?:string[]}>};const termos=chave.split(/\s+/).filter(t=>t.length>=4&&!['produto','bov','bovina','kg'].includes(t));const candidatos=(d.items??[]).filter(x=>x.images?.length).map(x=>({item:x,acertos:termos.filter(t=>String(x.title??'').toLowerCase().includes(t)).length})).filter(x=>!termos.length||x.acertos>=Math.min(2,termos.length)).sort((a,b)=>b.acertos-a.acertos);for(const{x:item}of candidatos)for(const u of item.images??[])if(u&&await imagemCarrega(u)){cacheNome.set(chave,u);return u}}}catch{}cacheNome.set(chave,"");return""}
+async function buscarUma(ean:string):Promise<string>{const g=cache.get(ean);if(g!==undefined)return g;const ativa=emAndamento.get(ean);if(ativa)return ativa;const tarefa=(async()=>{for(const b of[buscarCosmos,buscarEanPictures,buscarUpc,buscarOpenFoodFacts]){const u=await b(ean);if(u){cache.set(ean,u);return u}}cache.set(ean,"");return""})();emAndamento.set(ean,tarefa);try{return await tarefa}finally{emAndamento.delete(ean)}}
+export async function buscarImagens(eans:string[]):Promise<Map<string,string>>{const lista=[...new Set(eans.map(somenteNumeros).filter(e=>e.length>=8))];const resultado=new Map<string,string>();let indice=0;async function trabalhador(){while(indice<lista.length){const e=lista[indice++]!;const u=await buscarUma(e);if(u)resultado.set(e,u)}}await Promise.all(Array.from({length:Math.min(MAX_PARALELO,lista.length)},trabalhador));return resultado}
+export async function buscarImagensPorProduto(itens:Array<{ean:string;nome:string}>):Promise<Map<string,string>>{const lista=itens.filter(i=>!i.ean&&i.nome.trim());const resultado=new Map<string,string>();let indice=0;async function trabalhador(){while(indice<lista.length){const i=lista[indice++]!;const u=await buscarPorNome(i.nome);if(u)resultado.set(i.nome,u)}}await Promise.all(Array.from({length:Math.min(MAX_PARALELO,lista.length)},trabalhador));return resultado}
+export async function buscarImagemPorEan(ean:string){const c=somenteNumeros(ean);return c.length>=8?buscarUma(c):""}export async function buscarImagemPorNome(nome:string){return buscarPorNome(nome)}export async function urlDeImagemValida(url:string){return imagemCarrega(url)}
