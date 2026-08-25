@@ -2,14 +2,20 @@ import { Check, ImageIcon, Loader2, RefreshCw, RotateCcw, X } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { useImagensPendentes } from "@/modules/imagens/use-imagens-pendentes";
 
-export function ImagensPendentes() {
-  const fila = useImagensPendentes();
+interface ImagensPendentesProps {
+  categoria?: string;
+}
+
+export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProps) {
+  const fila = useImagensPendentes(categoria);
+  const categoriaLabel = categoria === "__all__" ? "Todas as categorias" : categoria === "__uncategorized__" ? "Sem categoria" : categoria;
 
   return <section className="surface mt-4 space-y-4 p-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="text-lg font-semibold">Imagens pendentes</h2>
-        <p className="text-sm text-muted-foreground">Um produto só é pesquisado automaticamente uma vez. Produtos já processados não voltam para a fila em novas importações.</p>
+        <p className="text-sm text-muted-foreground">A busca usa o mesmo filtro de categoria do Catálogo. Categoria ativa: <strong>{categoriaLabel}</strong>.</p>
+        <p className="text-xs text-muted-foreground">Um produto só é pesquisado automaticamente uma vez. Produtos já processados não voltam para a fila em novas importações.</p>
       </div>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" disabled={fila.rodando} onClick={fila.pesquisarNovamente} title="Permite pesquisar novamente os produtos que já tiveram uma tentativa">
@@ -48,6 +54,6 @@ export function ImagensPendentes() {
       </div>)}
     </div> : null}
 
-    {!fila.carregando && !fila.totalSemImagem ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><ImageIcon className="size-4" /> Nenhum produto novo aguarda pesquisa. Se quiser repetir as buscas, use “Pesquisar novamente”.</p> : null}
+    {!fila.carregando && !fila.totalSemImagem ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><ImageIcon className="size-4" /> Nenhum produto novo aguarda pesquisa nesta categoria. Se quiser repetir as buscas, use “Pesquisar novamente”.</p> : null}
   </section>;
 }
