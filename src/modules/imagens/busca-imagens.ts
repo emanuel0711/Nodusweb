@@ -93,3 +93,19 @@ export async function buscarImagensPorProduto(itens: Array<{ ean: string; nome: 
   await Promise.all(Array.from({ length: Math.min(4, lista.length) }, trabalhador));
   return resultado;
 }
+
+/** Busca a imagem de um único EAN nas fontes confiáveis (Cosmos primeiro). */
+export async function buscarImagemPorEan(ean: string): Promise<string> {
+  const codigo = somenteNumeros(ean);
+  return codigo.length >= 8 ? buscarUma(codigo) : "";
+}
+
+/** Busca a imagem de um produto sem EAN pelo nome (fonte confiável, com corte de similaridade). */
+export async function buscarImagemPorNome(nome: string): Promise<string> {
+  return buscarPorNome(nome);
+}
+
+/** Valida se uma URL de imagem realmente carrega (usado para candidatos do Google). */
+export async function urlDeImagemValida(url: string): Promise<boolean> {
+  return imagemCarrega(url);
+}
