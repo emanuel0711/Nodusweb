@@ -1,4 +1,4 @@
-/** Fila de imagens pendentes: roda fora da importação, em lotes, sem travar a tela. */
+/** Fila de imagens pendentes: processa todos os produtos sem limite artificial de 1.000 registros. */
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -8,15 +8,29 @@ import { buscarCandidatosGoogle } from "@/lib/google-imagens.functions";
 import { pontuarCandidato, type Pontuacao } from "@/modules/imagens/confianca-google";
 
 const LOTE = 4;
+const PAGINA = 500;
 
 export interface ProdutoSemImagem { id: string; ean: string | null; description: string; category: string | null }
 export interface CandidatoGoogle { id: string; produto: ProdutoSemImagem; url: string; titulo: string; pontuacao: Pontuacao }
 
 async function carregarSemImagem(): Promise<ProdutoSemImagem[]> {
-  const { data, error } = await supabase.from("products")
-    .select("id, ean, description, category").is("image_url", null).order("description").limit(1000);
-  if (error) throw error;
-  return (data ?? []) as ProdutoSemImagem[];
+  const produtos: ProdutoSemImagem[] = [];
+  let inicio = 0;
+
+  while (true) {
+    const { data, error } = await supabase.from("products")
+      .select("id, ean, description, category")
+      .is("image_url", null)
+      .order("description")
+      .range(inicio, inicio + PAGINA - 1);
+    if (error) throw error;
+    const pagina = (data ?? []) as ProdutoSemImagem[];
+    produtos.push(...pagina);
+    if (pagina.length < PAGINA) break;
+    inicio += PAGINA;
+  }
+
+  return produtos;
 }
 
 export function useImagensPendentes() {
@@ -45,16 +59,14 @@ export function useImagensPendentes() {
       while (indice < fila.length) {
         const produto = fila[indice++]!;
         try {
-          // 1-3: fontes confiáveis (Cosmos primeiro por EAN; por nome quando não há EAN).
           const url = produto.ean ? await buscarImagemPorEan(produto.ean) : await buscarImagemPorNome(produto.description);
           if (url) {
             await salvarImagem(produto.id, url);
             setEncontrados((valor) => valor + 1);
           } else {
-            // 4-5: Google apenas como último recurso e sempre aguardando aprovação.
-            const { candidatos: achados } = await buscarCandidatosGoogle({ data: { termo: `${produto.description} produto embalagem` } });
+            const { candidatos: achados } = await buscarCandidatosGoogle({ data: { termo: produto.description } });
             const validados: CandidatoGoogle[] = [];
-            for (const achado of achados.slice(0, 6)) {
+            for (const achado of achados.slice(0, 8)) {
               if (!(await urlDeImagemValida(achado.url))) continue;
               validados.push({ id: `${produto.id}-${achado.url}`, produto, url: achado.url, titulo: achado.titulo, pontuacao: pontuarCandidato(achado, produto) });
               if (validados.length >= 3) break;
@@ -79,7 +91,7 @@ export function useImagensPendentes() {
     queryClient.invalidateQueries({ queryKey: ["imagens-pendentes"] });
     queryClient.invalidateQueries({ queryKey: ["products"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
-    toast.success("Busca de imagens concluída.");
+    toast.success(`Busca concluída: ${fila.length} produto(s) processado(s).`);
   }, [lista, queryClient, rodando, salvarImagem]);
 
   const aprovar = useCallback(async (candidato: CandidatoGoogle) => {
