@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { LayoutDashboard, Package, Sparkles, LogOut, PackageOpen, Moon, Sun, UserRound, Settings2 } from "lucide-react";
+import { LayoutDashboard, Package, Sparkles, LogOut, PackageOpen, Moon, Sun, Settings2, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
   const router = useRouter();
   const queryClient = useQueryClient();
   const [darkMode, setDarkMode] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("Usuário");
 
@@ -85,21 +86,18 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
         </nav>
 
         <div className="app-sidebar__account">
-          <div className="app-account-card" title={userEmail || undefined}>
+          <button className="app-account-card" onClick={() => setShowProfile(true)} aria-label="Abrir perfil">
             <span className="app-account-card__avatar">{initials(userName)}</span>
             <span className="app-account-card__identity">
               <strong>{userName}</strong>
               <small>{userEmail || "Conta Nódus"}</small>
             </span>
-          </div>
+            <Settings2 className="app-account-card__chevron" />
+          </button>
           <div className="app-account-actions">
             <Button variant="ghost" size="sm" onClick={alternarTema} title={darkMode ? "Usar tema claro" : "Usar tema escuro"}>
               {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
               <span>{darkMode ? "Tema claro" : "Tema escuro"}</span>
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/painel" })} title="Perfil e preferências">
-              <Settings2 className="size-4" />
-              <span>Perfil e preferências</span>
             </Button>
             <Button variant="ghost" size="sm" onClick={handleSignOut}>
               <LogOut className="size-4" />
@@ -116,6 +114,9 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
             <span>{label}</span>
           </Link>
         ))}
+        <Button variant="ghost" size="sm" onClick={() => setShowProfile(true)} className="shrink-0" title="Perfil">
+          <Settings2 className="size-4" />
+        </Button>
         <Button variant="ghost" size="sm" onClick={alternarTema} className="shrink-0" title={darkMode ? "Usar tema claro" : "Usar tema escuro"}>
           {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
@@ -132,13 +133,50 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
         </main>
         <footer className="app-footer">
           <span>© 2026 Nódus · Emanuel Chaves</span>
-          <span className="app-footer__links">
-            <a href="/" target="_blank" rel="noreferrer">Nódus</a>
-            <a href="/" target="_blank" rel="noreferrer">Privacidade</a>
-            <a href="/" target="_blank" rel="noreferrer">Termos</a>
-          </span>
+          <span>Workspace privado</span>
         </footer>
       </div>
+
+      {showProfile ? (
+        <div className="app-profile-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setShowProfile(false); }}>
+          <section className="app-profile-panel" role="dialog" aria-modal="true" aria-labelledby="perfil-titulo">
+            <div className="app-profile-panel__header">
+              <div>
+                <div className="app-main__eyebrow">Conta</div>
+                <h2 id="perfil-titulo">Perfil e preferências</h2>
+              </div>
+              <button className="app-profile-close" onClick={() => setShowProfile(false)} aria-label="Fechar perfil"><X className="size-5" /></button>
+            </div>
+
+            <div className="app-profile-identity">
+              <span className="app-profile-avatar">{initials(userName)}</span>
+              <div>
+                <strong>{userName}</strong>
+                <span>{userEmail || "E-mail não informado"}</span>
+              </div>
+            </div>
+
+            <div className="app-profile-section">
+              <span className="app-profile-section__label">Conta</span>
+              <div className="app-profile-row"><span>Nome</span><strong>{userName}</strong></div>
+              <div className="app-profile-row"><span>E-mail</span><strong>{userEmail || "—"}</strong></div>
+            </div>
+
+            <div className="app-profile-section">
+              <span className="app-profile-section__label">Empresa / organização</span>
+              <div className="app-profile-placeholder">A área de empresa está preparada para receber os dados da organização quando essa informação fizer parte do cadastro.</div>
+            </div>
+
+            <div className="app-profile-section">
+              <span className="app-profile-section__label">Preferências</span>
+              <Button variant="outline" size="sm" onClick={alternarTema}>
+                {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
+                {darkMode ? "Usar tema claro" : "Usar tema escuro"}
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
