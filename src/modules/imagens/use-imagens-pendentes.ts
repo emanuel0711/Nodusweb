@@ -1,9 +1,10 @@
 /**
  * Fila de imagens.
  *
- * A fila não depende de novas colunas no Supabase para saber se um produto já
- * foi pesquisado. O catálogo continua sendo a fonte oficial da imagem e o
- * navegador mantém apenas o estado da tentativa de busca.
+ * Produtos que já passaram por uma tentativa de busca ficam registrados no
+ * navegador. Isso evita repetir a mesma busca em cada nova importação.
+ * A busca só volta a acontecer para um produto já processado quando o usuário
+ * solicita explicitamente uma nova tentativa.
  */
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,7 +16,7 @@ import { pontuarCandidato, type Pontuacao } from "@/modules/imagens/confianca-go
 
 const LOTE = 4;
 const PAGINA = 500;
-const STORAGE_KEY = "nodus:image-search-state:v1";
+const STORAGE_KEY = "nodus:image-search-state:v2";
 
 type ImageStatus = "pending" | "found" | "not_found" | "pending_approval" | "rejected" | "manual";
 
@@ -55,20 +56,19 @@ function lerEstados(): Record<string, ImageSearchState> {
   }
 }
 
-function salvarEstado(produto: ProdutoSemImagem, status: ImageSearchState["status"]) {
+function gravarEstados(estados: Record<string, ImageSearchState>) {
   if (typeof window === "undefined") return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(estados));
+}
+
+function salvarEstado(produto: ProdutoSemImagem, status: ImageSearchState["status"]) {
   const estados = lerEstados();
   estados[produto.id] = {
     status,
     checkedAt: new Date().toISOString(),
     fingerprint: fingerprint(produto),
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(estados));
-}
-
-function obterEstado(produto: ProdutoSemImagem) {
-  const estado = lerEstados()[produto.id];
-  return estado && estado.fingerprint === fingerprint(produto) ? estado : undefined;
+  gravarEstados(estados);
 }
 
 async function carregarPendentes(): Promise<ProdutoSemImagem[]> {
@@ -76,8 +76,6 @@ async function carregarPendentes(): Promise<ProdutoSemImagem[]> {
   let inicio = 0;
 
   while (true) {
-    // Não selecionamos image_status/image_search_version: essas colunas podem
-    // não existir no banco atual. A fila funciona mesmo sem migration.
     const { data, error } = await supabase
       .from("products")
       .select("id, ean, description, category, image_url")
@@ -94,14 +92,9 @@ async function carregarPendentes(): Promise<ProdutoSemImagem[]> {
       const estado = estados[produto.id];
       const atual = produto as Omit<ProdutoSemImagem, "image_status" | "image_search_version"> & { image_url: string | null };
 
-      // Se a descrição/EAN mudou, trata como um novo produto para busca.
+      // Sem histórico: produto novo, precisa ser pesquisado.
       if (!estado || estado.fingerprint !== fingerprint(atual)) {
         produtos.push({ ...atual, image_status: "pending", image_search_version: 1 });
-        continue;
-      }
-
-      if (estado.status === "not_found" || estado.status === "rejected" || estado.status === "pending_approval") {
-        produtos.push({ ...atual, image_status: estado.status, image_search_version: 1 });
       }
     }
 
@@ -119,8 +112,9 @@ export function useImagensPendentes() {
   const [encontrados, setEncontrados] = useState(0);
   const [semResultado, setSemResultado] = useState(0);
   const [candidatos, setCandidatos] = useState<CandidatoGoogle[]>([]);
+  const [versaoFila, setVersaoFila] = useState(0);
 
-  const pendentes = useQuery({ queryKey: ["imagens-pendentes"], queryFn: carregarPendentes });
+  const pendentes = useQuery({ queryKey: ["imagens-pendentes", versaoFila], queryFn: carregarPendentes });
   const lista = pendentes.data ?? [];
 
   const atualizarEstado = useCallback(async (produto: ProdutoSemImagem, status: ImageSearchState["status"]) => {
@@ -142,7 +136,7 @@ export function useImagensPendentes() {
     setProcessados(0);
     setEncontrados(0);
     setSemResultado(0);
-    const fila = lista.filter((produto) => produto.image_status === "pending");
+    const fila = lista;
     let indice = 0;
 
     const trabalhador = async () => {
@@ -156,12 +150,9 @@ export function useImagensPendentes() {
 
           if (url) {
             await salvarImagem(produto.id, url);
-            salvarEstado(produto, "not_found");
-            // A imagem existe no catálogo; o estado local não precisa mais ser
-            // consultado porque a próxima carga verá image_url preenchido.
             const estados = lerEstados();
             delete estados[produto.id];
-            if (typeof window !== "undefined") localStorage.setItem(STORAGE_KEY, JSON.stringify(estados));
+            gravarEstados(estados);
             setEncontrados((valor) => valor + 1);
           } else {
             const { candidatos: achados } = await buscarCandidatosGoogle({ data: { termo: produto.description } });
@@ -193,11 +184,7 @@ export function useImagensPendentes() {
           }
         } catch (erro) {
           console.error("Falha ao buscar imagem", produto.id, erro);
-          try {
-            await atualizarEstado(produto, "not_found");
-          } catch (estadoErro) {
-            console.error("Falha ao registrar estado da imagem", produto.id, estadoErro);
-          }
+          await atualizarEstado(produto, "not_found");
           setSemResultado((valor) => valor + 1);
         }
 
@@ -207,20 +194,28 @@ export function useImagensPendentes() {
 
     await Promise.all(Array.from({ length: Math.min(LOTE, fila.length) }, trabalhador));
     setRodando(false);
-    queryClient.invalidateQueries({ queryKey: ["imagens-pendentes"] });
+    setVersaoFila((valor) => valor + 1);
     queryClient.invalidateQueries({ queryKey: ["products"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
     toast.success(`Busca concluída: ${fila.length} produto(s) processado(s).`);
   }, [lista, queryClient, rodando, salvarImagem, atualizarEstado]);
+
+  /** Limpa somente o histórico de tentativas. Nada é apagado do catálogo. */
+  const pesquisarNovamente = useCallback(() => {
+    gravarEstados({});
+    setCandidatos([]);
+    setVersaoFila((valor) => valor + 1);
+    toast.success("Histórico de buscas limpo. Os produtos sem imagem podem ser pesquisados novamente.");
+  }, []);
 
   const aprovar = useCallback(async (candidato: CandidatoGoogle) => {
     try {
       await salvarImagem(candidato.produto.id, candidato.url);
       const estados = lerEstados();
       delete estados[candidato.produto.id];
-      if (typeof window !== "undefined") localStorage.setItem(STORAGE_KEY, JSON.stringify(estados));
+      gravarEstados(estados);
       setCandidatos((atual) => atual.filter((item) => item.produto.id !== candidato.produto.id));
-      queryClient.invalidateQueries({ queryKey: ["imagens-pendentes"] });
+      setVersaoFila((valor) => valor + 1);
       queryClient.invalidateQueries({ queryKey: ["products"] });
       toast.success("Imagem aprovada e salva.");
     } catch (erro) {
@@ -232,12 +227,12 @@ export function useImagensPendentes() {
     try {
       await atualizarEstado(candidato.produto, "rejected");
       setCandidatos((atual) => atual.filter((item) => item.produto.id !== candidato.produto.id));
-      queryClient.invalidateQueries({ queryKey: ["imagens-pendentes"] });
-      toast.success("Candidato rejeitado.");
+      setVersaoFila((valor) => valor + 1);
+      toast.success("Candidato rejeitado. O produto não será pesquisado novamente automaticamente.");
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Não foi possível registrar a rejeição");
     }
-  }, [atualizarEstado, queryClient]);
+  }, [atualizarEstado]);
 
   return {
     lista,
@@ -247,9 +242,10 @@ export function useImagensPendentes() {
     encontrados,
     semResultado,
     candidatos,
-    totalSemImagem: lista.filter((produto) => produto.image_status === "pending").length,
+    totalSemImagem: lista.length,
     aguardandoAprovacao: new Set(candidatos.map((item) => item.produto.id)).size,
     completar,
+    pesquisarNovamente,
     aprovar,
     rejeitar,
   };
