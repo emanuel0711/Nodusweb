@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { CheckSquare, ImageIcon, Loader2, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { ImagensPendentes } from "@/components/ImagensPendentes";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -11,9 +12,9 @@ import { SEM_CATEGORIA, TODAS, useCatalogo } from "@/modules/catalogo/use-catalo
 
 export const Route = createFileRoute("/_authenticated/catalogo")({
   head: () => ({ meta: [
-    { title: "Catálogo de produtos — OfertaFlow" },
+    { title: "Catálogo de produtos — Nódus" },
     { name: "description", content: "Cadastre, importe e organize os produtos usados no cruzamento automático das ofertas." },
-    { property: "og:title", content: "Catálogo de produtos — OfertaFlow" },
+    { property: "og:title", content: "Catálogo de produtos — Nódus" },
     { property: "og:description", content: "Importe CSV/Excel e mantenha códigos, preços, custos e imagens dos produtos." },
   ] }),
   component: PaginaCatalogo,
@@ -23,6 +24,7 @@ function PaginaCatalogo() {
   const catalogo = useCatalogo();
   return <AppShell title="Catálogo de produtos" subtitle="Base usada no cruzamento automático das ofertas.">
     <BarraCatalogo {...catalogo} />
+    <ImagensPendentes />
     <TabelaCatalogo {...catalogo} />
     <Paginacao {...catalogo} />
     <DialogProduto {...catalogo} />
