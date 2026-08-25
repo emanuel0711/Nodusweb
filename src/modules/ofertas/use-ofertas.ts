@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { exportarModeloDoClube, lerPlanilha, valorDoCampo, type LinhaPlanilha, type OfertaParaExportar } from "@/lib/planilha";
 import { lerPreco, melhorCorrespondencia, normalizarTexto, semelhanca } from "@/lib/comparar-textos";
-import { buscarImagens, buscarImagensPorProduto } from "@/lib/imagens";
 import { carregarTodosProdutos, limparCodigo, limparEan, type Produto } from "@/lib/catalogo";
 import { aplicarRegras, type RegraOferta } from "@/lib/regras-oferta";
 import { codigosDaFamiliaOferta, extrairExcecoes, normalizarCodigos } from "@/lib/codigos-oferta";
