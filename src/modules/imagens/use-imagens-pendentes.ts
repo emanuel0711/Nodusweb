@@ -16,6 +16,8 @@ import { pontuarCandidato, type Pontuacao } from "@/modules/imagens/confianca-go
 
 const LOTE = 4;
 const PAGINA = 500;
+const TODAS_CATEGORIAS = "__all__";
+const SEM_CATEGORIA = "__uncategorized__";
 const STORAGE_KEY = "nodus:image-search-state:v2";
 
 type ImageStatus = "pending" | "found" | "not_found" | "pending_approval" | "rejected" | "manual";
@@ -71,18 +73,22 @@ function salvarEstado(produto: ProdutoSemImagem, status: ImageSearchState["statu
   gravarEstados(estados);
 }
 
-async function carregarPendentes(): Promise<ProdutoSemImagem[]> {
+async function carregarPendentes(categoria: string): Promise<ProdutoSemImagem[]> {
   const produtos: ProdutoSemImagem[] = [];
   let inicio = 0;
 
   while (true) {
-    const { data, error } = await supabase
+    let consulta = supabase
       .from("products")
       .select("id, ean, description, category, image_url")
       .is("image_url", null)
       .order("description")
       .range(inicio, inicio + PAGINA - 1);
 
+    if (categoria === SEM_CATEGORIA) consulta = consulta.is("category", null);
+    else if (categoria !== TODAS_CATEGORIAS) consulta = consulta.eq("category", categoria);
+
+    const { data, error } = await consulta;
     if (error) throw error;
 
     const pagina = (data ?? []) as Array<Omit<ProdutoSemImagem, "image_status" | "image_search_version"> & { image_url: string | null }>;
@@ -92,7 +98,6 @@ async function carregarPendentes(): Promise<ProdutoSemImagem[]> {
       const estado = estados[produto.id];
       const atual = produto as Omit<ProdutoSemImagem, "image_status" | "image_search_version"> & { image_url: string | null };
 
-      // Sem histórico: produto novo, precisa ser pesquisado.
       if (!estado || estado.fingerprint !== fingerprint(atual)) {
         produtos.push({ ...atual, image_status: "pending", image_search_version: 1 });
       }
@@ -105,7 +110,7 @@ async function carregarPendentes(): Promise<ProdutoSemImagem[]> {
   return produtos;
 }
 
-export function useImagensPendentes() {
+export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
   const queryClient = useQueryClient();
   const [rodando, setRodando] = useState(false);
   const [processados, setProcessados] = useState(0);
@@ -114,7 +119,10 @@ export function useImagensPendentes() {
   const [candidatos, setCandidatos] = useState<CandidatoGoogle[]>([]);
   const [versaoFila, setVersaoFila] = useState(0);
 
-  const pendentes = useQuery({ queryKey: ["imagens-pendentes", versaoFila], queryFn: carregarPendentes });
+  const pendentes = useQuery({
+    queryKey: ["imagens-pendentes", categoria, versaoFila],
+    queryFn: () => carregarPendentes(categoria),
+  });
   const lista = pendentes.data ?? [];
 
   const atualizarEstado = useCallback(async (produto: ProdutoSemImagem, status: ImageSearchState["status"]) => {
@@ -122,10 +130,7 @@ export function useImagensPendentes() {
   }, []);
 
   const salvarImagem = useCallback(async (id: string, url: string) => {
-    const { error } = await supabase
-      .from("products")
-      .update({ image_url: url })
-      .eq("id", id);
+    const { error } = await supabase.from("products").update({ image_url: url }).eq("id", id);
     if (error) throw error;
   }, []);
 
@@ -142,11 +147,8 @@ export function useImagensPendentes() {
     const trabalhador = async () => {
       while (indice < fila.length) {
         const produto = fila[indice++]!;
-
         try {
-          const url = produto.ean
-            ? await buscarImagemPorEan(produto.ean)
-            : await buscarImagemPorNome(produto.description);
+          const url = produto.ean ? await buscarImagemPorEan(produto.ean) : await buscarImagemPorNome(produto.description);
 
           if (url) {
             await salvarImagem(produto.id, url);
@@ -173,10 +175,7 @@ export function useImagensPendentes() {
             if (validados.length) {
               validados.sort((a, b) => b.pontuacao.total - a.pontuacao.total);
               await atualizarEstado(produto, "pending_approval");
-              setCandidatos((atual) => [
-                ...atual.filter((item) => item.produto.id !== produto.id),
-                ...validados,
-              ]);
+              setCandidatos((atual) => [...atual.filter((item) => item.produto.id !== produto.id), ...validados]);
             } else {
               await atualizarEstado(produto, "not_found");
               setSemResultado((valor) => valor + 1);
@@ -187,7 +186,6 @@ export function useImagensPendentes() {
           await atualizarEstado(produto, "not_found");
           setSemResultado((valor) => valor + 1);
         }
-
         setProcessados((valor) => valor + 1);
       }
     };
@@ -200,7 +198,6 @@ export function useImagensPendentes() {
     toast.success(`Busca concluída: ${fila.length} produto(s) processado(s).`);
   }, [lista, queryClient, rodando, salvarImagem, atualizarEstado]);
 
-  /** Limpa somente o histórico de tentativas. Nada é apagado do catálogo. */
   const pesquisarNovamente = useCallback(() => {
     gravarEstados({});
     setCandidatos([]);
