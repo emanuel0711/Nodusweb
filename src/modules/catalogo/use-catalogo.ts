@@ -60,7 +60,7 @@ async function atualizarCustos(atualizacoes: Array<{ id: string; cost: number }>
 }
 
 async function inserirLote(lote: Array<Record<string, unknown>>) {
-  const resultado = await supabase.from("products").insert(lote).select("id, ean, description, image_url");
+  const resultado = await supabase.from("products").insert(lote as never).select("id, ean, description, image_url");
   if (resultado.error) throw resultado.error;
   return (resultado.data ?? []) as Array<{ id: string; ean: string | null; description: string; image_url: string | null }>;
 }
