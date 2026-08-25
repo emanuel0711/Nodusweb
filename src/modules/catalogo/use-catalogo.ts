@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { lerPlanilha, categoriaPeloNomeDoArquivo } from "@/lib/planilha";
 import { lerPreco } from "@/lib/comparar-textos";
-import { buscarImagens, buscarImagensPorProduto } from "@/lib/imagens";
 import { COLUNAS_PRODUTO, COLUNAS_PRODUTO_BASE, carregarTodosProdutos, chaveDoProduto, erroDeCustoAusente, limparCodigo, limparEan, linhaParaProduto, type Produto } from "@/lib/catalogo";
 
 export const POR_PAGINA = 20;
@@ -12,7 +11,6 @@ export const TODAS = "__all__";
 export const SEM_CATEGORIA = "__uncategorized__";
 export const FORMULARIO_VAZIO = { description: "", internal_code: "", promotion_code: "", ean: "", unit: "", category: "", unit_price: "", cost: "", image_url: "" };
 export type FormularioProduto = typeof FORMULARIO_VAZIO;
-type ImagemPendente = { id: string; ean: string | null; nome: string };
 
 async function carregarCategorias(): Promise<string[]> {
   const produtos = await carregarTodosProdutos();
@@ -22,33 +20,6 @@ async function carregarCategorias(): Promise<string[]> {
   const lista = [...nomes].sort((a, b) => a.localeCompare(b, "pt-BR"));
   return semCategoria ? [SEM_CATEGORIA, ...lista] : lista;
 }
-
-/** Preenche imagens por EAN e, para itens sem EAN (ex.: Kg), por nome. Retorna quantas foram salvas. */
-async function completarImagens(itens: ImagemPendente[]): Promise<number> {
-  const pendentes = itens.filter((item) => item.nome.trim());
-  if (!pendentes.length) return 0;
-
-  const porEan = await buscarImagens(pendentes.map((item) => item.ean ?? ""));
-  const semEan = pendentes.filter((item) => !item.ean);
-  const porNome = semEan.length
-    ? await buscarImagensPorProduto(semEan.map((item) => ({ ean: "", nome: item.nome })))
-    : new Map<string, string>();
-
-  let salvas = 0;
-  for (let i = 0; i < pendentes.length; i += 25) {
-    const lote = pendentes.slice(i, i + 25);
-    const resultados = await Promise.all(lote.map(async (item) => {
-      const url = item.ean ? porEan.get(item.ean) : porNome.get(item.nome);
-      if (!url) return false;
-      const { error } = await supabase.from("products").update({ image_url: url }).eq("id", item.id);
-      if (error) { console.error("Falha ao salvar imagem do produto", item.id, error.message); return false; }
-      return true;
-    }));
-    salvas += resultados.filter(Boolean).length;
-  }
-  return salvas;
-}
-
 
 async function atualizarCustos(atualizacoes: Array<{ id: string; cost: number }>) {
   for (let i = 0; i < atualizacoes.length; i += 50) {
@@ -81,8 +52,8 @@ export function useCatalogo() {
     queryClient.invalidateQueries({ queryKey: ["products"] });
     queryClient.invalidateQueries({ queryKey: ["product-categories"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["imagens-pendentes"] });
   };
-
 
   const categorias = useQuery({ queryKey: ["product-categories"], queryFn: carregarCategorias });
   const produtos = useQuery({
@@ -170,7 +141,6 @@ export function useCatalogo() {
       const imagemPorEan = new Map(existentes.filter((item) => item.ean && item.image_url).map((item) => [item.ean as string, item.image_url as string]));
       let importados = 0; let repetidos = 0; let semNome = 0;
       const atualizacoesCusto: Array<{ id: string; cost: number }> = [];
-      const imagensPendentes: ImagemPendente[] = [];
 
       for (const arquivo of Array.from(arquivos)) {
         const linhas = await lerPlanilha(arquivo);
@@ -186,39 +156,29 @@ export function useCatalogo() {
           if (existente) {
             repetidos++;
             if (produto.cost != null && produto.cost !== existente.cost) atualizacoesCusto.push({ id: existente.id, cost: produto.cost });
-            if (!existente.image_url) imagensPendentes.push({ id: existente.id, ean: existente.ean, nome: existente.description });
             continue;
           }
 
           existentesPorChave.set(chave, { ...produto, id: `novo-${chave}` } as Produto);
-          paraInserir.push({ ...produto, user_id: sessao.user.id, image_url: produto.image_url || (produto.ean ? imagemPorEan.get(produto.ean) ?? null : null) });
+          paraInserir.push({
+            ...produto,
+            user_id: sessao.user.id,
+            image_url: produto.image_url || (produto.ean ? imagemPorEan.get(produto.ean) ?? null : null),
+          });
         }
 
         for (let i = 0; i < paraInserir.length; i += 500) {
           const data = await inserirLote(paraInserir.slice(i, i + 500));
-          data.forEach((item) => {
-            if (!item.image_url) imagensPendentes.push({ id: item.id, ean: item.ean, nome: item.description });
-          });
           importados += data.length;
         }
       }
 
       await atualizarCustos(atualizacoesCusto);
 
-      let imagensSalvas = 0;
-      try {
-        imagensSalvas = await completarImagens(imagensPendentes);
-      } catch (erro) {
-        console.error("Falha ao completar imagens", erro);
-        toast.warning("Produtos importados, mas a busca de imagens falhou.");
-      }
-
       const segundos = ((performance.now() - inicio) / 1000).toFixed(1);
-      if (!importados && !atualizacoesCusto.length && !imagensSalvas) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
-      else toast.success(`${importados} produto(s) importado(s), ${atualizacoesCusto.length} custo(s) atualizado(s), ${imagensSalvas} imagem(ns) salva(s) em ${segundos}s.`);
-
+      if (!importados && !atualizacoesCusto.length) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
+      else toast.success(`${importados} produto(s) importado(s) e ${atualizacoesCusto.length} custo(s) atualizado(s) em ${segundos}s. Imagens ficam na fila do Catálogo.`);
       atualizarListas();
-
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Falha na importação");
     } finally {
