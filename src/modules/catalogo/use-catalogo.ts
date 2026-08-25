@@ -80,7 +80,9 @@ export function useCatalogo() {
   const atualizarListas = () => {
     queryClient.invalidateQueries({ queryKey: ["products"] });
     queryClient.invalidateQueries({ queryKey: ["product-categories"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
   };
+
 
   const categorias = useQuery({ queryKey: ["product-categories"], queryFn: carregarCategorias });
   const produtos = useQuery({
