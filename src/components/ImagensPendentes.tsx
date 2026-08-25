@@ -1,4 +1,4 @@
-import { Check, ImageIcon, Loader2, RefreshCw, X } from "lucide-react";
+import { Check, ImageIcon, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useImagensPendentes } from "@/modules/imagens/use-imagens-pendentes";
 
@@ -9,15 +9,20 @@ export function ImagensPendentes() {
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="text-lg font-semibold">Imagens pendentes</h2>
-        <p className="text-sm text-muted-foreground">Todos os produtos sem imagem são carregados. A busca roda em lotes e não fica limitada a 1.000 itens.</p>
+        <p className="text-sm text-muted-foreground">Um produto só é pesquisado automaticamente uma vez. Produtos já processados não voltam para a fila em novas importações.</p>
       </div>
-      <Button disabled={fila.rodando || !fila.totalSemImagem} onClick={() => void fila.completar()}>
-        {fila.rodando ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Completar imagens faltantes
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" disabled={fila.rodando} onClick={fila.pesquisarNovamente} title="Permite pesquisar novamente os produtos que já tiveram uma tentativa">
+          <RotateCcw className="size-4" /> Pesquisar novamente
+        </Button>
+        <Button disabled={fila.rodando || !fila.totalSemImagem} onClick={() => void fila.completar()}>
+          {fila.rodando ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Completar imagens faltantes
+        </Button>
+      </div>
     </div>
 
     <div className="grid gap-3 sm:grid-cols-4">
-      {[["Sem imagem", fila.totalSemImagem], ["Encontrados", fila.encontrados], ["Aguardando aprovação", fila.aguardandoAprovacao], ["Sem resultado", fila.semResultado]].map(([rotulo, valor]) =>
+      {[["Na fila", fila.totalSemImagem], ["Encontrados nesta execução", fila.encontrados], ["Aguardando aprovação", fila.aguardandoAprovacao], ["Sem resultado nesta execução", fila.semResultado]].map(([rotulo, valor]) =>
         <div key={String(rotulo)} className="rounded-md border p-3"><div className="text-xs text-muted-foreground">{rotulo}</div><div className="text-xl font-semibold">{valor}</div></div>)}
     </div>
 
@@ -38,11 +43,11 @@ export function ImagensPendentes() {
         </div>
         <div className="flex gap-2">
           <Button size="sm" onClick={() => void fila.aprovar(candidato)}><Check className="size-4" /> Aprovar</Button>
-          <Button size="sm" variant="outline" onClick={() => fila.rejeitar(candidato)}><X className="size-4" /> Rejeitar</Button>
+          <Button size="sm" variant="outline" onClick={() => void fila.rejeitar(candidato)}><X className="size-4" /> Rejeitar</Button>
         </div>
       </div>)}
     </div> : null}
 
-    {!fila.carregando && !fila.totalSemImagem ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><ImageIcon className="size-4" /> Todos os produtos já têm imagem.</p> : null}
+    {!fila.carregando && !fila.totalSemImagem ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><ImageIcon className="size-4" /> Nenhum produto novo aguarda pesquisa. Se quiser repetir as buscas, use “Pesquisar novamente”.</p> : null}
   </section>;
 }
