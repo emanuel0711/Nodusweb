@@ -47,11 +47,11 @@ export async function carregarTodosProdutos(): Promise<Produto[]> {
 
   for (let inicio = 0; ; inicio += 1000) {
     const colunas = usarCusto ? COLUNAS_PRODUTO : COLUNAS_PRODUTO_BASE;
-    let { data, error } = await supabase.from("products").select(colunas).range(inicio, inicio + 999);
+    let { data, error } = await supabase.from("products").select(colunas as string).range(inicio, inicio + 999) as { data: unknown; error: { message?: string; code?: string } | null };
 
     if (error && usarCusto && erroDeCustoAusente(error)) {
       usarCusto = false;
-      ({ data, error } = await supabase.from("products").select(COLUNAS_PRODUTO_BASE).range(inicio, inicio + 999));
+      ({ data, error } = await supabase.from("products").select(COLUNAS_PRODUTO_BASE).range(inicio, inicio + 999) as { data: unknown; error: { message?: string; code?: string } | null });
     }
 
     if (error) throw error;

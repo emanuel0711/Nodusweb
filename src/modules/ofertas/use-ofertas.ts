@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { exportarModeloDoClube, lerPlanilha, valorDoCampo, type LinhaPlanilha, type OfertaParaExportar } from "@/lib/planilha";
 import { lerPreco, melhorCorrespondencia, normalizarTexto, semelhanca } from "@/lib/comparar-textos";
-import { buscarImagens, buscarImagensPorProduto } from "@/lib/imagens";
 import { carregarTodosProdutos, limparCodigo, limparEan, type Produto } from "@/lib/catalogo";
 import { aplicarRegras, type RegraOferta } from "@/lib/regras-oferta";
 import { codigosDaFamiliaOferta, extrairExcecoes, normalizarCodigos } from "@/lib/codigos-oferta";
@@ -264,12 +263,8 @@ export function useOfertas() {
       if (!linhas.length) throw new Error("A planilha não possui linhas de produtos reconhecíveis.");
       const cruzadas = linhas.map((linha) => cruzar(linha, catalogo, notaMinima)).filter((item): item is Oferta => item !== null);
       if (!cruzadas.length) throw new Error("Não encontrei uma coluna com o nome do produto na planilha.");
-      const eans = cruzadas.filter((item) => !item.imagem && !item.porQuilo).flatMap((item) => item.codigos.filter((codigo) => codigo.length >= 8));
-      const [imagens, imagensPorNome] = await Promise.all([
-        buscarImagens(eans),
-        buscarImagensPorProduto(cruzadas.filter((item) => !item.imagem && item.porQuilo).map((item) => ({ ean: "", nome: item.nome }))),
-      ]);
-      const finais = cruzadas.map((item) => ({ ...item, imagem: item.imagem || item.codigos.map((codigo) => imagens.get(codigo)).find(Boolean) || imagensPorNome.get(item.nome) || "" }));
+      const finais = cruzadas;
+
       setOfertas(finais); setNomeArquivo(arquivo.name);
       const correspondidas = finais.filter((item) => item.nota >= notaMinima && item.codigos.length > 0).length;
       const { data } = await supabase.auth.getUser();

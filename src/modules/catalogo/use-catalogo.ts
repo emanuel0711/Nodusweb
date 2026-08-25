@@ -23,10 +23,10 @@ async function carregarCategorias(): Promise<string[]> {
   return semCategoria ? [SEM_CATEGORIA, ...lista] : lista;
 }
 
-/** Preenche imagens por EAN e, para itens sem EAN (ex.: Kg), por nome. */
-async function completarImagens(itens: ImagemPendente[]) {
+/** Preenche imagens por EAN e, para itens sem EAN (ex.: Kg), por nome. Retorna quantas foram salvas. */
+async function completarImagens(itens: ImagemPendente[]): Promise<number> {
   const pendentes = itens.filter((item) => item.nome.trim());
-  if (!pendentes.length) return;
+  if (!pendentes.length) return 0;
 
   const porEan = await buscarImagens(pendentes.map((item) => item.ean ?? ""));
   const semEan = pendentes.filter((item) => !item.ean);
@@ -34,11 +34,21 @@ async function completarImagens(itens: ImagemPendente[]) {
     ? await buscarImagensPorProduto(semEan.map((item) => ({ ean: "", nome: item.nome })))
     : new Map<string, string>();
 
-  await Promise.all(pendentes.map(async (item) => {
-    const url = item.ean ? porEan.get(item.ean) : porNome.get(item.nome);
-    if (url) await supabase.from("products").update({ image_url: url }).eq("id", item.id);
-  }));
+  let salvas = 0;
+  for (let i = 0; i < pendentes.length; i += 25) {
+    const lote = pendentes.slice(i, i + 25);
+    const resultados = await Promise.all(lote.map(async (item) => {
+      const url = item.ean ? porEan.get(item.ean) : porNome.get(item.nome);
+      if (!url) return false;
+      const { error } = await supabase.from("products").update({ image_url: url }).eq("id", item.id);
+      if (error) { console.error("Falha ao salvar imagem do produto", item.id, error.message); return false; }
+      return true;
+    }));
+    salvas += resultados.filter(Boolean).length;
+  }
+  return salvas;
 }
+
 
 async function atualizarCustos(atualizacoes: Array<{ id: string; cost: number }>) {
   for (let i = 0; i < atualizacoes.length; i += 50) {
@@ -50,7 +60,7 @@ async function atualizarCustos(atualizacoes: Array<{ id: string; cost: number }>
 }
 
 async function inserirLote(lote: Array<Record<string, unknown>>) {
-  const resultado = await supabase.from("products").insert(lote).select("id, ean, description, image_url");
+  const resultado = await supabase.from("products").insert(lote as never).select("id, ean, description, image_url");
   if (resultado.error) throw resultado.error;
   return (resultado.data ?? []) as Array<{ id: string; ean: string | null; description: string; image_url: string | null }>;
 }
@@ -70,7 +80,9 @@ export function useCatalogo() {
   const atualizarListas = () => {
     queryClient.invalidateQueries({ queryKey: ["products"] });
     queryClient.invalidateQueries({ queryKey: ["product-categories"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
   };
+
 
   const categorias = useQuery({ queryKey: ["product-categories"], queryFn: carregarCategorias });
   const produtos = useQuery({
@@ -192,12 +204,21 @@ export function useCatalogo() {
       }
 
       await atualizarCustos(atualizacoesCusto);
+
+      let imagensSalvas = 0;
+      try {
+        imagensSalvas = await completarImagens(imagensPendentes);
+      } catch (erro) {
+        console.error("Falha ao completar imagens", erro);
+        toast.warning("Produtos importados, mas a busca de imagens falhou.");
+      }
+
       const segundos = ((performance.now() - inicio) / 1000).toFixed(1);
-      if (!importados && !atualizacoesCusto.length) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
-      else toast.success(`${importados} produto(s) importado(s), ${atualizacoesCusto.length} custo(s) atualizado(s) em ${segundos}s.`);
+      if (!importados && !atualizacoesCusto.length && !imagensSalvas) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
+      else toast.success(`${importados} produto(s) importado(s), ${atualizacoesCusto.length} custo(s) atualizado(s), ${imagensSalvas} imagem(ns) salva(s) em ${segundos}s.`);
 
       atualizarListas();
-      void completarImagens(imagensPendentes).then(atualizarListas).catch((erro) => console.error("Falha ao completar imagens", erro));
+
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Falha na importação");
     } finally {
