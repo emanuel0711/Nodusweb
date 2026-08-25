@@ -110,6 +110,20 @@ async function carregarPendentes(categoria: string): Promise<ProdutoSemImagem[]>
   return produtos;
 }
 
+async function carregarTotalSemImagem(categoria: string): Promise<number> {
+  let consulta = supabase
+    .from("products")
+    .select("id", { count: "exact", head: true })
+    .is("image_url", null);
+
+  if (categoria === SEM_CATEGORIA) consulta = consulta.is("category", null);
+  else if (categoria !== TODAS_CATEGORIAS) consulta = consulta.eq("category", categoria);
+
+  const { count, error } = await consulta;
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
   const queryClient = useQueryClient();
   const [rodando, setRodando] = useState(false);
@@ -123,7 +137,15 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
     queryKey: ["imagens-pendentes", categoria, versaoFila],
     queryFn: () => carregarPendentes(categoria),
   });
+
+  const totalSemImagem = useQuery({
+    queryKey: ["imagens-total-sem-imagem", categoria, versaoFila],
+    queryFn: () => carregarTotalSemImagem(categoria),
+  });
+
   const lista = pendentes.data ?? [];
+  const totalCatalogoSemImagem = totalSemImagem.data ?? 0;
+  const jaProcessados = Math.max(0, totalCatalogoSemImagem - lista.length);
 
   const atualizarEstado = useCallback(async (produto: ProdutoSemImagem, status: ImageSearchState["status"]) => {
     salvarEstado(produto, status);
@@ -233,13 +255,15 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
 
   return {
     lista,
-    carregando: pendentes.isLoading,
+    carregando: pendentes.isLoading || totalSemImagem.isLoading,
     rodando,
     processados,
     encontrados,
     semResultado,
     candidatos,
-    totalSemImagem: lista.length,
+    totalSemImagem: totalCatalogoSemImagem,
+    totalNaFila: lista.length,
+    jaProcessados,
     aguardandoAprovacao: new Set(candidatos.map((item) => item.produto.id)).size,
     completar,
     pesquisarNovamente,
