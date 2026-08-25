@@ -9,7 +9,7 @@ export function ImagensPendentes() {
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="text-lg font-semibold">Imagens pendentes</h2>
-        <p className="text-sm text-muted-foreground">O catálogo é a única área que busca e salva imagens. Resultados do Google ficam para aprovação.</p>
+        <p className="text-sm text-muted-foreground">Todos os produtos sem imagem são carregados. A busca roda em lotes e não fica limitada a 1.000 itens.</p>
       </div>
       <Button disabled={fila.rodando || !fila.totalSemImagem} onClick={() => void fila.completar()}>
         {fila.rodando ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Completar imagens faltantes
@@ -24,12 +24,15 @@ export function ImagensPendentes() {
     {fila.rodando ? <p className="text-sm text-muted-foreground">Processando {fila.processados} de {fila.totalSemImagem} produto(s)…</p> : null}
 
     {fila.candidatos.length ? <div className="space-y-3">
-      <h3 className="text-sm font-medium">Candidatos do Google (aprovação manual)</h3>
+      <div>
+        <h3 className="text-sm font-medium">Candidatos de busca externa</h3>
+        <p className="text-xs text-muted-foreground">O Google é o último recurso. As buscas priorizam sites de grandes varejistas e fontes de produto; nada é salvo automaticamente.</p>
+      </div>
       {fila.candidatos.map((candidato) => <div key={candidato.id} className="flex flex-wrap items-start gap-4 rounded-md border p-3">
         <img src={candidato.url} alt={candidato.produto.description} loading="lazy" className="size-20 rounded-md object-contain" />
         <div className="min-w-56 flex-1 space-y-1">
           <div className="font-medium">{candidato.produto.description}</div>
-          <div className="text-xs text-muted-foreground">Origem: Google Imagens · Confiança {candidato.pontuacao.total}/100</div>
+          <div className="text-xs text-muted-foreground">Google Imagens · Confiança {candidato.pontuacao.total}/100</div>
           <div className="break-all text-xs text-muted-foreground">{candidato.url}</div>
           <ul className="text-xs text-muted-foreground">{candidato.pontuacao.itens.map((item) => <li key={item.rotulo}>{item.rotulo}: {item.pontos > 0 ? `+${item.pontos}` : item.pontos}</li>)}</ul>
         </div>
