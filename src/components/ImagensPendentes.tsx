@@ -21,18 +21,32 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
         <Button variant="outline" disabled={fila.rodando} onClick={fila.pesquisarNovamente} title="Permite pesquisar novamente os produtos que já tiveram uma tentativa">
           <RotateCcw className="size-4" /> Pesquisar novamente
         </Button>
-        <Button disabled={fila.rodando || !fila.totalSemImagem} onClick={() => void fila.completar()}>
+        <Button disabled={fila.rodando || !fila.totalNaFila} onClick={() => void fila.completar()}>
           {fila.rodando ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Completar imagens faltantes
         </Button>
       </div>
     </div>
 
     <div className="grid gap-3 sm:grid-cols-4">
-      {[["Na fila", fila.totalSemImagem], ["Encontrados nesta execução", fila.encontrados], ["Aguardando aprovação", fila.aguardandoAprovacao], ["Sem resultado nesta execução", fila.semResultado]].map(([rotulo, valor]) =>
-        <div key={String(rotulo)} className="rounded-md border p-3"><div className="text-xs text-muted-foreground">{rotulo}</div><div className="text-xl font-semibold">{valor}</div></div>)}
+      {[
+        ["Sem imagem", fila.totalSemImagem],
+        ["Na fila", fila.totalNaFila],
+        ["Já processados", fila.jaProcessados],
+        ["Aguardando aprovação", fila.aguardandoAprovacao],
+      ].map(([rotulo, valor]) =>
+        <div key={String(rotulo)} className="rounded-md border p-3">
+          <div className="text-xs text-muted-foreground">{rotulo}</div>
+          <div className="text-xl font-semibold">{valor}</div>
+        </div>,
+      )}
     </div>
 
-    {fila.rodando ? <p className="text-sm text-muted-foreground">Processando {fila.processados} de {fila.totalSemImagem} produto(s)…</p> : null}
+    {fila.rodando ? <p className="text-sm text-muted-foreground">Processando {fila.processados} de {fila.totalNaFila} produto(s)…</p> : null}
+
+    {fila.encontrados || fila.semResultado ? <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+      <span>Encontrados nesta execução: <strong>{fila.encontrados}</strong></span>
+      <span>Sem resultado nesta execução: <strong>{fila.semResultado}</strong></span>
+    </div> : null}
 
     {fila.candidatos.length ? <div className="space-y-3">
       <div>
@@ -54,6 +68,6 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
       </div>)}
     </div> : null}
 
-    {!fila.carregando && !fila.totalSemImagem ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><ImageIcon className="size-4" /> Nenhum produto novo aguarda pesquisa nesta categoria. Se quiser repetir as buscas, use “Pesquisar novamente”.</p> : null}
+    {!fila.carregando && !fila.totalSemImagem ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><ImageIcon className="size-4" /> Nenhum produto sem imagem nesta categoria.</p> : null}
   </section>;
 }
