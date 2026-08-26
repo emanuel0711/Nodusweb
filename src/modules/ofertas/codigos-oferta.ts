@@ -58,23 +58,14 @@ export function variantesDoTexto(valor: string): Set<Variante> {
   const variantes = new Set<Variante>();
   if (/\bzero\b/.test(texto)) variantes.add("zero");
   if (/\btradicional\b/.test(texto)) variantes.add("tradicional");
-
-  const comGas = /\bcom\s+gas\b/.test(texto);
-  const semGas = /\bsem\s+gas\b/.test(texto);
-  if (comGas) variantes.add("com_gas");
-  if (semGas) variantes.add("sem_gas");
-
-  const comAlcool = /\bcom\s+alcool\b/.test(texto);
-  const semAlcool = /\bsem\s+alcool\b/.test(texto);
-  if (comAlcool) variantes.add("com_alcool");
-  if (semAlcool) variantes.add("sem_alcool");
-
+  if (/\bcom\s+gas\b/.test(texto)) variantes.add("com_gas");
+  if (/\bsem\s+gas\b/.test(texto)) variantes.add("sem_gas");
+  if (/\bcom\s+alcool\b/.test(texto)) variantes.add("com_alcool");
+  if (/\bsem\s+alcool\b/.test(texto)) variantes.add("sem_alcool");
   return variantes;
 }
 
-function variantesDaOferta(nome: string): Set<Variante> {
-  return variantesDoTexto(nome);
-}
+function variantesDaOferta(nome: string): Set<Variante> { return variantesDoTexto(nome); }
 
 function variantesDaFamilia(variantes: Set<Variante>, familia: FamiliaVariante): Variante[] {
   const configuracao = FAMILIAS_VARIANTE.find((item) => item.familia === familia);
@@ -98,9 +89,7 @@ function contemToken(descricao: string, token: string): boolean {
   return candidatos.includes(token) || candidatos.some((candidato) => candidato.length >= 4 && token.length >= 4 && semelhanca(token, candidato) >= 0.82);
 }
 
-function contemTodosTokens(descricao: string, tokens: string[]): boolean {
-  return tokens.every((token) => contemToken(descricao, token));
-}
+function contemTodosTokens(descricao: string, tokens: string[]): boolean { return tokens.every((token) => contemToken(descricao, token)); }
 
 function candidatoExcluido(item: Produto, excecoes: string[][]): boolean {
   if (!excecoes.length) return false;
@@ -132,8 +121,7 @@ function pontuacaoCandidato(nome: string, item: Produto, desejadas: Set<Variante
   const base = semelhanca(nome, item.description);
   const encontradas = variantesDoTexto(item.description);
   if (!desejadas.size || !encontradas.size) return base;
-  const varianteCorrespondente = [...desejadas].some((variante) => encontradas.has(variante));
-  return varianteCorrespondente ? Math.min(1, base + 0.18) : base;
+  return [...desejadas].some((variante) => encontradas.has(variante)) ? Math.min(1, base + 0.18) : base;
 }
 
 function candidatosDaFamilia(nome: string, produto: Produto | undefined, catalogo: Produto[], excecoes: string[][], precoOferta: number | null, porQuilo: boolean): Array<{ item: Produto; score: number }> {
@@ -159,21 +147,23 @@ function selecionarPorVariante(nome: string, candidatos: Array<{ item: Produto; 
 
   const selecionados = new Map<string, Produto>();
   const neutros = candidatos.filter(({ item }) => !variantesDoTexto(item.description).size);
-  for (const { item } of neutros) selecionados.set(item.id, item);
+  const neutroTradicional = () => neutros.find(({ item }) => !selecionados.has(item.id));
 
   for (const { familia } of FAMILIAS_VARIANTE) {
     const solicitadas = variantesDaFamilia(desejadas, familia);
     if (!solicitadas.length) continue;
+
     for (const variante of solicitadas) {
       const explicitos = candidatos.filter(({ item }) => variantesDoTexto(item.description).has(variante));
       if (explicitos.length) {
         selecionados.set(explicitos[0]!.id, explicitos[0]!.item);
         continue;
       }
-      // Tradicional pode ser representado por um produto neutro, mas só usa um neutro por família/variante.
-      // Para TRAD E ZERO, o neutro escolhido para TRAD não pode ser o mesmo produto já selecionado como ZERO.
+
+      // Produto sem marcador de variante é neutro. Ele só pode preencher TRADICIONAL,
+      // nunca ZERO/GÁS/ÁLCOOL, porque não há evidência para afirmar essas variantes.
       if (variante === "tradicional") {
-        const neutro = neutros.find(({ item }) => !selecionados.has(item.id) || solicitadas.length === 1);
+        const neutro = neutroTradicional();
         if (neutro) selecionados.set(neutro.item.id, neutro.item);
       }
     }
@@ -194,7 +184,4 @@ export function normalizarCodigos(codigos: string[]): string[] {
   return [...new Set(codigos.flatMap((valor) => String(valor ?? "").split(/[;,|\n]+/)).map((item) => item.trim()).filter(Boolean))];
 }
 
-/** Normaliza uma descrição para identificar linhas irmãs da mesma oferta sem depender das variantes. */
-export function chaveBaseOferta(nome: string): string {
-  return tokensFamilia(nome).join(" ");
-}
+export function chaveBaseOferta(nome: string): string { return tokensFamilia(nome).join(" "); }
