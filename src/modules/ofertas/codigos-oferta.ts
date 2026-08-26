@@ -1,18 +1,26 @@
-/** Seleção de códigos de oferta por identidade, variante, tamanho e custo. */
+/** Seleção determinística de códigos de oferta por identidade, variante, tamanho e custo. */
 import { normalizarTexto, semelhanca } from "@/shared/texto";
 import { limparCodigo, limparEan, type Produto } from "@/modules/catalogo/catalogo";
 
-const TOKENS_GENERICOS = new Set(["kg", "un", "und", "unidade", "pct", "pcte", "cx", "caixa", "fardo", "fd", "produto", "produtos", "mercadoria", "bov", "bovina", "bovino"]);
-const TOKENS_IGNORADOS = new Set(["a", "as", "o", "os", "e", "de", "da", "do", "das", "dos", "em", "no", "na", "nos", "nas", "por", "para", "pra", "ao", "aos", "um", "uma", "uns", "umas"]);
+const TOKENS_GENERICOS = new Set([
+  "kg", "un", "und", "unidade", "pct", "pcte", "cx", "caixa", "fardo", "fd",
+  "produto", "produtos", "mercadoria", "bov", "bovina", "bovino",
+]);
+const TOKENS_IGNORADOS = new Set([
+  "a", "as", "o", "os", "e", "de", "da", "do", "das", "dos", "em", "no", "na",
+  "nos", "nas", "por", "para", "pra", "ao", "aos", "um", "uma", "uns", "umas",
+]);
 
-type Variante = "tradicional" | "zero" | "com_gas" | "sem_gas" | "com_alcool" | "sem_alcool";
+export type Variante = "tradicional" | "zero" | "com_gas" | "sem_gas" | "com_alcool" | "sem_alcool";
 type FamiliaVariante = "trad_zero" | "gas" | "alcool";
 
-const FAMILIAS_VARIANTE: Array<[FamiliaVariante, Set<Variante>]> = [
-  ["trad_zero", new Set(["tradicional", "zero"])],
-  ["gas", new Set(["com_gas", "sem_gas"])],
-  ["alcool", new Set(["com_alcool", "sem_alcool"])],
+const FAMILIAS_VARIANTE: Array<{ familia: FamiliaVariante; variantes: readonly Variante[] }> = [
+  { familia: "trad_zero", variantes: ["tradicional", "zero"] },
+  { familia: "gas", variantes: ["com_gas", "sem_gas"] },
+  { familia: "alcool", variantes: ["com_alcool", "sem_alcool"] },
 ];
+
+const TOKENS_VARIANTE = new Set(["com", "sem", "tradicional", "zero", "gas", "alcool"]);
 
 function compactarTexto(valor: string): string {
   return normalizarTexto(valor)
@@ -28,78 +36,111 @@ function compactarTexto(valor: string): string {
     .trim();
 }
 
+/** Extrai tokens de identidade sem deixar palavras de variante contaminarem a família. */
 export function tokensFamilia(valor: string): string[] {
-  return [...new Set(compactarTexto(valor).split(/\s+/).filter((t) => t.length >= 2 && !TOKENS_GENERICOS.has(t) && !TOKENS_IGNORADOS.has(t) && !["com", "sem", "tradicional", "zero", "gas", "alcool"].includes(t)))];
+  return [...new Set(
+    compactarTexto(valor)
+      .split(/\s+/)
+      .filter((token) => token.length >= 2 && !TOKENS_GENERICOS.has(token) && !TOKENS_IGNORADOS.has(token) && !TOKENS_VARIANTE.has(token)),
+  )];
 }
 
 function tamanhosDoProduto(valor: string): string[] {
-  return [...new Set([...compactarTexto(valor).matchAll(/\b(\d+(?:[.,]\d+)?)(ml|l|g|kg)\b/g)].map((m) => `${m[1]!.replace(",", ".")}${m[2]!}`))];
+  return [...new Set(
+    [...compactarTexto(valor).matchAll(/\b(\d+(?:[.,]\d+)?)(ml|l|g|kg)\b/g)]
+      .map((match) => `${match[1]!.replace(",", ".")}${match[2]!}`),
+  )];
 }
 
 function tamanhosCompativeis(oferta: string, descricao: string): boolean {
   const tamanhos = tamanhosDoProduto(oferta);
-  return !tamanhos.length || tamanhos.every((t) => tamanhosDoProduto(descricao).includes(t));
+  return !tamanhos.length || tamanhos.every((tamanho) => tamanhosDoProduto(descricao).includes(tamanho));
 }
 
 function tokensExcecao(valor: string): string[][] {
   const texto = normalizarTexto(valor);
   if (!texto.includes("exceto")) return [];
-  return texto.split(/\bexceto\b/).slice(1).join(" exceto ").split(/[,;|]|\s+e\s+|\s+\/\s+/).map((parte) => tokensFamilia(parte.trim())).filter((tokens) => tokens.length);
+  return texto
+    .split(/\bexceto\b/)
+    .slice(1)
+    .join(" exceto ")
+    .split(/[,;|]|\s+e\s+|\s+\/\s+/)
+    .map((parte) => tokensFamilia(parte.trim()))
+    .filter((tokens) => tokens.length);
 }
 
 export function extrairExcecoes(linha: Record<string, unknown>, nome: string): string[][] {
-  return [nome, ...Object.values(linha).map((valor) => String(valor ?? ""))].flatMap(tokensExcecao).filter((tokens) => tokens.length);
+  return [nome, ...Object.values(linha).map((valor) => String(valor ?? ""))]
+    .flatMap(tokensExcecao)
+    .filter((tokens) => tokens.length);
 }
 
-function variantesDoTexto(valor: string): Set<Variante> {
+/** Reconhece variantes e também formas abreviadas do cadastro. */
+export function variantesDoTexto(valor: string): Set<Variante> {
   const texto = compactarTexto(valor);
   const variantes = new Set<Variante>();
+
   if (/\bzero\b/.test(texto)) variantes.add("zero");
   if (/\btradicional\b/.test(texto)) variantes.add("tradicional");
-  if (/\bcom\s+gas\b/.test(texto) || /\bcom\s+sem\s+gas\b/.test(texto)) variantes.add("com_gas");
-  if (/\bsem\s+gas\b/.test(texto) || /\bcom\s+sem\s+gas\b/.test(texto)) variantes.add("sem_gas");
-  if (/\bcom\s+alcool\b/.test(texto) || /\bcom\s+sem\s+alcool\b/.test(texto)) variantes.add("com_alcool");
-  if (/\bsem\s+alcool\b/.test(texto) || /\bcom\s+sem\s+alcool\b/.test(texto)) variantes.add("sem_alcool");
+
+  const comSemGas = /\bcom\s+sem\s+gas\b/.test(texto);
+  if (/\bcom\s+gas\b/.test(texto) || comSemGas) variantes.add("com_gas");
+  if (/\bsem\s+gas\b/.test(texto) || comSemGas) variantes.add("sem_gas");
+
+  const comSemAlcool = /\bcom\s+sem\s+alcool\b/.test(texto);
+  if (/\bcom\s+alcool\b/.test(texto) || comSemAlcool) variantes.add("com_alcool");
+  if (/\bsem\s+alcool\b/.test(texto) || comSemAlcool) variantes.add("sem_alcool");
+
   return variantes;
 }
 
-function variantesDaOferta(nome: string): Set<Variante> { return variantesDoTexto(nome); }
+function variantesDaOferta(nome: string): Set<Variante> {
+  return variantesDoTexto(nome);
+}
 
-function familiaDaVariante(variante: Variante): FamiliaVariante {
-  if (variante === "tradicional" || variante === "zero") return "trad_zero";
-  if (variante === "com_gas" || variante === "sem_gas") return "gas";
-  return "alcool";
+function variantesDaFamilia(variantes: Set<Variante>, familia: FamiliaVariante): Variante[] {
+  const configuracao = FAMILIAS_VARIANTE.find((item) => item.familia === familia);
+  return configuracao ? configuracao.variantes.filter((variante) => variantes.has(variante)) : [];
 }
 
 /**
- * Variante ausente no catálogo é NEUTRA: não contradiz uma oferta explícita.
- * Só rejeitamos quando o catálogo afirma uma variante diferente dentro da mesma família.
+ * A descrição do catálogo sem variante é neutra.
+ * Só existe conflito quando o catálogo afirma explicitamente uma variante diferente
+ * dentro de uma família que a oferta especificou.
  */
 function varianteExplicitamenteConflitante(oferta: string, descricao: string): boolean {
   const desejadas = variantesDaOferta(oferta);
   if (!desejadas.size) return false;
+
   const encontradas = variantesDoTexto(descricao);
   if (!encontradas.size) return false;
 
-  return FAMILIAS_VARIANTE.some(([, familia]) => {
-    const ofertaFam = [...desejadas].filter((v) => familia.has(v));
-    const produtoFam = [...encontradas].filter((v) => familia.has(v));
-    return ofertaFam.length > 0 && produtoFam.length > 0 && !produtoFam.some((v) => ofertaFam.includes(v));
+  return FAMILIAS_VARIANTE.some(({ familia }) => {
+    const ofertaFam = variantesDaFamilia(desejadas, familia);
+    const produtoFam = variantesDaFamilia(encontradas, familia);
+    return ofertaFam.length > 0 && produtoFam.length > 0 && !produtoFam.some((variante) => ofertaFam.includes(variante));
   });
 }
 
 function contemToken(descricao: string, token: string): boolean {
   const candidatos = tokensFamilia(descricao);
-  return candidatos.includes(token) || candidatos.some((c) => c.length >= 4 && token.length >= 4 && semelhanca(token, c) >= 0.82);
+  return candidatos.includes(token) || candidatos.some((candidato) => candidato.length >= 4 && token.length >= 4 && semelhanca(token, candidato) >= 0.82);
 }
 
-function contemTodosTokens(descricao: string, tokens: string[]): boolean { return tokens.every((token) => contemToken(descricao, token)); }
+function contemTodosTokens(descricao: string, tokens: string[]): boolean {
+  return tokens.every((token) => contemToken(descricao, token));
+}
 
 function candidatoExcluido(item: Produto, excecoes: string[][]): boolean {
   if (!excecoes.length) return false;
   const descricao = normalizarTexto(item.description);
   const codigos = [limparEan(item.ean), limparCodigo(item.internal_code), limparCodigo(item.promotion_code)];
-  return excecoes.some((tokens) => tokens.length && (tokens.join(" ").match(/^\d{8,14}$/) ? codigos.includes(tokens.join(" ")) : tokens.every((token) => descricao.includes(token))));
+  return excecoes.some((tokens) => {
+    if (!tokens.length) return false;
+    const texto = tokens.join(" ");
+    if (/^\d{8,14}$/.test(texto)) return codigos.includes(texto);
+    return tokens.every((token) => descricao.includes(token));
+  });
 }
 
 function codigoDoProduto(item: Produto, porQuilo: boolean): string {
@@ -120,48 +161,53 @@ function pontuacaoCandidato(nome: string, item: Produto, desejadas: Set<Variante
   const base = semelhanca(nome, item.description);
   const encontradas = variantesDoTexto(item.description);
   if (!desejadas.size || !encontradas.size) return base;
-  const varianteCorrespondente = [...desejadas].some((v) => encontradas.has(v));
-  return varianteCorrespondente ? base + 0.18 : base;
+  const varianteCorrespondente = [...desejadas].some((variante) => encontradas.has(variante));
+  return varianteCorrespondente ? Math.min(1, base + 0.18) : base;
 }
 
-function candidatosDaFamilia(nome: string, produto: Produto | undefined, catalogo: Produto[], excecoes: string[][], precoOferta: number | null): Array<{ item: Produto; score: number }> {
+function candidatosDaFamilia(
+  nome: string,
+  produto: Produto | undefined,
+  catalogo: Produto[],
+  excecoes: string[][],
+  precoOferta: number | null,
+  porQuilo: boolean,
+): Array<{ item: Produto; score: number }> {
   const tokensOferta = tokensFamilia(nome);
   const tamanhosOferta = tamanhosDoProduto(nome);
   const desejadas = variantesDaOferta(nome);
-  const referencia = produto?.description || nome;
 
   return catalogo
     .filter((item) => !candidatoExcluido(item, excecoes))
     .filter((item) => custoCompativel(item, precoOferta))
-    .filter((item) => Boolean(codigoDoProduto(item, false)))
+    .filter((item) => Boolean(codigoDoProduto(item, porQuilo)))
     .filter((item) => tamanhosCompativeis(nome, item.description))
-    .filter((item) => !tamanhosOferta.length || tamanhosDoProduto(item.description).some((t) => tamanhosOferta.includes(t)))
+    .filter((item) => !tamanhosOferta.length || tamanhosDoProduto(item.description).some((tamanho) => tamanhosOferta.includes(tamanho)))
     .filter((item) => !varianteExplicitamenteConflitante(nome, item.description))
     .filter((item) => !tokensOferta.length || contemTodosTokens(item.description, tokensOferta))
     .map((item) => ({ item, score: pontuacaoCandidato(nome, item, desejadas) }))
-    .filter(({ item, score }) => (produto && item.id === produto.id) || score >= 0.38)
+    .filter(({ item, score }) => (produto?.id === item.id) || score >= 0.38)
     .sort((a, b) => b.score - a.score);
 }
 
 /**
- * Para cada variante explicitamente pedida, escolhe os melhores candidatos daquela variante.
- * Se a oferta não pedir variante, preserva o comportamento amplo e pode retornar todas as variantes.
- * Produtos sem variante declarada no catálogo são neutros e continuam elegíveis.
+ * Seleciona códigos por variante solicitada, sem misturar variantes explicitamente opostas.
+ * Sem variante na oferta: mantém todos os candidatos compatíveis.
+ * Com variante na oferta: inclui candidatos neutros e o melhor candidato encontrado para cada variante solicitada.
  */
 function selecionarPorVariante(nome: string, candidatos: Array<{ item: Produto; score: number }>): Produto[] {
   const desejadas = variantesDaOferta(nome);
   if (!desejadas.size) return candidatos.map(({ item }) => item);
 
   const selecionados = new Map<string, Produto>();
-  const neutros = candidatos.filter(({ item }) => variantesDoTexto(item.description).size === 0);
-  for (const { item } of neutros) selecionados.set(item.id, item);
 
-  for (const [, familia] of FAMILIAS_VARIANTE) {
-    const solicitadas = [...desejadas].filter((v) => familia.has(v));
-    if (!solicitadas.length) continue;
-    for (const variante of solicitadas) {
-      const candidatosDaVariante = candidatos.filter(({ item }) => variantesDoTexto(item.description).has(variante));
-      const melhor = candidatosDaVariante[0];
+  for (const { item } of candidatos) {
+    if (!variantesDoTexto(item.description).size) selecionados.set(item.id, item);
+  }
+
+  for (const { familia } of FAMILIAS_VARIANTE) {
+    for (const variante of variantesDaFamilia(desejadas, familia)) {
+      const melhor = candidatos.find(({ item }) => variantesDoTexto(item.description).has(variante));
       if (melhor) selecionados.set(melhor.item.id, melhor.item);
     }
   }
@@ -169,16 +215,37 @@ function selecionarPorVariante(nome: string, candidatos: Array<{ item: Produto; 
   return [...selecionados.values()];
 }
 
-export function codigosDaFamiliaOferta(nome: string, produto: Produto | undefined, catalogo: Produto[], porQuilo: boolean, excecoes: string[][] = [], precoOferta: number | null = null): string[] {
-  const principalValido = Boolean(produto && tamanhosCompativeis(nome, produto.description) && !candidatoExcluido(produto, excecoes) && custoCompativel(produto, precoOferta) && !varianteExplicitamenteConflitante(nome, produto.description));
-  const principal = principalValido ? codigoDoProduto(produto!, porQuilo) : "";
-  if (porQuilo) return principal ? [principal] : [];
+export function codigosDaFamiliaOferta(
+  nome: string,
+  produto: Produto | undefined,
+  catalogo: Produto[],
+  porQuilo: boolean,
+  excecoes: string[][] = [],
+  precoOferta: number | null = null,
+): string[] {
+  const principalValido = Boolean(
+    produto &&
+      tamanhosCompativeis(nome, produto.description) &&
+      !candidatoExcluido(produto, excecoes) &&
+      custoCompativel(produto, precoOferta) &&
+      !varianteExplicitamenteConflitante(nome, produto.description) &&
+      codigoDoProduto(produto, porQuilo),
+  );
 
-  const candidatos = candidatosDaFamilia(nome, principalValido ? produto : undefined, catalogo, excecoes, precoOferta);
-  const selecionados = selecionarPorVariante(nome, candidatos).map((item) => codigoDoProduto(item, false)).filter(Boolean);
+  const principal = principalValido ? codigoDoProduto(produto!, porQuilo) : "";
+  const candidatos = candidatosDaFamilia(nome, principalValido ? produto : undefined, catalogo, excecoes, precoOferta, porQuilo);
+  const selecionados = selecionarPorVariante(nome, candidatos)
+    .map((item) => codigoDoProduto(item, porQuilo))
+    .filter(Boolean);
+
   return [...new Set([...(principal ? [principal] : []), ...selecionados])];
 }
 
 export function normalizarCodigos(codigos: string[]): string[] {
-  return [...new Set(codigos.flatMap((valor) => String(valor ?? "").split(/[;,|\n]+/)).map((item) => item.trim()).filter(Boolean))];
+  return [...new Set(
+    codigos
+      .flatMap((valor) => String(valor ?? "").split(/[;,|\n]+/))
+      .map((item) => item.trim())
+      .filter(Boolean),
+  )];
 }
