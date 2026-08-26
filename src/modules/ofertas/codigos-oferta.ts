@@ -2,7 +2,11 @@
 import { normalizarTexto, semelhanca } from "@/shared/texto";
 import { limparCodigo, limparEan, type Produto } from "@/modules/catalogo/catalogo";
 
-const TOKENS_GENERICOS = new Set(["kg","un","und","unidade","pct","pcte","cx","caixa","fardo","fd","produto","produtos","mercadoria","bov","bovina","bovino"]);
+const TOKENS_GENERICOS = new Set([
+  "kg","un","und","unidade","pct","pcte","cx","caixa","fardo","fd",
+  "produto","produtos","mercadoria","bov","bovina","bovino",
+  "refrigerante","refrig","cerveja","cerv","beer","suco","sucos","agua","bebida","bebidas"
+]);
 const TOKENS_IGNORADOS = new Set(["a","as","o","os","e","de","da","do","das","dos","em","no","na","nos","nas","por","para","pra","ao","aos","um","uma","uns","umas"]);
 export type Variante = "tradicional" | "zero" | "com_gas" | "sem_gas" | "com_alcool" | "sem_alcool";
 type FamiliaVariante = "trad_zero" | "gas" | "alcool";
@@ -52,7 +56,7 @@ function varianteExplicitamenteConflitante(oferta:string,descricao:string):boole
 
 function tokensEquivalentes(a:string,b:string):boolean{
   if(a===b)return true;
-  const pares:[[string,string],[string,string]]|[string,string][]=[
+  const pares:[string,string][]=[
     ["refrigerante","refrig"],["cerveja","cerv"],["energetico","energet"],["suco","sucos"]
   ];
   if(pares.some(([x,y])=>(a===x&&b===y)||(a===y&&b===x)))return true;
@@ -74,6 +78,7 @@ function pontuacaoBase(nome:string,item:Produto):number{const a=tokensFamilia(no
 
 type Candidato={item:Produto;score:number};
 function candidatosBase(nome:string,catalogo:Produto[],excecoes:string[][],preco:number|null,porQuilo:boolean):Candidato[]{
+  const tokensOferta=tokensFamilia(nome);
   return catalogo
     .filter(i=>!candidatoExcluido(i,excecoes))
     .filter(i=>custoCompativel(i,preco))
@@ -82,7 +87,14 @@ function candidatosBase(nome:string,catalogo:Produto[],excecoes:string[][],preco
     .filter(i=>baseCompativel(nome,i.description))
     .filter(i=>!varianteExplicitamenteConflitante(nome,i.description))
     .map(i=>({item:i,score:pontuacaoBase(nome,i)}))
-    .filter(x=>x.score>=0.45)
+    .filter(x=>{
+      if(x.score<0.45)return false;
+      const tokensCatalogo=tokensFamilia(x.item.description);
+      const fortes=tokensOferta.filter(t=>tokensCatalogo.some(c=>tokensEquivalentes(t,c))).length;
+      // Para evitar que produtos da mesma categoria/tamanho sejam tratados como a mesma família,
+      // uma oferta com identidade específica precisa compartilhar pelo menos um token forte.
+      return !tokensOferta.length || fortes>0;
+    })
     .sort((a,b)=>b.score-a.score);
 }
 
