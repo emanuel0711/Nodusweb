@@ -134,21 +134,23 @@ function produtoComCodigoInterno(produto: Produto | undefined, catalogo: Produto
   return catalogo.find((item) => normalizarTexto(item.description) === descricao && codigoInternoValido(item));
 }
 
-/** Custo ausente não bloqueia; custo conhecido acima do preço da oferta bloqueia o candidato. */
+/** Penaliza somente custos claramente incompatíveis com o preço da oferta. */
 function custoCompativel(custo: number | null, precoOferta: number | null): boolean {
   if (custo == null || precoOferta == null || !Number.isFinite(custo) || !Number.isFinite(precoOferta) || precoOferta <= 0) return true;
   return custo <= precoOferta * 1.15;
 }
 
-/** Busca textual nunca usa um produto cujo custo conhecido é incompatível com a oferta. */
 function melhorCorrespondenciaComCusto(nome: string, catalogo: Produto[], notaMinima: number, precoOferta: number | null): { item: Produto; score: number } | null {
   const alvo = normalizarTexto(nome);
   if (!alvo) return null;
   const candidatos = catalogo
-    .filter((item) => custoCompativel(item.cost, precoOferta))
-    .map((item) => ({ item, score: semelhanca(alvo, item.description) }))
-    .filter(({ score }) => score >= notaMinima)
-    .sort((a, b) => b.score - a.score);
+    .map((item) => {
+      const texto = semelhanca(alvo, item.description);
+      const custoPenalidade = custoCompativel(item.cost, precoOferta) ? 0 : 0.35;
+      return { item, score: texto - custoPenalidade, texto };
+    })
+    .filter(({ texto }) => texto >= notaMinima)
+    .sort((a, b) => b.score - a.score || b.texto - a.texto);
   const melhor = candidatos[0];
   return melhor ? { item: melhor.item, score: melhor.score } : null;
 }
@@ -167,7 +169,7 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
   const porQuiloPeloNome = /\bkg\b|\bquilo\b|\bkilo\b|\bquilograma\b/.test(normalizarTexto(nome));
 
   const achadoPorCodigo = acharPorCodigo(nome, codigoOrigem, eanOrigem, catalogo, notaMinima);
-  const achadoNome = melhorCorrespondenciaComCusto(nome, catalogo, notaMinima, precoParaCusto);
+  const achadoNome = melhorCorrespondenciaComCusto(nome, catalogo, notaMinima, precoParaCusto) || melhorCorrespondencia(nome, catalogo, notaMinima);
   const achadoKg = porQuiloPeloNome ? melhorCorrespondenciaKg(nome, catalogo) : null;
   const achado = achadoPorCodigo || achadoNome || achadoKg;
   const produtoInicial = achado?.item;
@@ -203,8 +205,8 @@ function dataParaClube(valor: string): string {
 
 function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
   const candidato = oferta.porQuilo
-    ? (melhorCorrespondenciaKg(oferta.nome, catalogo) || melhorCorrespondenciaComCusto(oferta.nome, catalogo, 0.72, oferta.precoClube ?? oferta.preco))
-    : melhorCorrespondenciaComCusto(oferta.nome, catalogo, 0.72, oferta.precoClube ?? oferta.preco);
+    ? (melhorCorrespondenciaKg(oferta.nome, catalogo) || melhorCorrespondenciaComCusto(oferta.nome, catalogo, 0.72, oferta.precoClube ?? oferta.preco) || melhorCorrespondencia(oferta.nome, catalogo, 0.72))
+    : (melhorCorrespondenciaComCusto(oferta.nome, catalogo, 0.72, oferta.precoClube ?? oferta.preco) || melhorCorrespondencia(oferta.nome, catalogo, 0.72));
   if (!candidato) return oferta;
   if (oferta.encontrado && candidato.item.description !== oferta.encontrado) return oferta;
 
@@ -215,18 +217,86 @@ function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
   const descobertos = codigosDaFamiliaOferta(oferta.nome, produto, catalogo, regras.porQuilo, oferta.excecoes || [], oferta.precoClube ?? oferta.preco);
   const codigos = oferta.codigosEditados ? normalizarCodigos(oferta.codigos || []) : normalizarCodigos(descobertos);
   return {
-    ...oferta,
-    imagem: oferta.imagem || produto.image_url || "",
-    encontrado: oferta.encontrado || produto.description,
-    nota: Math.max(oferta.nota, candidato.score),
-    ean: limparEan(produto.ean) || oferta.ean,
-    codigoInterno: regras.porQuilo ? codigoCatalogo : "",
-    porQuilo: regras.porQuilo,
-    unidade: regras.unidade,
-    limite: regras.limite,
-    codigos,
-    codigo: codigos.join(";"),
+    ...oferta, imagem: oferta.imagem || produto.image_url || "", encontrado: oferta.encontrado || produto.description,
+    codigos, codigo: codigos.join(";"), ean: oferta.ean || limparEan(produto.ean),
+    codigoInterno: regras.porQuilo ? codigoCatalogo : oferta.codigoInterno,
+    nota: Math.max(oferta.nota, candidato.score), porQuilo: regras.porQuilo, unidade: regras.unidade, limite: regras.limite,
   };
 }
 
-// ... restante do módulo permanece igual.
+export function useOfertas() {
+  const queryClient = useQueryClient();
+  const campoArquivo = useRef<HTMLInputElement>(null);
+  const rascunho = lerRascunho();
+  const [processando, setProcessando] = useState(false);
+  const [nomeArquivo, setNomeArquivo] = useState(rascunho?.nomeArquivo ?? "");
+  const [ofertas, setOfertas] = useState<Oferta[]>(rascunho?.ofertas ?? []);
+  const [notaMinima, setNotaMinima] = useState(rascunho?.notaMinima ?? 0.55);
+  const [modalAberto, setModalAberto] = useState(false);
+  const [modalVisualizacao, setModalVisualizacao] = useState<Oferta | null>(null);
+  const [carrossel, setCarrossel] = useState(rascunho?.carrossel ?? "");
+  const [ativarEm, setAtivarEm] = useState(rascunho?.ativarEm ?? "");
+  const [inativarEm, setInativarEm] = useState(rascunho?.inativarEm ?? "");
+
+  useEffect(() => {
+    if (!ofertas.length && !nomeArquivo) { sessionStorage.removeItem(STORAGE_KEY); return; }
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ofertas, nomeArquivo, carrossel, ativarEm, inativarEm, notaMinima }));
+  }, [ofertas, nomeArquivo, carrossel, ativarEm, inativarEm, notaMinima]);
+
+  useEffect(() => {
+    if (!ofertas.length) return;
+    let ativo = true;
+    carregarTodosProdutos().then((catalogo) => {
+      if (ativo) setOfertas((atuais) => atuais.map((oferta) => atualizarComCatalogo(oferta, catalogo)));
+    }).catch(() => undefined);
+    return () => { ativo = false; };
+  }, []);
+
+  function alterar(indice: number, mudanca: Partial<Oferta>) {
+    setOfertas((atual) => atual.map((oferta, i) => i === indice ? { ...oferta, ...mudanca, ...(Object.hasOwn(mudanca, "codigos") ? { codigosEditados: true } : {}) } : oferta));
+  }
+
+  async function processar(arquivo: File) {
+    setProcessando(true);
+    try {
+      const [linhas, catalogo] = await Promise.all([lerPlanilha(arquivo), carregarTodosProdutos()]);
+      if (!linhas.length) throw new Error("A planilha não possui linhas de produtos reconhecíveis.");
+      const cruzadas = linhas.map((linha) => cruzar(linha, catalogo, notaMinima)).filter((item): item is Oferta => item !== null);
+      if (!cruzadas.length) throw new Error("Não encontrei uma coluna com o nome do produto na planilha.");
+      const finais = cruzadas;
+
+      setOfertas(finais); setNomeArquivo(arquivo.name);
+      const correspondidas = finais.filter((item) => item.nota >= notaMinima && item.codigos.length > 0).length;
+      const { data } = await supabase.auth.getUser();
+      if (data.user) {
+        await supabase.from("offer_runs").insert({ user_id: data.user.id, file_name: arquivo.name, total_items: finais.length, matched_items: correspondidas });
+        queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      }
+      toast.success(`${finais.length} oferta(s) processada(s) — ${correspondidas} com código encontrado.`);
+    } catch (erro) {
+      toast.error(erro instanceof Error ? erro.message : "Falha ao processar a planilha");
+    } finally {
+      setProcessando(false); if (campoArquivo.current) campoArquivo.current.value = "";
+    }
+  }
+
+  function limparOfertas() { setOfertas([]); setNomeArquivo(""); toast.success("Planilha removida"); }
+
+  function exportar() {
+    if (!ofertas.length || !carrossel.trim() || !ativarEm || !inativarEm) { toast.error("Preencha Carrossel, Ativação automática e Inativar em."); return; }
+    const linhas: OfertaParaExportar[] = ofertas.map((oferta) => ({
+      name: oferta.nome, price: oferta.preco, promotionalPrice: oferta.precoClube, limit: oferta.limite, imageUrl: oferta.imagem,
+      code: normalizarCodigos(oferta.codigos.length ? oferta.codigos : [oferta.codigo]).join(";"),
+      codeType: oferta.porQuilo ? "Interno" : "EAN", unidade: oferta.unidade,
+    }));
+    exportarModeloDoClube(linhas, { carrossel, ativarEm: dataParaClube(ativarEm), inativarEm: dataParaClube(inativarEm) });
+    setModalAberto(false); toast.success("Planilha do Clube gerada.");
+  }
+
+  return {
+    campoArquivo, processando, ofertas, notaMinima, setNotaMinima, nomeArquivo,
+    precisamRevisao: ofertas.filter((item) => item.nota < notaMinima || !item.codigos.length || !item.imagem).length,
+    alterar, limparOfertas, setModalAberto, processar, modalAberto, carrossel, setCarrossel,
+    ativarEm, setAtivarEm, inativarEm, setInativarEm, exportar, modalVisualizacao, setModalVisualizacao,
+  };
+}
