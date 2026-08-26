@@ -20,10 +20,16 @@ function compactarTexto(valor: string): string {
   return normalizarTexto(valor)
     .replace(/(\d+(?:[.,]\d+)?)\s+(ml|l|g|kg)\b/g, "$1$2")
     .replace(/\btrad\b/g, "tradicional")
+    // normalizarTexto pode remover a barra de C/GAS e S/GAS; por isso aceitamos
+    // tanto a forma original quanto a forma já separada por espaço.
     .replace(/\bc\s*\/\s*gas\b/g, "com gas")
     .replace(/\bs\s*\/\s*gas\b/g, "sem gas")
+    .replace(/\bc\s+gas\b/g, "com gas")
+    .replace(/\bs\s+gas\b/g, "sem gas")
     .replace(/\bc\s*\/\s*alcool\b/g, "com alcool")
     .replace(/\bs\s*\/\s*alcool\b/g, "sem alcool")
+    .replace(/\bc\s+alcool\b/g, "com alcool")
+    .replace(/\bs\s+alcool\b/g, "sem alcool")
     .replace(/\bcom\s+e\s+sem\s+gas\b/g, "com sem gas")
     .replace(/\bcom\s+e\s+sem\s+alcool\b/g, "com sem alcool")
     .replace(/\bexceto\b.*$/i, "")
@@ -72,6 +78,7 @@ function variantesDaFamilia(variantes: Set<Variante>, familia: FamiliaVariante):
   return configuracao ? configuracao.variantes.filter((variante) => variantes.has(variante)) : [];
 }
 
+/** Retorna verdadeiro somente quando o produto declara explicitamente uma variante incompatível. */
 function varianteExplicitamenteConflitante(oferta: string, descricao: string): boolean {
   const desejadas = variantesDaOferta(oferta);
   if (!desejadas.size) return false;
@@ -147,7 +154,6 @@ function selecionarPorVariante(nome: string, candidatos: Array<{ item: Produto; 
 
   const selecionados = new Map<string, Produto>();
   const neutros = candidatos.filter(({ item }) => !variantesDoTexto(item.description).size);
-  const neutroTradicional = () => neutros.find(({ item }) => !selecionados.has(item.id));
 
   for (const { familia } of FAMILIAS_VARIANTE) {
     const solicitadas = variantesDaFamilia(desejadas, familia);
@@ -160,10 +166,9 @@ function selecionarPorVariante(nome: string, candidatos: Array<{ item: Produto; 
         continue;
       }
 
-      // Produto sem marcador de variante é neutro. Ele só pode preencher TRADICIONAL,
-      // nunca ZERO/GÁS/ÁLCOOL, porque não há evidência para afirmar essas variantes.
+      // Somente TRADICIONAL aceita fallback para um produto neutro.
       if (variante === "tradicional") {
-        const neutro = neutroTradicional();
+        const neutro = neutros.find(({ item }) => !selecionados.has(item.id));
         if (neutro) selecionados.set(neutro.item.id, neutro.item);
       }
     }
@@ -172,12 +177,28 @@ function selecionarPorVariante(nome: string, candidatos: Array<{ item: Produto; 
   return [...selecionados.values()];
 }
 
+function varianteDoItemCompativelComOferta(nome: string, item: Produto): boolean {
+  const desejadas = variantesDaOferta(nome);
+  if (!desejadas.size) return true;
+  const encontradas = variantesDoTexto(item.description);
+  if (!encontradas.size) return desejadas.has("tradicional");
+  return [...encontradas].some((variante) => desejadas.has(variante));
+}
+
 export function codigosDaFamiliaOferta(nome: string, produto: Produto | undefined, catalogo: Produto[], porQuilo: boolean, excecoes: string[][] = [], precoOferta: number | null = null): string[] {
-  const principalValido = Boolean(produto && tamanhosCompativeis(nome, produto.description) && !candidatoExcluido(produto, excecoes) && custoCompativel(produto, precoOferta) && !varianteExplicitamenteConflitante(nome, produto.description) && codigoDoProduto(produto, porQuilo));
+  const principalValido = Boolean(
+    produto &&
+    tamanhosCompativeis(nome, produto.description) &&
+    !candidatoExcluido(produto, excecoes) &&
+    custoCompativel(produto, precoOferta) &&
+    !varianteExplicitamenteConflitante(nome, produto.description) &&
+    varianteDoItemCompativelComOferta(nome, produto) &&
+    codigoDoProduto(produto, porQuilo),
+  );
   const principal = principalValido ? codigoDoProduto(produto!, porQuilo) : "";
   const candidatos = candidatosDaFamilia(nome, principalValido ? produto : undefined, catalogo, excecoes, precoOferta, porQuilo);
   const selecionados = selecionarPorVariante(nome, candidatos).map((item) => codigoDoProduto(item, porQuilo)).filter(Boolean);
-  return [...new Set([...(principal ? [principal] : []), ...selecionados])];
+  return [...new Set([...selecionados, ...(principal ? [principal] : [])])];
 }
 
 export function normalizarCodigos(codigos: string[]): string[] {
