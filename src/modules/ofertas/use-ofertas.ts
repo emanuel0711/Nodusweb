@@ -6,7 +6,7 @@ import { exportarModeloDoClube, lerPlanilha, valorDoCampo, type LinhaPlanilha, t
 import { lerPreco, melhorCorrespondencia, normalizarTexto, semelhanca } from "@/lib/comparar-textos";
 import { carregarTodosProdutos, limparCodigo, limparEan, type Produto } from "@/lib/catalogo";
 import { aplicarRegras, type RegraOferta } from "@/lib/regras-oferta";
-import { codigosDaFamiliaOferta, extrairExcecoes, normalizarCodigos } from "@/lib/codigos-oferta";
+import { codigosDaFamiliaOferta, extrairExcecoes, normalizarCodigos, chaveBaseOferta } from "@/lib/codigos-oferta";
 
 export interface Oferta extends RegraOferta {
   nome: string; preco: number | null; precoClube: number | null; limiteBruto: string;
@@ -39,7 +39,6 @@ function valorDeLimite(linha: LinhaPlanilha): string {
   return String(valorDoCampo(linha, ["Limite por cliente", "Limite por cliente (CPF)", "Limite por CPF", "Limite cliente", "Limite por pessoa", "Qtd. limite", "Quantidade limite", "LIMITE", "Limite"]) ?? "").trim();
 }
 
-/** Só lê campos explicitamente identificados como código interno. */
 function valorDeCodigoInterno(linha: LinhaPlanilha): string {
   const prioridades = ["Cód. Interno", "Cod. Interno", "Codigo Interno", "Código Interno", "Código do produto", "Codigo do produto"];
   for (const prioridade of prioridades) {
@@ -53,7 +52,6 @@ function valorDeCodigoInterno(linha: LinhaPlanilha): string {
   return "";
 }
 
-/** EAN procura EAN; código interno procura código interno. Código de promoção nunca identifica produto. */
 function acharPorCodigo(nome: string, codigoInterno: string, ean: string, catalogo: Produto[], notaMinima: number) {
   const eanLimpo = limparEan(ean);
   if (eanLimpo.length >= 8) {
@@ -76,7 +74,7 @@ function acharPorCodigo(nome: string, codigoInterno: string, ean: string, catalo
   return null;
 }
 
-const TOKENS_KG_GENERICO = new Set(["kg", "quilo", "kilo", "quilograma", "carne", "bov", "bovina", "bovino", "suina", "suino", "suina", "res", "resf", "com", "sem", "capa", "pessoa", "por", "cliente"]);
+const TOKENS_KG_GENERICO = new Set(["kg", "quilo", "kilo", "quilograma", "carne", "bov", "bovina", "bovino", "suina", "suino", "res", "resf", "com", "sem", "capa", "pessoa", "por", "cliente"]);
 
 function tokensDistintivosKg(nome: string): string[] {
   return [...new Set(normalizarTexto(nome).split(/\s+/).filter((token) => token.length >= 3 && !TOKENS_KG_GENERICO.has(token)))];
@@ -134,7 +132,6 @@ function produtoComCodigoInterno(produto: Produto | undefined, catalogo: Produto
   return catalogo.find((item) => normalizarTexto(item.description) === descricao && codigoInternoValido(item));
 }
 
-/** Penaliza somente custos claramente incompatíveis com o preço da oferta. */
 function custoCompativel(custo: number | null, precoOferta: number | null): boolean {
   if (custo == null || precoOferta == null || !Number.isFinite(custo) || !Number.isFinite(precoOferta) || precoOferta <= 0) return true;
   return custo <= precoOferta * 1.15;
@@ -193,6 +190,47 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
     codigo: codigos.join(";"), codigoInterno, codigos, codigosEditados: false, excecoes,
     imagem: produto?.image_url ?? "", encontrado: produto?.description ?? null, nota: achado?.score ?? 0,
   };
+}
+
+/** Agrupa linhas irmãs da mesma oferta base e mesmo preço, unindo códigos únicos. */
+export function agruparOfertasIrmas(ofertas: Oferta[]): Oferta[] {
+  const grupos = new Map<string, Oferta>();
+  const ordem: string[] = [];
+
+  for (const oferta of ofertas) {
+    if (oferta.codigosEditados) {
+      const chave = `manual:${ordem.length}:${oferta.nome}`;
+      grupos.set(chave, { ...oferta, codigos: normalizarCodigos(oferta.codigos), codigo: normalizarCodigos(oferta.codigos).join(";") });
+      ordem.push(chave);
+      continue;
+    }
+
+    const base = chaveBaseOferta(oferta.nome);
+    const chave = `${base}|${oferta.preco ?? ""}|${oferta.precoClube ?? ""}`;
+    const existente = grupos.get(chave);
+
+    if (!existente) {
+      grupos.set(chave, { ...oferta, codigos: normalizarCodigos(oferta.codigos), codigo: normalizarCodigos(oferta.codigos).join(";") });
+      ordem.push(chave);
+      continue;
+    }
+
+    const codigos = normalizarCodigos([...existente.codigos, ...oferta.codigos]);
+    grupos.set(chave, {
+      ...existente,
+      codigos,
+      codigo: codigos.join(";"),
+      ean: existente.ean || oferta.ean,
+      codigoInterno: existente.codigoInterno || oferta.codigoInterno,
+      imagem: existente.imagem || oferta.imagem,
+      encontrado: existente.encontrado || oferta.encontrado,
+      nota: Math.max(existente.nota, oferta.nota),
+      limiteBruto: existente.limiteBruto || oferta.limiteBruto,
+      excecoes: [...existente.excecoes, ...oferta.excecoes],
+    });
+  }
+
+  return ordem.map((chave) => grupos.get(chave)!).filter(Boolean);
 }
 
 function dataParaClube(valor: string): string {
@@ -263,7 +301,7 @@ export function useOfertas() {
       if (!linhas.length) throw new Error("A planilha não possui linhas de produtos reconhecíveis.");
       const cruzadas = linhas.map((linha) => cruzar(linha, catalogo, notaMinima)).filter((item): item is Oferta => item !== null);
       if (!cruzadas.length) throw new Error("Não encontrei uma coluna com o nome do produto na planilha.");
-      const finais = cruzadas;
+      const finais = agruparOfertasIrmas(cruzadas);
 
       setOfertas(finais); setNomeArquivo(arquivo.name);
       const correspondidas = finais.filter((item) => item.nota >= notaMinima && item.codigos.length > 0).length;
