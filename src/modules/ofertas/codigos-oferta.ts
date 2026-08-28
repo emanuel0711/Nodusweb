@@ -55,7 +55,7 @@ export function variantesDoTexto(valor:string):Set<Variante>{
 function varianteConflitante(oferta:string,descricao:string):boolean{
   const a=variantesDoTexto(oferta),b=variantesDoTexto(descricao);
   if(!a.size||!b.size)return false;
-  return FAMILIAS_VARIANTE.some(({familia,variantes})=>{
+  return FAMILIAS_VARIANTE.some(({variantes})=>{
     const da=variantes.filter(x=>a.has(x)),db=variantes.filter(x=>b.has(x));
     return da.length>0&&db.length>0&&!db.some(x=>da.includes(x));
   });
@@ -134,8 +134,7 @@ function candidatosDaMesmaVariacao(nome:string,candidatos:Candidato[],preco:numb
   const intersecao=tokensFamilia(elegiveis[0]!.item.description).filter(t=>elegiveis.every(c=>tokensFamilia(c.item.description).some(x=>tokensEquivalentes(t,x))));
   const coberturaBase=tokensOferta.filter(t=>intersecao.some(x=>tokensEquivalentes(t,x))).length/Math.max(1,tokensOferta.length);
   if(coberturaBase<1||baseScore<0.72)return [];
-  if(preco!=null&&elegiveis.some(c=>!custoCompativel(c.item,preco)))return [];
-  return elegiveis;
+  return elegiveis.filter(c=>custoCompativel(c.item,preco));
 }
 
 export function codigosDaFamiliaOferta(nome:string,produto:Produto|undefined,catalogo:Produto[],porQuilo:boolean,excecoes:string[][]=[],precoOferta:number|null=null):string[]{
