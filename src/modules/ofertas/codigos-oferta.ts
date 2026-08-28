@@ -91,38 +91,31 @@ function candidatosBase(nome:string,catalogo:Produto[],excecoes:string[][],preco
       if(x.score<0.45)return false;
       const tokensCatalogo=tokensFamilia(x.item.description);
       const fortes=tokensOferta.filter(t=>tokensCatalogo.some(c=>tokensEquivalentes(t,c))).length;
-      // Para evitar que produtos da mesma categoria/tamanho sejam tratados como a mesma família,
-      // uma oferta com identidade específica precisa compartilhar pelo menos um token forte.
       return !tokensOferta.length || fortes>0;
     })
     .sort((a,b)=>b.score-a.score);
 }
 
-function selecionarPorVariante(nome:string,candidatos:Candidato[]):Produto[]{
-  const desejadas=variantesDaOferta(nome);
-  if(!desejadas.size)return candidatos.map(x=>x.item);
-  const selecionados=new Map<string,Produto>();
-  const neutros=candidatos.filter(x=>variantesDoTexto(x.item.description).size===0);
-  for(const {familia} of FAMILIAS_VARIANTE){
-    for(const variante of variantesDaFamilia(desejadas,familia)){
-      const explicitos=candidatos.filter(x=>variantesDoTexto(x.item.description).has(variante));
-      if(explicitos.length){selecionados.set(explicitos[0]!.item.id,explicitos[0]!.item);continue;}
-      if(variante==="tradicional"){
-        const neutro=neutros.find(x=>!selecionados.has(x.item.id));
-        if(neutro)selecionados.set(neutro.item.id,neutro.item);
-      }
-    }
+/**
+ * Seleciona somente o melhor produto para uma linha da Oferta.
+ * Variantes da mesma família NÃO são expandidas automaticamente.
+ * Ex.: "amaciante 5l" deve apontar para um único item, e não para todos
+ * os amaciantes de 5L do catálogo.
+ */
+function selecionarProdutoUnico(nome:string,candidatos:Candidato[],produto:Produto|undefined):Produto|undefined{
+  if(produto){
+    const correspondente=candidatos.find(x=>x.item.id===produto.id);
+    if(correspondente)return correspondente.item;
   }
-  return [...selecionados.values()];
+  return candidatos[0]?.item;
 }
 
 export function codigosDaFamiliaOferta(nome:string,produto:Produto|undefined,catalogo:Produto[],porQuilo:boolean,excecoes:string[][]=[],precoOferta:number|null=null):string[]{
   const candidatos=candidatosBase(nome,catalogo,excecoes,precoOferta,porQuilo);
-  const selecionados=normalizarCodigos(selecionarPorVariante(nome,candidatos).map(i=>codigoDoProduto(i,porQuilo)).filter(Boolean));
-  const desejadas=variantesDaOferta(nome);
-  if(desejadas.size)return selecionados;
-  const principal=produto&&candidatos.some(x=>x.item.id===produto.id)?codigoDoProduto(produto,porQuilo):"";
-  return normalizarCodigos([...selecionados,...(principal?[principal]:[])]);
+  const selecionado=selecionarProdutoUnico(nome,candidatos,produto);
+  if(!selecionado)return [];
+  const codigo=codigoDoProduto(selecionado,porQuilo);
+  return codigo ? [codigo] : [];
 }
 
 export function normalizarCodigos(codigos:string[]):string[]{return [...new Set(codigos.flatMap(v=>String(v??"").split(/[;,|\n]+/)).map(v=>v.trim()).filter(Boolean))];}
