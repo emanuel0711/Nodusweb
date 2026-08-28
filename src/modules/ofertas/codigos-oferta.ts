@@ -4,7 +4,6 @@ import { limparCodigo, limparEan, type Produto } from "@/modules/catalogo/catalo
 
 const GENERICOS = new Set(["kg","un","und","unidade","pct","pcte","cx","caixa","fardo","fd","produto","produtos","mercadoria","bov","bovina","bovino","refrigerante","refrig","cerveja","cerv","beer","suco","sucos","agua","bebida","bebidas"]);
 const IGNORADOS = new Set(["a","as","o","os","e","de","da","do","das","dos","em","no","na","nos","nas","por","para","pra","ao","aos","um","uma","uns","umas"]);
-const VARIANTES = new Set(["com","sem","tradicional","zero","light","diet","integral","desnatado","semidesnatado","original","morango","chocolate","baunilha","cookies","coco","uva","limao","limão","maracuja","maracujá","banana","frutas","vermelhas","menta","laranja","manga","abacaxi","pesego","pessego","pêssego"]);
 
 export type Variante = "tradicional" | "zero" | "com_gas" | "sem_gas" | "com_alcool" | "sem_alcool";
 type FamiliaVariante = "trad_zero" | "gas" | "alcool";
@@ -20,13 +19,11 @@ function compactarTexto(valor:string):string {
     .replace(/\btrad\b/g,"tradicional")
     .replace(/\bc\s*\/?\s*gas\b/g,"com gas").replace(/\bs\s*\/?\s*gas\b/g,"sem gas")
     .replace(/\bc\s*\/?\s*alcool\b/g,"com alcool").replace(/\bs\s*\/?\s*alcool\b/g,"sem alcool")
-    .replace(/\bcom\s+e\s+sem\s+gas\b/g,"com sem gas")
-    .replace(/\bcom\s+e\s+sem\s+alcool\b/g,"com sem alcool")
     .replace(/\bexceto\b.*$/i,"").trim();
 }
 
 export function tokensFamilia(valor:string):string[] {
-  return [...new Set(compactarTexto(valor).split(/\s+/).filter(t=>t.length>=2&&!GENERiCOS.has(t)&&!IGNORADOS.has(t)))];
+  return [...new Set(compactarTexto(valor).split(/\s+/).filter(t=>t.length>=2&&!GENERICOS.has(t)&&!IGNORADOS.has(t)))];
 }
 
 function tamanhosDoProduto(valor:string):string[]{
@@ -66,9 +63,7 @@ function varianteConflitante(oferta:string,descricao:string):boolean{
 
 function tokensEquivalentes(a:string,b:string):boolean{
   if(a===b)return true;
-  const pares:[[string,string],[string,string],[string,string],[string,string]]=[
-    ["refrigerante","refrig"],["cerveja","cerv"],["energetico","energet"],["suco","sucos"]
-  ];
+  const pares = [["refrigerante","refrig"],["cerveja","cerv"],["energetico","energet"],["suco","sucos"]] as const;
   if(pares.some(([x,y])=>(a===x&&b===y)||(a===y&&b===x)))return true;
   return a.length>=4&&b.length>=4&&semelhanca(a,b)>=0.78;
 }
@@ -98,7 +93,6 @@ function codigoDoProduto(item:Produto,porQuilo:boolean):string{
 }
 function custoCompativel(item:Produto,preco:number|null):boolean{
   if(preco==null||!Number.isFinite(preco)||preco<=0||item.cost==null||!Number.isFinite(item.cost))return true;
-  // Custo acima do preço de venda nunca é aceito automaticamente.
   return item.cost<=preco;
 }
 function pontuacao(nome:string,item:Produto):number{
@@ -124,71 +118,35 @@ function candidatosBase(nome:string,catalogo:Produto[],excecoes:string[][],preco
     .sort((a,b)=>b.score-a.score);
 }
 
-function atributosNaoInformados(nome:string,candidato:Produto):string[]{
-  const oferta=new Set(tokensFamilia(nome));
-  return tokensFamilia(candidato.description).filter(t=>!oferta.has(t));
-}
-
-/**
- * Decide se vários candidatos são realmente variantes da mesma descrição.
- * Só permite expansão quando:
- * - a oferta já identifica uma base forte (ex.: WHEY PARMALAT 250ML);
- * - todos os candidatos compartilham os tokens informados;
- * - as diferenças ficam concentradas em atributos não informados;
- * - existem no máximo 8 candidatos;
- * - o custo de cada candidato não ultrapassa o preço da oferta.
- *
- * Isso impede "AMACIANTE 5L" de virar todos os amaciantes 5L,
- * mas permite "WHEY PARMALAT 250ML" retornar seus sabores cadastrados.
- */
 function candidatosDaMesmaVariacao(nome:string,candidatos:Candidato[],preco:number|null):Candidato[]{
   if(candidatos.length<2||candidatos.length>8)return [];
   const tokensOferta=tokensFamilia(nome);
   if(tokensOferta.length<2)return [];
-
   const melhor=candidatos[0]!;
   const baseScore=melhor.score;
   const elegiveis=candidatos.filter(c=>c.score>=Math.max(0.68,baseScore-0.12));
   if(elegiveis.length<2||elegiveis.length>8)return [];
-
-  // Os candidatos precisam compartilhar todos os atributos informados.
   const compartilhamBase=elegiveis.every(c=>tokensOferta.every(t=>tokensFamilia(c.item.description).some(x=>tokensEquivalentes(t,x))));
   if(!compartilhamBase)return [];
-
-  // Se os nomes completos são praticamente iguais, não há motivo para expandir.
-  // Se são muito diferentes, provavelmente são produtos diferentes.
-  const diferencas=elegiveis.map(c=>atributosNaoInformados(nome,c.item));
+  const diferencas=elegiveis.map(c=>tokensFamilia(c.item.description).filter(t=>!tokensOferta.some(o=>tokensEquivalentes(o,t))));
   const quantidadeVariavel=new Set(diferencas.flat()).size;
   if(quantidadeVariavel===0)return [];
-
-  // A descrição precisa deixar claro um núcleo comum. Evita agrupar
-  // marcas/produtos diferentes apenas porque compartilham "5L" ou "250ML".
   const intersecao=tokensFamilia(elegiveis[0]!.item.description).filter(t=>elegiveis.every(c=>tokensFamilia(c.item.description).some(x=>tokensEquivalentes(t,x))));
   const coberturaBase=tokensOferta.filter(t=>intersecao.some(x=>tokensEquivalentes(t,x))).length/Math.max(1,tokensOferta.length);
-  if(coberturaBase<1)return [];
-
-  // Exige uma base textual suficientemente forte; custo já foi aplicado na lista.
-  if(baseScore<0.72)return [];
+  if(coberturaBase<1||baseScore<0.72)return [];
   if(preco!=null&&elegiveis.some(c=>!custoCompativel(c.item,preco)))return [];
-
   return elegiveis;
 }
 
 export function codigosDaFamiliaOferta(nome:string,produto:Produto|undefined,catalogo:Produto[],porQuilo:boolean,excecoes:string[][]=[],precoOferta:number|null=null):string[]{
   const candidatos=candidatosBase(nome,catalogo,excecoes,precoOferta,porQuilo);
   if(!candidatos.length)return [];
-
-  // Se o produto já foi identificado pela etapa de cruzamento, ele é a âncora.
-  // A expansão só acontece se a descrição da oferta for uma família explícita.
   const anchor=produto?candidatos.find(x=>x.item.id===produto.id):undefined;
   const selecionado=anchor?.item||candidatos[0]!.item;
-  const mult= candidatosDaMesmaVariacao(nome,candidatos,precoOferta);
-
+  const mult=candidatosDaMesmaVariacao(nome,candidatos,precoOferta);
   if(mult.length){
-    const codigos=mult.map(x=>codigoDoProduto(x.item,porQuilo)).filter(Boolean);
-    return [...new Set(codigos)];
+    return [...new Set(mult.map(x=>codigoDoProduto(x.item,porQuilo)).filter(Boolean))];
   }
-
   const codigo=codigoDoProduto(selecionado,porQuilo);
   return codigo?[codigo]:[];
 }
