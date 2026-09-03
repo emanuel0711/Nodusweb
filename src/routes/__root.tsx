@@ -4,7 +4,6 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import "../app-overrides.css";
 import { Toaster } from "../components/ui/sonner";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { supabase } from "../integrations/supabase/client";
 
 function NotFoundComponent() {
@@ -14,7 +13,6 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
-  useEffect(() => { reportLovableError(error, { boundary: "tanstack_root_error_component" }); }, [error]);
   return <div className="flex min-h-screen items-center justify-center bg-background px-4"><div className="max-w-md text-center"><h1 className="text-xl font-semibold tracking-tight text-foreground">Esta página não carregou</h1><p className="mt-2 text-sm text-muted-foreground">Ocorreu um erro. Tente atualizar a página ou voltar ao início.</p><div className="mt-6 flex flex-wrap justify-center gap-2"><button onClick={() => { router.invalidate(); reset(); }} className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Tentar novamente</button><a href="/" className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent">Ir para o início</a></div></div></div>;
 }
 
@@ -30,11 +28,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:title", content: "Nódus — Processos mais simples, dados mais claros" },
       { property: "og:description", content: "Uma plataforma para organizar informações e automatizar processos em um só lugar." },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:card", content: "summary" },
       { name: "twitter:title", content: "Nódus — Processos mais simples, dados mais claros" },
       { name: "twitter:description", content: "Uma plataforma para organizar informações e automatizar processos em um só lugar." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/9085e57a5951fd7e488142afc344440d/id-preview-01b73533--04db955e-4b69-4e9c-b84e-3ea213ad3a15.lovable.app-1787060207661.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/9085e57a5951fd7e488142afc344440d/id-preview-01b73533--04db955e-4b69-4e9c-b84e-3ea213ad3a15.lovable.app-1787060207661.png" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
