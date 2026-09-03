@@ -1,31 +1,388 @@
-/** Fila de imagens com processamento paralelo, cache persistente e prioridade por código. */
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { buscarImagemPorEan, buscarImagemPorNome, urlDeImagemValida } from "@/modules/imagens/busca-imagens";
-import { buscarCandidatosGoogle } from "@/lib/google-imagens.functions";
-import { pontuarCandidato, type Pontuacao } from "@/modules/imagens/confianca-google";
+import { buscarCandidatosImagem, type CandidatoImagemServidor } from "@/modules/imagens/busca-imagens.functions";
+import type { Json } from "@/integrations/supabase/types";
 
-const LOTE = 12;
 const PAGINA = 500;
+const CONCORRENCIA = 6;
+const LIMITE_POR_EXECUCAO = 100;
 const TODAS_CATEGORIAS = "__all__";
 const SEM_CATEGORIA = "__uncategorized__";
-const STORAGE_KEY = "nodus:image-search-state:v2";
-type ImageStatus = "pending" | "found" | "not_found" | "pending_approval" | "rejected" | "manual";
-type ImageSearchState = { status: Exclude<ImageStatus, "pending" | "found" | "manual">; checkedAt: string; fingerprint: string };
-export interface ProdutoSemImagem { id: string; ean: string | null; description: string; category: string | null; image_status: ImageStatus; image_search_version: number; }
-export interface CandidatoGoogle { id: string; produto: ProdutoSemImagem; url: string; titulo: string; pontuacao: Pontuacao; }
-function fingerprint(p: Pick<ProdutoSemImagem,"id"|"ean"|"description">) { return `${p.id}|${p.ean ?? ""}|${p.description.trim().toUpperCase()}`; }
-function lerEstados(): Record<string, ImageSearchState> { if (typeof window === "undefined") return {}; try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, ImageSearchState>; } catch { return {}; } }
-function gravarEstados(e: Record<string, ImageSearchState>) { if (typeof window !== "undefined") localStorage.setItem(STORAGE_KEY, JSON.stringify(e)); }
-function salvarEstado(p: ProdutoSemImagem,s: ImageSearchState["status"]) { const e=lerEstados(); e[p.id]={status:s,checkedAt:new Date().toISOString(),fingerprint:fingerprint(p)}; gravarEstados(e); }
-async function carregarPendentes(categoria:string):Promise<ProdutoSemImagem[]> { const produtos:ProdutoSemImagem[]=[]; let inicio=0; while(true){ let q=supabase.from("products").select("id, ean, description, category, image_url").is("image_url",null).order("description").range(inicio,inicio+PAGINA-1); if(categoria===SEM_CATEGORIA) q=q.is("category",null); else if(categoria!==TODAS_CATEGORIAS) q=q.eq("category",categoria); const {data,error}=await q; if(error)throw error; const pagina=(data??[]) as Array<Omit<ProdutoSemImagem,"image_status"|"image_search_version"> & {image_url:string|null}>; const estados=lerEstados(); for(const p of pagina){const estado=estados[p.id]; if(!estado||estado.fingerprint!==fingerprint(p)) produtos.push({...p,image_status:"pending",image_search_version:2});} if(pagina.length<PAGINA)break; inicio+=PAGINA;} return produtos; }
-function prioridade(p:ProdutoSemImagem){ if(p.ean?.trim())return 0; if(p.description.split(/\s+/).filter(Boolean).length>=3)return 1; return 2; }
-export function useImagensPendentes(categoria=TODAS_CATEGORIAS){ const queryClient=useQueryClient(); const[rodando,setRodando]=useState(false); const[processados,setProcessados]=useState(0); const[encontrados,setEncontrados]=useState(0); const[semResultado,setSemResultado]=useState(0); const[candidatos,setCandidatos]=useState<CandidatoGoogle[]>([]); const[versaoFila,setVersaoFila]=useState(0); const pendentes=useQuery({queryKey:["imagens-pendentes",categoria,versaoFila],queryFn:()=>carregarPendentes(categoria)}); const lista=pendentes.data??[];
- const atualizarEstado=useCallback(async(p:ProdutoSemImagem,s:ImageSearchState["status"])=>salvarEstado(p,s),[]); const salvarImagem=useCallback(async(id:string,url:string)=>{const{error}=await supabase.from("products").update({image_url:url}).eq("id",id);if(error)throw error;},[]);
- const completar=useCallback(async()=>{if(rodando||!lista.length)return;setRodando(true);setProcessados(0);setEncontrados(0);setSemResultado(0);const fila=[...lista].sort((a,b)=>prioridade(a)-prioridade(b));let indice=0; const trabalhador=async()=>{while(indice<fila.length){const p=fila[indice++]!;try{let url=p.ean?await buscarImagemPorEan(p.ean):"";if(!url)url=await buscarImagemPorNome(p.description);if(url){await salvarImagem(p.id,url);const e=lerEstados();delete e[p.id];gravarEstados(e);setEncontrados(v=>v+1);}else{const{candidatos:achados}=await buscarCandidatosGoogle({data:{termo:p.description}});const validados:CandidatoGoogle[]=[];for(const a of achados.slice(0,8)){if(!(await urlDeImagemValida(a.url)))continue;validados.push({id:`${p.id}-${a.url}`,produto:p,url:a.url,titulo:a.titulo,pontuacao:pontuarCandidato(a,p)});if(validados.length>=3)break;}if(validados.length){validados.sort((a,b)=>b.pontuacao.total-a.pontuacao.total);await atualizarEstado(p,"pending_approval");setCandidatos(v=>[...v.filter(x=>x.produto.id!==p.id),...validados]);}else{await atualizarEstado(p,"not_found");setSemResultado(v=>v+1);}}}catch(erro){console.error("Falha ao buscar imagem",p.id,erro);await atualizarEstado(p,"not_found");setSemResultado(v=>v+1);}setProcessados(v=>v+1);}}; await Promise.all(Array.from({length:Math.min(LOTE,fila.length)},trabalhador));setRodando(false);setVersaoFila(v=>v+1);queryClient.invalidateQueries({queryKey:["products"]});queryClient.invalidateQueries({queryKey:["dashboard-stats"]});toast.success(`Busca concluída: ${fila.length} produto(s) processado(s).`);},[lista,queryClient,rodando,salvarImagem,atualizarEstado]);
- const pesquisarNovamente=useCallback(()=>{gravarEstados({});setCandidatos([]);setVersaoFila(v=>v+1);toast.success("Histórico de buscas limpo. Os produtos sem imagem podem ser pesquisados novamente.");},[]);
- const aprovar=useCallback(async(c:CandidatoGoogle)=>{try{await salvarImagem(c.produto.id,c.url);const e=lerEstados();delete e[c.produto.id];gravarEstados(e);setCandidatos(v=>v.filter(x=>x.produto.id!==c.produto.id));setVersaoFila(v=>v+1);queryClient.invalidateQueries({queryKey:["products"]});toast.success("Imagem aprovada e salva.");}catch(erro){toast.error(erro instanceof Error?erro.message:"Não foi possível salvar a imagem");}},[queryClient,salvarImagem]);
- const rejeitar=useCallback(async(c:CandidatoGoogle)=>{try{await atualizarEstado(c.produto,"rejected");setCandidatos(v=>v.filter(x=>x.produto.id!==c.produto.id));setVersaoFila(v=>v+1);toast.success("Candidato rejeitado. O produto não será pesquisado novamente automaticamente.");}catch(erro){toast.error(erro instanceof Error?erro.message:"Não foi possível registrar a rejeição");}},[atualizarEstado]);
- return{lista,carregando:pendentes.isLoading,rodando,processados,encontrados,semResultado,totalSemImagem:lista.length,totalNaFila:lista.length,jaProcessados:0,aguardandoAprovacao:new Set(candidatos.map(x=>x.produto.id)).size,candidatos,completar,pesquisarNovamente,aprovar,rejeitar}; }
+
+export type ImageStatus = "pending" | "processing" | "pending_approval" | "not_found" | "found" | "manual";
+
+export interface ProdutoImagem {
+  id: string;
+  user_id: string;
+  ean: string | null;
+  description: string;
+  category: string | null;
+  image_url: string | null;
+  image_status: ImageStatus;
+  image_last_checked_at: string | null;
+  image_search_version: number;
+}
+
+export interface CandidatoPersistido {
+  id: string;
+  product_id: string;
+  url: string;
+  source: string;
+  score: number;
+  score_details: Json;
+  width: number | null;
+  height: number | null;
+  background_score: number | null;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+}
+
+export interface GrupoRevisao {
+  produto: ProdutoImagem;
+  candidatos: CandidatoPersistido[];
+}
+
+async function carregarProdutos(categoria: string): Promise<ProdutoImagem[]> {
+  const produtos: ProdutoImagem[] = [];
+  let inicio = 0;
+
+  while (true) {
+    let query = supabase
+      .from("products")
+      .select("id, user_id, ean, description, category, image_url, image_status, image_last_checked_at, image_search_version")
+      .order("description")
+      .range(inicio, inicio + PAGINA - 1);
+
+    if (categoria === SEM_CATEGORIA) query = query.is("category", null);
+    else if (categoria !== TODAS_CATEGORIAS) query = query.eq("category", categoria);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const pagina = (data ?? []) as ProdutoImagem[];
+    produtos.push(...pagina);
+    if (pagina.length < PAGINA) break;
+    inicio += PAGINA;
+  }
+
+  return produtos;
+}
+
+async function carregarCandidatos(): Promise<CandidatoPersistido[]> {
+  const { data, error } = await supabase
+    .from("image_candidates")
+    .select("id, product_id, url, source, score, score_details, width, height, background_score, status, created_at")
+    .eq("status", "pending")
+    .order("score", { ascending: false })
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as CandidatoPersistido[];
+}
+
+async function atualizarProduto(id: string, dados: Partial<Pick<ProdutoImagem, "image_url" | "image_status" | "image_last_checked_at" | "image_search_version">>) {
+  const { error } = await supabase.from("products").update(dados).eq("id", id);
+  if (error) throw error;
+}
+
+async function persistirCandidatos(produto: ProdutoImagem, candidatos: CandidatoImagemServidor[]) {
+  if (!candidatos.length) return;
+
+  const linhas = candidatos.map((candidato) => ({
+    user_id: produto.user_id,
+    product_id: produto.id,
+    url: candidato.url,
+    source: candidato.source,
+    score: candidato.score,
+    score_details: candidato.scoreDetails as unknown as Json,
+    width: candidato.width,
+    height: candidato.height,
+    background_score: candidato.backgroundScore,
+    status: "pending",
+  }));
+
+  const { error } = await supabase
+    .from("image_candidates")
+    .upsert(linhas, { onConflict: "product_id,url", ignoreDuplicates: true });
+
+  if (error) throw error;
+}
+
+function podeAprovarAutomaticamente(candidato: CandidatoImagemServidor): boolean {
+  return Boolean(
+    candidato.eanExato &&
+      candidato.score >= 92 &&
+      candidato.backgroundScore != null &&
+      candidato.backgroundScore >= 0.82 &&
+      candidato.width != null &&
+      candidato.height != null &&
+      Math.min(candidato.width, candidato.height) >= 300,
+  );
+}
+
+export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
+  const queryClient = useQueryClient();
+  const [rodando, setRodando] = useState(false);
+  const [processados, setProcessados] = useState(0);
+  const [encontrados, setEncontrados] = useState(0);
+  const [semResultadoExecucao, setSemResultadoExecucao] = useState(0);
+
+  const produtosQuery = useQuery({
+    queryKey: ["image-products", categoria],
+    queryFn: () => carregarProdutos(categoria),
+  });
+
+  const candidatosQuery = useQuery({
+    queryKey: ["image-candidates"],
+    queryFn: carregarCandidatos,
+  });
+
+  const produtos = produtosQuery.data ?? [];
+  const candidatos = candidatosQuery.data ?? [];
+
+  const semImagem = useMemo(() => produtos.filter((produto) => !produto.image_url?.trim()), [produtos]);
+  const naFila = useMemo(() => semImagem.filter((produto) => produto.image_status === "pending"), [semImagem]);
+  const processando = useMemo(() => semImagem.filter((produto) => produto.image_status === "processing"), [semImagem]);
+  const aguardandoAprovacao = useMemo(() => semImagem.filter((produto) => produto.image_status === "pending_approval"), [semImagem]);
+  const semResultado = useMemo(() => semImagem.filter((produto) => produto.image_status === "not_found"), [semImagem]);
+  const concluidos = useMemo(() => produtos.filter((produto) => Boolean(produto.image_url?.trim())), [produtos]);
+  const jaProcessados = useMemo(
+    () => semImagem.filter((produto) => Boolean(produto.image_last_checked_at) && !["pending", "processing"].includes(produto.image_status)),
+    [semImagem],
+  );
+
+  const gruposRevisao = useMemo<GrupoRevisao[]>(() => {
+    const produtosPorId = new Map(produtos.map((produto) => [produto.id, produto]));
+    const grupos = new Map<string, CandidatoPersistido[]>();
+
+    for (const candidato of candidatos) {
+      const produto = produtosPorId.get(candidato.product_id);
+      if (!produto || produto.image_status !== "pending_approval") continue;
+      const atuais = grupos.get(candidato.product_id) ?? [];
+      atuais.push(candidato);
+      grupos.set(candidato.product_id, atuais);
+    }
+
+    return [...grupos.entries()]
+      .map(([productId, itens]) => ({ produto: produtosPorId.get(productId)!, candidatos: itens.sort((a, b) => b.score - a.score) }))
+      .filter((grupo) => Boolean(grupo.produto));
+  }, [candidatos, produtos]);
+
+  const invalidar = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["image-products"] }),
+      queryClient.invalidateQueries({ queryKey: ["image-candidates"] }),
+      queryClient.invalidateQueries({ queryKey: ["products"] }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] }),
+    ]);
+  }, [queryClient]);
+
+  const completar = useCallback(async () => {
+    if (rodando || !naFila.length) return;
+
+    const fila = naFila.slice(0, LIMITE_POR_EXECUCAO);
+    const agora = new Date().toISOString();
+    setRodando(true);
+    setProcessados(0);
+    setEncontrados(0);
+    setSemResultadoExecucao(0);
+
+    try {
+      const { error: erroFila } = await supabase
+        .from("products")
+        .update({ image_status: "processing", image_last_checked_at: agora, image_search_version: 2 })
+        .in("id", fila.map((produto) => produto.id));
+      if (erroFila) throw erroFila;
+
+      let indice = 0;
+      const trabalhador = async () => {
+        while (indice < fila.length) {
+          const produto = fila[indice++]!;
+
+          try {
+            const { candidatos: achados } = await buscarCandidatosImagem({
+              data: {
+                ean: produto.ean ?? "",
+                descricao: produto.description,
+                categoria: produto.category,
+              },
+            });
+
+            const melhor = achados[0];
+            if (melhor && podeAprovarAutomaticamente(melhor)) {
+              await persistirCandidatos(produto, achados);
+              await atualizarProduto(produto.id, {
+                image_url: melhor.url,
+                image_status: "found",
+                image_last_checked_at: new Date().toISOString(),
+                image_search_version: 2,
+              });
+
+              const { error: erroAprovacao } = await supabase
+                .from("image_candidates")
+                .update({ status: "approved", reviewed_at: new Date().toISOString() })
+                .eq("product_id", produto.id)
+                .eq("url", melhor.url);
+              if (erroAprovacao) throw erroAprovacao;
+              setEncontrados((valor) => valor + 1);
+            } else if (achados.length) {
+              await persistirCandidatos(produto, achados);
+              await atualizarProduto(produto.id, {
+                image_status: "pending_approval",
+                image_last_checked_at: new Date().toISOString(),
+                image_search_version: 2,
+              });
+            } else {
+              await atualizarProduto(produto.id, {
+                image_status: "not_found",
+                image_last_checked_at: new Date().toISOString(),
+                image_search_version: 2,
+              });
+              setSemResultadoExecucao((valor) => valor + 1);
+            }
+          } catch (erro) {
+            console.error("Falha ao pesquisar imagem", produto.id, erro);
+            await atualizarProduto(produto.id, {
+              image_status: "not_found",
+              image_last_checked_at: new Date().toISOString(),
+              image_search_version: 2,
+            });
+            setSemResultadoExecucao((valor) => valor + 1);
+          } finally {
+            setProcessados((valor) => valor + 1);
+          }
+        }
+      };
+
+      await Promise.all(Array.from({ length: Math.min(CONCORRENCIA, fila.length) }, trabalhador));
+      await invalidar();
+      toast.success(`Lote concluído: ${fila.length} produto(s) processado(s).`);
+    } catch (erro) {
+      toast.error(erro instanceof Error ? erro.message : "Não foi possível iniciar a fila de imagens.");
+      await invalidar();
+    } finally {
+      setRodando(false);
+    }
+  }, [invalidar, naFila, rodando]);
+
+  const aprovar = useCallback(
+    async (candidato: CandidatoPersistido) => {
+      const agora = new Date().toISOString();
+      try {
+        await atualizarProduto(candidato.product_id, {
+          image_url: candidato.url,
+          image_status: "found",
+          image_last_checked_at: agora,
+          image_search_version: 2,
+        });
+
+        const { error: erroAprovado } = await supabase
+          .from("image_candidates")
+          .update({ status: "approved", reviewed_at: agora })
+          .eq("id", candidato.id);
+        if (erroAprovado) throw erroAprovado;
+
+        const { error: erroOutros } = await supabase
+          .from("image_candidates")
+          .update({ status: "rejected", reviewed_at: agora })
+          .eq("product_id", candidato.product_id)
+          .eq("status", "pending")
+          .neq("id", candidato.id);
+        if (erroOutros) throw erroOutros;
+
+        await invalidar();
+        toast.success("Imagem aprovada e vinculada ao produto.");
+      } catch (erro) {
+        toast.error(erro instanceof Error ? erro.message : "Não foi possível aprovar a imagem.");
+      }
+    },
+    [invalidar],
+  );
+
+  const rejeitar = useCallback(
+    async (candidato: CandidatoPersistido) => {
+      try {
+        const { error } = await supabase
+          .from("image_candidates")
+          .update({ status: "rejected", reviewed_at: new Date().toISOString() })
+          .eq("id", candidato.id);
+        if (error) throw error;
+
+        const { count, error: erroContagem } = await supabase
+          .from("image_candidates")
+          .select("id", { count: "exact", head: true })
+          .eq("product_id", candidato.product_id)
+          .eq("status", "pending");
+        if (erroContagem) throw erroContagem;
+
+        if (!count) {
+          await atualizarProduto(candidato.product_id, {
+            image_status: "not_found",
+            image_last_checked_at: new Date().toISOString(),
+          });
+        }
+
+        await invalidar();
+        toast.success("Candidato rejeitado.");
+      } catch (erro) {
+        toast.error(erro instanceof Error ? erro.message : "Não foi possível rejeitar a imagem.");
+      }
+    },
+    [invalidar],
+  );
+
+  const pesquisarNovamente = useCallback(
+    async (productId?: string) => {
+      try {
+        let query = supabase
+          .from("products")
+          .update({ image_status: "pending", image_last_checked_at: null, image_search_version: 2 })
+          .is("image_url", null);
+
+        if (productId) query = query.eq("id", productId);
+        else query = query.in("image_status", ["not_found", "pending_approval"]);
+
+        const { error } = await query;
+        if (error) throw error;
+
+        if (productId) {
+          const { error: erroCandidatos } = await supabase
+            .from("image_candidates")
+            .delete()
+            .eq("product_id", productId)
+            .eq("status", "pending");
+          if (erroCandidatos) throw erroCandidatos;
+        }
+
+        await invalidar();
+        toast.success(productId ? "Produto devolvido para a fila." : "Produtos sem resultado foram devolvidos para a fila.");
+      } catch (erro) {
+        toast.error(erro instanceof Error ? erro.message : "Não foi possível reenfileirar os produtos.");
+      }
+    },
+    [invalidar],
+  );
+
+  return {
+    carregando: produtosQuery.isLoading || candidatosQuery.isLoading,
+    rodando,
+    processados,
+    encontrados,
+    semResultadoExecucao,
+    limitePorExecucao: LIMITE_POR_EXECUCAO,
+    totalSemImagem: semImagem.length,
+    totalNaFila: naFila.length,
+    totalProcessando: processando.length,
+    jaProcessados: jaProcessados.length,
+    aguardandoAprovacao: aguardandoAprovacao.length,
+    totalSemResultado: semResultado.length,
+    totalConcluidos: concluidos.length,
+    gruposRevisao,
+    completar,
+    pesquisarNovamente,
+    aprovar,
+    rejeitar,
+  };
+}
