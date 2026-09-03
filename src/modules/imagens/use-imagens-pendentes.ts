@@ -11,6 +11,17 @@ const LIMITE_POR_EXECUCAO = 100;
 const TODAS_CATEGORIAS = "__all__";
 const SEM_CATEGORIA = "__uncategorized__";
 
+/**
+ * Score mínimo para uma imagem ser considerada confiável o suficiente para aprovação automática.
+ *
+ * Com a fórmula atual, candidatos provenientes apenas de busca textual não conseguem atingir este
+ * valor. Na prática, o limiar exige uma fonte associada a EAN exato, além de boa resolução e fundo
+ * predominantemente branco.
+ */
+export const PONTUACAO_MINIMA_APROVACAO = 85;
+const FUNDO_BRANCO_MINIMO = 0.75;
+const MENOR_DIMENSAO_MINIMA = 250;
+
 export type ImageStatus = "pending" | "processing" | "pending_approval" | "not_found" | "found" | "manual";
 
 export interface ProdutoImagem {
@@ -82,7 +93,10 @@ async function carregarCandidatos(): Promise<CandidatoPersistido[]> {
   return (data ?? []) as CandidatoPersistido[];
 }
 
-async function atualizarProduto(id: string, dados: Partial<Pick<ProdutoImagem, "image_url" | "image_status" | "image_last_checked_at" | "image_search_version">>) {
+async function atualizarProduto(
+  id: string,
+  dados: Partial<Pick<ProdutoImagem, "image_url" | "image_status" | "image_last_checked_at" | "image_search_version">>,
+) {
   const { error } = await supabase.from("products").update(dados).eq("id", id);
   if (error) throw error;
 }
@@ -110,21 +124,33 @@ async function persistirCandidatos(produto: ProdutoImagem, candidatos: Candidato
   if (error) throw error;
 }
 
+function dimensaoSuficiente(width: number | null, height: number | null): boolean {
+  return width != null && height != null && Math.min(width, height) >= MENOR_DIMENSAO_MINIMA;
+}
+
+function candidatoPersistidoConfiavel(candidato: CandidatoPersistido): boolean {
+  return Boolean(
+    candidato.score >= PONTUACAO_MINIMA_APROVACAO &&
+      candidato.background_score != null &&
+      candidato.background_score >= FUNDO_BRANCO_MINIMO &&
+      dimensaoSuficiente(candidato.width, candidato.height),
+  );
+}
+
 function podeAprovarAutomaticamente(candidato: CandidatoImagemServidor): boolean {
   return Boolean(
     candidato.eanExato &&
-      candidato.score >= 92 &&
+      candidato.score >= PONTUACAO_MINIMA_APROVACAO &&
       candidato.backgroundScore != null &&
-      candidato.backgroundScore >= 0.82 &&
-      candidato.width != null &&
-      candidato.height != null &&
-      Math.min(candidato.width, candidato.height) >= 300,
+      candidato.backgroundScore >= FUNDO_BRANCO_MINIMO &&
+      dimensaoSuficiente(candidato.width, candidato.height),
   );
 }
 
 export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
   const queryClient = useQueryClient();
   const [rodando, setRodando] = useState(false);
+  const [aprovandoTodos, setAprovandoTodos] = useState(false);
   const [processados, setProcessados] = useState(0);
   const [encontrados, setEncontrados] = useState(0);
   const [semResultadoExecucao, setSemResultadoExecucao] = useState(0);
@@ -169,6 +195,14 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
       .map(([productId, itens]) => ({ produto: produtosPorId.get(productId)!, candidatos: itens.sort((a, b) => b.score - a.score) }))
       .filter((grupo) => Boolean(grupo.produto));
   }, [candidatos, produtos]);
+
+  const candidatosParaAprovacaoEmMassa = useMemo(
+    () =>
+      gruposRevisao
+        .map((grupo) => grupo.candidatos[0])
+        .filter((candidato): candidato is CandidatoPersistido => Boolean(candidato && candidatoPersistidoConfiavel(candidato))),
+    [gruposRevisao],
+  );
 
   const invalidar = useCallback(async () => {
     await Promise.all([
@@ -267,39 +301,70 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
     }
   }, [invalidar, naFila, rodando]);
 
+  const aprovarCandidato = useCallback(async (candidato: CandidatoPersistido, invalidarDepois = true) => {
+    const agora = new Date().toISOString();
+
+    await atualizarProduto(candidato.product_id, {
+      image_url: candidato.url,
+      image_status: "found",
+      image_last_checked_at: agora,
+      image_search_version: 2,
+    });
+
+    const { error: erroAprovado } = await supabase
+      .from("image_candidates")
+      .update({ status: "approved", reviewed_at: agora })
+      .eq("id", candidato.id);
+    if (erroAprovado) throw erroAprovado;
+
+    const { error: erroOutros } = await supabase
+      .from("image_candidates")
+      .update({ status: "rejected", reviewed_at: agora })
+      .eq("product_id", candidato.product_id)
+      .eq("status", "pending")
+      .neq("id", candidato.id);
+    if (erroOutros) throw erroOutros;
+
+    if (invalidarDepois) await invalidar();
+  }, [invalidar]);
+
   const aprovar = useCallback(
     async (candidato: CandidatoPersistido) => {
-      const agora = new Date().toISOString();
       try {
-        await atualizarProduto(candidato.product_id, {
-          image_url: candidato.url,
-          image_status: "found",
-          image_last_checked_at: agora,
-          image_search_version: 2,
-        });
-
-        const { error: erroAprovado } = await supabase
-          .from("image_candidates")
-          .update({ status: "approved", reviewed_at: agora })
-          .eq("id", candidato.id);
-        if (erroAprovado) throw erroAprovado;
-
-        const { error: erroOutros } = await supabase
-          .from("image_candidates")
-          .update({ status: "rejected", reviewed_at: agora })
-          .eq("product_id", candidato.product_id)
-          .eq("status", "pending")
-          .neq("id", candidato.id);
-        if (erroOutros) throw erroOutros;
-
-        await invalidar();
+        await aprovarCandidato(candidato);
         toast.success("Imagem aprovada e vinculada ao produto.");
       } catch (erro) {
         toast.error(erro instanceof Error ? erro.message : "Não foi possível aprovar a imagem.");
       }
     },
-    [invalidar],
+    [aprovarCandidato],
   );
+
+  const aprovarTodos = useCallback(async () => {
+    if (aprovandoTodos || !candidatosParaAprovacaoEmMassa.length) return;
+
+    setAprovandoTodos(true);
+    let aprovados = 0;
+
+    try {
+      for (const candidato of candidatosParaAprovacaoEmMassa) {
+        await aprovarCandidato(candidato, false);
+        aprovados += 1;
+      }
+
+      await invalidar();
+      toast.success(`${aprovados} produto(s) aprovados em massa com score mínimo ${PONTUACAO_MINIMA_APROVACAO}.`);
+    } catch (erro) {
+      await invalidar();
+      toast.error(
+        erro instanceof Error
+          ? `Aprovação em massa interrompida após ${aprovados} item(ns): ${erro.message}`
+          : `Aprovação em massa interrompida após ${aprovados} item(ns).`,
+      );
+    } finally {
+      setAprovandoTodos(false);
+    }
+  }, [aprovandoTodos, aprovarCandidato, candidatosParaAprovacaoEmMassa, invalidar]);
 
   const rejeitar = useCallback(
     async (candidato: CandidatoPersistido) => {
@@ -368,10 +433,13 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
   return {
     carregando: produtosQuery.isLoading || candidatosQuery.isLoading,
     rodando,
+    aprovandoTodos,
     processados,
     encontrados,
     semResultadoExecucao,
     limitePorExecucao: LIMITE_POR_EXECUCAO,
+    pontuacaoMinimaAprovacao: PONTUACAO_MINIMA_APROVACAO,
+    totalAprovaveisEmMassa: candidatosParaAprovacaoEmMassa.length,
     totalSemImagem: semImagem.length,
     totalNaFila: naFila.length,
     totalProcessando: processando.length,
@@ -383,6 +451,7 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
     completar,
     pesquisarNovamente,
     aprovar,
+    aprovarTodos,
     rejeitar,
   };
 }
