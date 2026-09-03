@@ -1,4 +1,4 @@
-# VarejoFlow
+# NODUS
 
 Plataforma para organizar dados, produtos e processos do varejo em um só lugar.
 
