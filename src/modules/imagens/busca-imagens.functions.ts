@@ -13,7 +13,7 @@ const OFF_API = "https://world.openfoodfacts.org/api/v2/product";
 const COSMOS_CDN = "https://cdn-cosmos.bluesoft.com.br/products";
 const EAN_PICTURES = "https://www.eanpictures.com.br:9000/api/gtin";
 const UPC_SEARCH_API = "https://api.upcitemdb.com/prod/trial/search";
-const TIMEOUT_MS = 7000;
+const TIMEOUT_MS = 10_000;
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_CANDIDATOS_ANALISADOS = 18;
 
@@ -43,12 +43,35 @@ export interface CandidatoImagemServidor {
   eanExato: boolean;
 }
 
+export interface DiagnosticoBuscaImagem {
+  totalBrutos: number;
+  totalValidos: number;
+  porFonte: Record<
+    string,
+    {
+      brutos: number;
+      validos: number;
+      rejeicoes: Record<string, number>;
+    }
+  >;
+}
+
 type CandidatoBruto = {
   url: string;
   titulo: string;
   source: string;
   eanExato: boolean;
 };
+
+type AnaliseImagem = {
+  width: number;
+  height: number;
+  backgroundScore: number;
+};
+
+type ResultadoAnalise =
+  | { analise: AnaliseImagem; motivo: null }
+  | { analise: null; motivo: string };
 
 function somenteNumeros(valor: unknown): string {
   return String(valor ?? "").replace(/\D/g, "");
@@ -58,7 +81,7 @@ async function fetchComTimeout(url: string, init?: RequestInit): Promise<Respons
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await fetch(url, { ...init, signal: controller.signal, redirect: "follow" });
   } catch {
     return null;
   } finally {
@@ -80,8 +103,14 @@ function extrairGoogle(html: string): Array<{ url: string; titulo: string }> {
 
   for (const bruto of urls) {
     const url = limparUrlGoogle(bruto).replace(/[\\]$/, "");
-    if (!EXTENSAO_IMAGEM.test(url) || IGNORAR_GOOGLE.test(url) || encontrados.has(url)) continue;
-    encontrados.set(url, "");
+    if (IGNORAR_GOOGLE.test(url) || encontrados.has(url)) continue;
+
+    // Muitas CDNs de varejistas entregam imagens sem extensão no caminho.
+    // URLs explicitamente identificadas como imagem continuam prioritárias,
+    // mas URLs HTTP válidas também podem ser verificadas pelo Sharp depois.
+    if (EXTENSAO_IMAGEM.test(url) || /\/image|\/images|\/produto|cdn|media/i.test(url)) {
+      encontrados.set(url, "");
+    }
   }
 
   for (const [, bruto] of html.matchAll(/\["(https?:\\?\/\\?\/[^"\\]+?\.(?:jpe?g|png|webp)(?:[?#&][^"\\]*)?)",\d+,\d+\]/gi)) {
@@ -135,7 +164,9 @@ async function candidatosPorEan(ean: string): Promise<CandidatoBruto[]> {
       const codigos = ean.length === 12 ? [ean, `0${ean}`] : [ean];
       const saida: CandidatoBruto[] = [];
       for (const codigo of codigos) {
-        const resposta = await fetchComTimeout(`${OFF_API}/${encodeURIComponent(codigo)}.json?fields=product_name,code,image_front_url,image_url,image_front_small_url`);
+        const resposta = await fetchComTimeout(
+          `${OFF_API}/${encodeURIComponent(codigo)}.json?fields=product_name,code,image_front_url,image_url,image_front_small_url`,
+        );
         if (!resposta?.ok) continue;
         const dados = (await resposta.json()) as {
           status?: number;
@@ -198,27 +229,34 @@ async function candidatosPorDescricao(descricao: string): Promise<CandidatoBruto
   return (await Promise.all(tarefas)).flat();
 }
 
-async function analisarImagem(url: string): Promise<{ width: number; height: number; backgroundScore: number } | null> {
+async function analisarImagem(url: string): Promise<ResultadoAnalise> {
   const resposta = await fetchComTimeout(url, {
-    headers: { Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8" },
+    headers: {
+      Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+      "User-Agent": "Mozilla/5.0 (compatible; NodusImageBot/1.0)",
+    },
   });
-  if (!resposta?.ok) return null;
 
-  const tipo = resposta.headers.get("content-type") ?? "";
-  if (!tipo.startsWith("image/")) return null;
+  if (!resposta) return { analise: null, motivo: "rede_ou_timeout" };
+  if (!resposta.ok) return { analise: null, motivo: `http_${resposta.status}` };
 
   const tamanho = Number(resposta.headers.get("content-length") ?? 0);
-  if (tamanho > MAX_BYTES) return null;
+  if (tamanho > MAX_BYTES) return { analise: null, motivo: "arquivo_muito_grande" };
 
   const buffer = Buffer.from(await resposta.arrayBuffer());
-  if (!buffer.length || buffer.length > MAX_BYTES) return null;
+  if (!buffer.length) return { analise: null, motivo: "arquivo_vazio" };
+  if (buffer.length > MAX_BYTES) return { analise: null, motivo: "arquivo_muito_grande" };
 
   try {
+    // Não dependemos do Content-Type do servidor. Algumas CDNs retornam
+    // application/octet-stream mesmo quando o corpo é uma imagem válida.
     const imagem = sharp(buffer, { failOn: "none" });
     const metadata = await imagem.metadata();
     const width = metadata.width ?? 0;
     const height = metadata.height ?? 0;
-    if (width < 160 || height < 160) return null;
+
+    if (!width || !height) return { analise: null, motivo: "formato_nao_reconhecido" };
+    if (width < 160 || height < 160) return { analise: null, motivo: "resolucao_baixa" };
 
     const { data, info } = await imagem
       .resize(64, 64, { fit: "fill" })
@@ -242,12 +280,15 @@ async function analisarImagem(url: string): Promise<{ width: number; height: num
     }
 
     return {
-      width,
-      height,
-      backgroundScore: borda ? Number((brancos / borda).toFixed(4)) : 0,
+      analise: {
+        width,
+        height,
+        backgroundScore: borda ? Number((brancos / borda).toFixed(4)) : 0,
+      },
+      motivo: null,
     };
   } catch {
-    return null;
+    return { analise: null, motivo: "sharp_ou_formato_invalido" };
   }
 }
 
@@ -260,7 +301,7 @@ function palavras(texto: string): string[] {
 function pontuar(
   candidato: CandidatoBruto,
   produto: { descricao: string; categoria?: string | null; ean: string },
-  analise: { width: number; height: number; backgroundScore: number },
+  analise: AnaliseImagem,
 ): { total: number; detalhes: Array<{ rotulo: string; pontos: number }> } {
   const alvo = normalizarTexto(`${candidato.titulo} ${decodeURIComponent(candidato.url)}`);
   const termos = palavras(produto.descricao);
@@ -297,6 +338,21 @@ function pontuar(
   return { total, detalhes: detalhes.filter((item) => item.pontos !== 0) };
 }
 
+function criarDiagnostico(lista: CandidatoBruto[]): DiagnosticoBuscaImagem {
+  const diagnostico: DiagnosticoBuscaImagem = {
+    totalBrutos: lista.length,
+    totalValidos: 0,
+    porFonte: {},
+  };
+
+  for (const candidato of lista) {
+    diagnostico.porFonte[candidato.source] ??= { brutos: 0, validos: 0, rejeicoes: {} };
+    diagnostico.porFonte[candidato.source]!.brutos += 1;
+  }
+
+  return diagnostico;
+}
+
 export const buscarCandidatosImagem = createServerFn({ method: "POST" })
   .inputValidator((dados: unknown) => entrada.parse(dados))
   .handler(async ({ data }) => {
@@ -311,25 +367,35 @@ export const buscarCandidatosImagem = createServerFn({ method: "POST" })
     }
 
     const lista = [...unicos.values()].slice(0, MAX_CANDIDATOS_ANALISADOS);
+    const diagnostico = criarDiagnostico(lista);
     const resultado: CandidatoImagemServidor[] = [];
     let indice = 0;
 
     async function trabalhador() {
       while (indice < lista.length) {
         const candidato = lista[indice++]!;
-        const analise = await analisarImagem(candidato.url);
-        if (!analise) continue;
+        const resultadoAnalise = await analisarImagem(candidato.url);
+        const fonte = diagnostico.porFonte[candidato.source]!;
 
-        const score = pontuar(candidato, { descricao: data.descricao, categoria: data.categoria, ean }, analise);
+        if (!resultadoAnalise.analise) {
+          const motivo = resultadoAnalise.motivo ?? "desconhecido";
+          fonte.rejeicoes[motivo] = (fonte.rejeicoes[motivo] ?? 0) + 1;
+          continue;
+        }
+
+        fonte.validos += 1;
+        diagnostico.totalValidos += 1;
+
+        const score = pontuar(candidato, { descricao: data.descricao, categoria: data.categoria, ean }, resultadoAnalise.analise);
         resultado.push({
           url: candidato.url,
           titulo: candidato.titulo,
           source: candidato.source,
           score: score.total,
           scoreDetails: score.detalhes,
-          width: analise.width,
-          height: analise.height,
-          backgroundScore: analise.backgroundScore,
+          width: resultadoAnalise.analise.width,
+          height: resultadoAnalise.analise.height,
+          backgroundScore: resultadoAnalise.analise.backgroundScore,
           eanExato: candidato.eanExato,
         });
       }
@@ -338,5 +404,11 @@ export const buscarCandidatosImagem = createServerFn({ method: "POST" })
     await Promise.all(Array.from({ length: Math.min(5, lista.length) }, trabalhador));
     resultado.sort((a, b) => b.score - a.score);
 
-    return { candidatos: resultado.slice(0, 5) };
+    console.info("[Nodus image search]", {
+      ean,
+      descricao: data.descricao,
+      diagnostico,
+    });
+
+    return { candidatos: resultado.slice(0, 5), diagnostico };
   });
