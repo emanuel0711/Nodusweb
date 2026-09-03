@@ -13,9 +13,13 @@ const OFF_API = "https://world.openfoodfacts.org/api/v2/product";
 const COSMOS_CDN = "https://cdn-cosmos.bluesoft.com.br/products";
 const EAN_PICTURES = "https://www.eanpictures.com.br:9000/api/gtin";
 const UPC_SEARCH_API = "https://api.upcitemdb.com/prod/trial/search";
-const TIMEOUT_MS = 10_000;
+
+const TIMEOUT_MS = 6_000;
 const MAX_BYTES = 8 * 1024 * 1024;
-const MAX_CANDIDATOS_ANALISADOS = 18;
+const MAX_CANDIDATOS_ANALISADOS = 12;
+const CONCORRENCIA_ANALISE = 8;
+const CONCORRENCIA_GOOGLE = 3;
+const SCORE_SUFICIENTE_POR_EAN = 50;
 
 const FONTES_PRIORITARIAS = [
   "zaffari.com.br",
@@ -26,9 +30,23 @@ const FONTES_PRIORITARIAS = [
   "magazineluiza.com.br",
 ];
 
-const IGNORAR_GOOGLE = /gstatic|googleusercontent|google\.com|googleapis|\.svg(\?|$)|sprite|favicon|logo/i;
+const IGNORAR_GOOGLE =
+  /gstatic|googleusercontent|google\.com|googleapis|\.svg(\?|$)|sprite|favicon|logo/i;
 const EXTENSAO_IMAGEM = /\.(?:jpe?g|png|webp)(?:[?#&]|$)/i;
-const PALAVRAS_IGNORADAS = new Set(["de", "do", "da", "com", "sem", "kg", "un", "und", "unidade", "pct", "cx", "produto"]);
+const PALAVRAS_IGNORADAS = new Set([
+  "de",
+  "do",
+  "da",
+  "com",
+  "sem",
+  "kg",
+  "un",
+  "und",
+  "unidade",
+  "pct",
+  "cx",
+  "produto",
+]);
 const PESO = /(\d+[.,]?\d*)\s?(kg|g|gr|ml|l|lt|litro|litros)\b/gi;
 
 export interface CandidatoImagemServidor {
@@ -77,16 +95,51 @@ function somenteNumeros(valor: unknown): string {
   return String(valor ?? "").replace(/\D/g, "");
 }
 
-async function fetchComTimeout(url: string, init?: RequestInit): Promise<Response | null> {
+async function fetchComTimeout(
+  url: string,
+  init?: RequestInit,
+): Promise<Response | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
   try {
-    return await fetch(url, { ...init, signal: controller.signal, redirect: "follow" });
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      redirect: "follow",
+    });
   } catch {
     return null;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function executarComConcorrencia<T, R>(
+  itens: T[],
+  concorrencia: number,
+  executar: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (!itens.length) return [];
+
+  const resultados = new Array<R>(itens.length);
+  let indice = 0;
+
+  async function trabalhador() {
+    while (indice < itens.length) {
+      const atual = indice++;
+      resultados[atual] = await executar(itens[atual]!);
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(concorrencia, itens.length) },
+      trabalhador,
+    ),
+  );
+
+  return resultados;
 }
 
 function limparUrlGoogle(valor: string): string {
@@ -97,7 +150,9 @@ function limparUrlGoogle(valor: string): string {
     .replace(/&amp;/gi, "&");
 }
 
-function extrairGoogle(html: string): Array<{ url: string; titulo: string }> {
+function extrairGoogle(
+  html: string,
+): Array<{ url: string; titulo: string }> {
   const encontrados = new Map<string, string>();
   const urls = html.match(/https?:\\?\/\\?\/[^"'<>\\s\\]+/gi) ?? [];
 
@@ -105,21 +160,26 @@ function extrairGoogle(html: string): Array<{ url: string; titulo: string }> {
     const url = limparUrlGoogle(bruto).replace(/[\\]$/, "");
     if (IGNORAR_GOOGLE.test(url) || encontrados.has(url)) continue;
 
-    // Muitas CDNs de varejistas entregam imagens sem extensão no caminho.
-    // URLs explicitamente identificadas como imagem continuam prioritárias,
-    // mas URLs HTTP válidas também podem ser verificadas pelo Sharp depois.
-    if (EXTENSAO_IMAGEM.test(url) || /\/image|\/images|\/produto|cdn|media/i.test(url)) {
+    if (
+      EXTENSAO_IMAGEM.test(url) ||
+      /\/image|\/images|\/produto|cdn|media/i.test(url)
+    ) {
       encontrados.set(url, "");
     }
   }
 
-  for (const [, bruto] of html.matchAll(/\["(https?:\\?\/\\?\/[^"\\]+?\.(?:jpe?g|png|webp)(?:[?#&][^"\\]*)?)",\d+,\d+\]/gi)) {
+  for (const [, bruto] of html.matchAll(
+    /\["(https?:\\?\/\\?\/[^"\\]+?\.(?:jpe?g|png|webp)(?:[?#&][^"\\]*)?)",\d+,\d+\]/gi,
+  )) {
     const url = limparUrlGoogle(bruto);
-    if (url && !IGNORAR_GOOGLE.test(url) && !encontrados.has(url)) encontrados.set(url, "");
+    if (url && !IGNORAR_GOOGLE.test(url) && !encontrados.has(url)) {
+      encontrados.set(url, "");
+    }
   }
 
-  const titulos = [...html.matchAll(/"(?:pt|2003)":"([^"]{6,200})"/g)].map(([, texto]) =>
-    (texto ?? "").replace(/\\u[\dA-Fa-f]{4}/g, " ").trim(),
+  const titulos = [...html.matchAll(/"(?:pt|2003)":"([^"]{6,200})"/g)].map(
+    ([, texto]) =>
+      (texto ?? "").replace(/\\u[\dA-Fa-f]{4}/g, " ").trim(),
   );
 
   return [...encontrados.keys()].slice(0, 18).map((url, indice) => ({
@@ -128,13 +188,20 @@ function extrairGoogle(html: string): Array<{ url: string; titulo: string }> {
   }));
 }
 
-async function buscarGoogle(termo: string): Promise<Array<{ url: string; titulo: string }>> {
-  const resposta = await fetchComTimeout(`https://www.google.com/search?tbm=isch&hl=pt-BR&q=${encodeURIComponent(termo)}`, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
-      "Accept-Language": "pt-BR,pt;q=0.9",
+async function buscarGoogle(
+  termo: string,
+): Promise<Array<{ url: string; titulo: string }>> {
+  const resposta = await fetchComTimeout(
+    `https://www.google.com/search?tbm=isch&hl=pt-BR&q=${encodeURIComponent(termo)}`,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+        "Accept-Language": "pt-BR,pt;q=0.9",
+      },
     },
-  });
+  );
+
   if (!resposta?.ok) return [];
   return extrairGoogle(await resposta.text());
 }
@@ -144,13 +211,34 @@ async function candidatosPorEan(ean: string): Promise<CandidatoBruto[]> {
 
   const tarefas: Array<Promise<CandidatoBruto[]>> = [
     Promise.resolve([
-      { url: `${COSMOS_CDN}/${encodeURIComponent(ean)}`, titulo: ean, source: "cosmos", eanExato: true },
-      { url: `${EAN_PICTURES}/${encodeURIComponent(ean)}`, titulo: ean, source: "ean_pictures", eanExato: true },
+      {
+        url: `${COSMOS_CDN}/${encodeURIComponent(ean)}`,
+        titulo: ean,
+        source: "cosmos",
+        eanExato: true,
+      },
+      {
+        url: `${EAN_PICTURES}/${encodeURIComponent(ean)}`,
+        titulo: ean,
+        source: "ean_pictures",
+        eanExato: true,
+      },
     ]),
     (async () => {
-      const resposta = await fetchComTimeout(`${UPC_SEARCH_API}?s=${encodeURIComponent(ean)}&match_mode=1`);
+      const resposta = await fetchComTimeout(
+        `${UPC_SEARCH_API}?s=${encodeURIComponent(ean)}&match_mode=1`,
+      );
       if (!resposta?.ok) return [];
-      const dados = (await resposta.json()) as { items?: Array<{ title?: string; ean?: string; upc?: string; images?: string[] }> };
+
+      const dados = (await resposta.json()) as {
+        items?: Array<{
+          title?: string;
+          ean?: string;
+          upc?: string;
+          images?: string[];
+        }>;
+      };
+
       return (dados.items ?? []).flatMap((item) =>
         (item.images ?? []).map((url) => ({
           url,
@@ -163,11 +251,13 @@ async function candidatosPorEan(ean: string): Promise<CandidatoBruto[]> {
     (async () => {
       const codigos = ean.length === 12 ? [ean, `0${ean}`] : [ean];
       const saida: CandidatoBruto[] = [];
+
       for (const codigo of codigos) {
         const resposta = await fetchComTimeout(
           `${OFF_API}/${encodeURIComponent(codigo)}.json?fields=product_name,code,image_front_url,image_url,image_front_small_url`,
         );
         if (!resposta?.ok) continue;
+
         const dados = (await resposta.json()) as {
           status?: number;
           product?: {
@@ -178,8 +268,14 @@ async function candidatosPorEan(ean: string): Promise<CandidatoBruto[]> {
             image_front_small_url?: string;
           };
         };
+
         if (dados.status !== 1 || !dados.product) continue;
-        for (const url of [dados.product.image_front_url, dados.product.image_url, dados.product.image_front_small_url]) {
+
+        for (const url of [
+          dados.product.image_front_url,
+          dados.product.image_url,
+          dados.product.image_front_small_url,
+        ]) {
           if (!url) continue;
           saida.push({
             url,
@@ -189,6 +285,7 @@ async function candidatosPorEan(ean: string): Promise<CandidatoBruto[]> {
           });
         }
       }
+
       return saida;
     })(),
   ];
@@ -196,37 +293,64 @@ async function candidatosPorEan(ean: string): Promise<CandidatoBruto[]> {
   return (await Promise.all(tarefas)).flat();
 }
 
-async function candidatosPorDescricao(descricao: string): Promise<CandidatoBruto[]> {
-  const tarefas: Array<Promise<CandidatoBruto[]>> = [
-    (async () => {
-      const resposta = await fetchComTimeout(`${UPC_SEARCH_API}?s=${encodeURIComponent(`${descricao} produto`)}&match_mode=0`);
-      if (!resposta?.ok) return [];
-      const dados = (await resposta.json()) as { items?: Array<{ title?: string; images?: string[] }> };
-      return (dados.items ?? []).flatMap((item) =>
-        (item.images ?? []).map((url) => ({ url, titulo: item.title ?? "", source: "upcitemdb_text", eanExato: false })),
-      );
-    })(),
-    (async () => {
-      const consultas = [`${descricao} produto embalagem fundo branco`, ...FONTES_PRIORITARIAS.map((dominio) => `${descricao} site:${dominio}`)];
-      const encontrados = new Map<string, CandidatoBruto>();
-      for (const consulta of consultas) {
-        const resultados = await buscarGoogle(consulta);
-        for (const resultado of resultados) {
-          if (!encontrados.has(resultado.url)) {
-            encontrados.set(resultado.url, {
-              ...resultado,
-              source: "google_images",
-              eanExato: false,
-            });
-          }
-        }
-        if (encontrados.size >= 18) break;
-      }
-      return [...encontrados.values()];
-    })(),
-  ];
+async function candidatosPorDescricao(
+  descricao: string,
+): Promise<CandidatoBruto[]> {
+  const buscaUpc = (async () => {
+    const resposta = await fetchComTimeout(
+      `${UPC_SEARCH_API}?s=${encodeURIComponent(`${descricao} produto`)}&match_mode=0`,
+    );
+    if (!resposta?.ok) return [] as CandidatoBruto[];
 
-  return (await Promise.all(tarefas)).flat();
+    const dados = (await resposta.json()) as {
+      items?: Array<{ title?: string; images?: string[] }>;
+    };
+
+    return (dados.items ?? []).flatMap((item) =>
+      (item.images ?? []).map((url) => ({
+        url,
+        titulo: item.title ?? "",
+        source: "upcitemdb_text",
+        eanExato: false,
+      })),
+    );
+  })();
+
+  const buscaGoogle = (async () => {
+    const consultas = [
+      `${descricao} produto embalagem fundo branco`,
+      ...FONTES_PRIORITARIAS.map(
+        (dominio) => `${descricao} site:${dominio}`,
+      ),
+    ];
+
+    const resultados = await executarComConcorrencia(
+      consultas,
+      CONCORRENCIA_GOOGLE,
+      buscarGoogle,
+    );
+
+    const encontrados = new Map<string, CandidatoBruto>();
+
+    for (const lista of resultados) {
+      for (const resultado of lista) {
+        if (encontrados.size >= 18) break;
+        if (encontrados.has(resultado.url)) continue;
+
+        encontrados.set(resultado.url, {
+          ...resultado,
+          source: "google_images",
+          eanExato: false,
+        });
+      }
+      if (encontrados.size >= 18) break;
+    }
+
+    return [...encontrados.values()];
+  })();
+
+  const [upc, google] = await Promise.all([buscaUpc, buscaGoogle]);
+  return [...upc, ...google];
 }
 
 async function analisarImagem(url: string): Promise<ResultadoAnalise> {
@@ -238,44 +362,68 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
   });
 
   if (!resposta) return { analise: null, motivo: "rede_ou_timeout" };
-  if (!resposta.ok) return { analise: null, motivo: `http_${resposta.status}` };
+  if (!resposta.ok) {
+    return { analise: null, motivo: `http_${resposta.status}` };
+  }
 
   const tamanho = Number(resposta.headers.get("content-length") ?? 0);
-  if (tamanho > MAX_BYTES) return { analise: null, motivo: "arquivo_muito_grande" };
+  if (tamanho > MAX_BYTES) {
+    return { analise: null, motivo: "arquivo_muito_grande" };
+  }
 
   const buffer = Buffer.from(await resposta.arrayBuffer());
   if (!buffer.length) return { analise: null, motivo: "arquivo_vazio" };
-  if (buffer.length > MAX_BYTES) return { analise: null, motivo: "arquivo_muito_grande" };
+  if (buffer.length > MAX_BYTES) {
+    return { analise: null, motivo: "arquivo_muito_grande" };
+  }
 
   try {
-    // Não dependemos do Content-Type do servidor. Algumas CDNs retornam
-    // application/octet-stream mesmo quando o corpo é uma imagem válida.
     const imagem = sharp(buffer, { failOn: "none" });
     const metadata = await imagem.metadata();
     const width = metadata.width ?? 0;
     const height = metadata.height ?? 0;
 
-    if (!width || !height) return { analise: null, motivo: "formato_nao_reconhecido" };
-    if (width < 160 || height < 160) return { analise: null, motivo: "resolucao_baixa" };
+    if (!width || !height) {
+      return { analise: null, motivo: "formato_nao_reconhecido" };
+    }
+    if (width < 160 || height < 160) {
+      return { analise: null, motivo: "resolucao_baixa" };
+    }
 
     const { data, info } = await imagem
-      .resize(64, 64, { fit: "fill" })
+      .resize(48, 48, { fit: "fill" })
       .removeAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true });
 
     let borda = 0;
     let brancos = 0;
+
     for (let y = 0; y < info.height; y += 1) {
       for (let x = 0; x < info.width; x += 1) {
-        const naBorda = x < 8 || x >= info.width - 8 || y < 8 || y >= info.height - 8;
+        const margem = 6;
+        const naBorda =
+          x < margem ||
+          x >= info.width - margem ||
+          y < margem ||
+          y >= info.height - margem;
+
         if (!naBorda) continue;
+
         borda += 1;
         const offset = (y * info.width + x) * info.channels;
         const r = data[offset] ?? 0;
         const g = data[offset + 1] ?? 0;
         const b = data[offset + 2] ?? 0;
-        if (r >= 238 && g >= 238 && b >= 238 && Math.max(r, g, b) - Math.min(r, g, b) <= 12) brancos += 1;
+
+        if (
+          r >= 238 &&
+          g >= 238 &&
+          b >= 238 &&
+          Math.max(r, g, b) - Math.min(r, g, b) <= 12
+        ) {
+          brancos += 1;
+        }
       }
     }
 
@@ -283,7 +431,9 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
       analise: {
         width,
         height,
-        backgroundScore: borda ? Number((brancos / borda).toFixed(4)) : 0,
+        backgroundScore: borda
+          ? Number((brancos / borda).toFixed(4))
+          : 0,
       },
       motivo: null,
     };
@@ -295,15 +445,23 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
 function palavras(texto: string): string[] {
   return normalizarTexto(texto)
     .split(/\s+/)
-    .filter((palavra) => palavra.length >= 3 && !PALAVRAS_IGNORADAS.has(palavra));
+    .filter(
+      (palavra) =>
+        palavra.length >= 3 && !PALAVRAS_IGNORADAS.has(palavra),
+    );
 }
 
 function pontuar(
   candidato: CandidatoBruto,
   produto: { descricao: string; categoria?: string | null; ean: string },
   analise: AnaliseImagem,
-): { total: number; detalhes: Array<{ rotulo: string; pontos: number }> } {
-  const alvo = normalizarTexto(`${candidato.titulo} ${decodeURIComponent(candidato.url)}`);
+): {
+  total: number;
+  detalhes: Array<{ rotulo: string; pontos: number }>;
+} {
+  const alvo = normalizarTexto(
+    `${candidato.titulo} ${decodeURIComponent(candidato.url)}`,
+  );
   const termos = palavras(produto.descricao);
   const detalhes: Array<{ rotulo: string; pontos: number }> = [];
 
@@ -315,27 +473,74 @@ function pontuar(
     upcitemdb_text: 8,
     google_images: 5,
   };
-  detalhes.push({ rotulo: `Fonte: ${candidato.source}`, pontos: pesoFonte[candidato.source] ?? 0 });
 
-  if (candidato.eanExato) detalhes.push({ rotulo: "EAN exato", pontos: 28 });
+  detalhes.push({
+    rotulo: `Fonte: ${candidato.source}`,
+    pontos: pesoFonte[candidato.source] ?? 0,
+  });
+
+  if (candidato.eanExato) {
+    detalhes.push({ rotulo: "EAN exato", pontos: 28 });
+  }
 
   const acertos = termos.filter((termo) => alvo.includes(termo)).length;
   const cobertura = termos.length ? acertos / termos.length : 0;
-  detalhes.push({ rotulo: `Descrição (${acertos}/${termos.length} termos)`, pontos: Math.round(cobertura * 24) });
+  detalhes.push({
+    rotulo: `Descrição (${acertos}/${termos.length} termos)`,
+    pontos: Math.round(cobertura * 24),
+  });
 
-  const pesos = [...produto.descricao.matchAll(PESO)].map(([, numero, medida]) => normalizarTexto(`${numero}${medida}`).replace(",", "."));
-  if (pesos.some((peso) => alvo.replace(/\s/g, "").includes(peso.replace(/\s/g, "")))) {
+  const pesos = [...produto.descricao.matchAll(PESO)].map(
+    ([, numero, medida]) =>
+      normalizarTexto(`${numero}${medida}`).replace(",", "."),
+  );
+
+  if (
+    pesos.some((peso) =>
+      alvo.replace(/\s/g, "").includes(peso.replace(/\s/g, "")),
+    )
+  ) {
     detalhes.push({ rotulo: "Peso/volume compatível", pontos: 8 });
   }
 
-  const resolucao = Math.min(8, Math.round((Math.min(analise.width, analise.height) / 800) * 8));
-  detalhes.push({ rotulo: `Resolução ${analise.width}×${analise.height}`, pontos: resolucao });
+  const resolucao = Math.min(
+    8,
+    Math.round((Math.min(analise.width, analise.height) / 800) * 8),
+  );
+  detalhes.push({
+    rotulo: `Resolução ${analise.width}×${analise.height}`,
+    pontos: resolucao,
+  });
 
   const fundo = Math.round(analise.backgroundScore * 10);
-  detalhes.push({ rotulo: `Fundo branco ${Math.round(analise.backgroundScore * 100)}%`, pontos: fundo });
+  detalhes.push({
+    rotulo: `Fundo branco ${Math.round(analise.backgroundScore * 100)}%`,
+    pontos: fundo,
+  });
 
-  const total = Math.max(0, Math.min(100, detalhes.reduce((soma, item) => soma + item.pontos, 0)));
-  return { total, detalhes: detalhes.filter((item) => item.pontos !== 0) };
+  const total = Math.max(
+    0,
+    Math.min(
+      100,
+      detalhes.reduce((soma, item) => soma + item.pontos, 0),
+    ),
+  );
+
+  return {
+    total,
+    detalhes: detalhes.filter((item) => item.pontos !== 0),
+  };
+}
+
+function unificarCandidatos(candidatos: CandidatoBruto[]): CandidatoBruto[] {
+  const unicos = new Map<string, CandidatoBruto>();
+
+  for (const candidato of candidatos) {
+    if (!candidato.url || unicos.has(candidato.url)) continue;
+    unicos.set(candidato.url, candidato);
+  }
+
+  return [...unicos.values()];
 }
 
 function criarDiagnostico(lista: CandidatoBruto[]): DiagnosticoBuscaImagem {
@@ -346,69 +551,149 @@ function criarDiagnostico(lista: CandidatoBruto[]): DiagnosticoBuscaImagem {
   };
 
   for (const candidato of lista) {
-    diagnostico.porFonte[candidato.source] ??= { brutos: 0, validos: 0, rejeicoes: {} };
+    diagnostico.porFonte[candidato.source] ??= {
+      brutos: 0,
+      validos: 0,
+      rejeicoes: {},
+    };
     diagnostico.porFonte[candidato.source]!.brutos += 1;
   }
 
   return diagnostico;
 }
 
+async function analisarCandidatos(
+  candidatos: CandidatoBruto[],
+  produto: { descricao: string; categoria?: string | null; ean: string },
+): Promise<{
+  candidatos: CandidatoImagemServidor[];
+  diagnostico: DiagnosticoBuscaImagem;
+}> {
+  const lista = unificarCandidatos(candidatos).slice(
+    0,
+    MAX_CANDIDATOS_ANALISADOS,
+  );
+  const diagnostico = criarDiagnostico(lista);
+
+  const processados = await executarComConcorrencia(
+    lista,
+    CONCORRENCIA_ANALISE,
+    async (candidato) => {
+      const resultadoAnalise = await analisarImagem(candidato.url);
+      const fonte = diagnostico.porFonte[candidato.source]!;
+
+      if (!resultadoAnalise.analise) {
+        const motivo = resultadoAnalise.motivo ?? "desconhecido";
+        fonte.rejeicoes[motivo] = (fonte.rejeicoes[motivo] ?? 0) + 1;
+        return null;
+      }
+
+      fonte.validos += 1;
+      diagnostico.totalValidos += 1;
+
+      const score = pontuar(candidato, produto, resultadoAnalise.analise);
+
+      return {
+        url: candidato.url,
+        titulo: candidato.titulo,
+        source: candidato.source,
+        score: score.total,
+        scoreDetails: score.detalhes,
+        width: resultadoAnalise.analise.width,
+        height: resultadoAnalise.analise.height,
+        backgroundScore: resultadoAnalise.analise.backgroundScore,
+        eanExato: candidato.eanExato,
+      } satisfies CandidatoImagemServidor;
+    },
+  );
+
+  const validos = processados.filter(
+    (candidato): candidato is CandidatoImagemServidor => candidato !== null,
+  );
+  validos.sort((a, b) => b.score - a.score);
+
+  return { candidatos: validos, diagnostico };
+}
+
+function mesclarDiagnosticos(
+  primeiro: DiagnosticoBuscaImagem,
+  segundo: DiagnosticoBuscaImagem,
+): DiagnosticoBuscaImagem {
+  const resultado: DiagnosticoBuscaImagem = {
+    totalBrutos: primeiro.totalBrutos + segundo.totalBrutos,
+    totalValidos: primeiro.totalValidos + segundo.totalValidos,
+    porFonte: { ...primeiro.porFonte },
+  };
+
+  for (const [fonte, dados] of Object.entries(segundo.porFonte)) {
+    const atual = resultado.porFonte[fonte] ?? {
+      brutos: 0,
+      validos: 0,
+      rejeicoes: {},
+    };
+
+    atual.brutos += dados.brutos;
+    atual.validos += dados.validos;
+
+    for (const [motivo, quantidade] of Object.entries(dados.rejeicoes)) {
+      atual.rejeicoes[motivo] =
+        (atual.rejeicoes[motivo] ?? 0) + quantidade;
+    }
+
+    resultado.porFonte[fonte] = atual;
+  }
+
+  return resultado;
+}
+
 export const buscarCandidatosImagem = createServerFn({ method: "POST" })
   .inputValidator((dados: unknown) => entrada.parse(dados))
   .handler(async ({ data }) => {
     const ean = somenteNumeros(data.ean);
+    const produto = {
+      descricao: data.descricao,
+      categoria: data.categoria,
+      ean,
+    };
+
+    // Primeiro tenta apenas as fontes baseadas em EAN. Se uma imagem válida já
+    // atinge o score de aprovação, evitamos buscas textuais mais lentas.
     const porEan = await candidatosPorEan(ean);
-    const porDescricao = porEan.length < 6 ? await candidatosPorDescricao(data.descricao) : [];
+    const resultadoEan = await analisarCandidatos(porEan, produto);
+    const melhorEan = resultadoEan.candidatos[0];
 
-    const unicos = new Map<string, CandidatoBruto>();
-    for (const candidato of [...porEan, ...porDescricao]) {
-      if (!candidato.url || unicos.has(candidato.url)) continue;
-      unicos.set(candidato.url, candidato);
+    if (melhorEan && melhorEan.score >= SCORE_SUFICIENTE_POR_EAN) {
+      console.info("[Nodus image search]", {
+        ean,
+        descricao: data.descricao,
+        estrategia: "ean_fast_path",
+        diagnostico: resultadoEan.diagnostico,
+      });
+
+      return {
+        candidatos: resultadoEan.candidatos.slice(0, 5),
+        diagnostico: resultadoEan.diagnostico,
+      };
     }
 
-    const lista = [...unicos.values()].slice(0, MAX_CANDIDATOS_ANALISADOS);
-    const diagnostico = criarDiagnostico(lista);
-    const resultado: CandidatoImagemServidor[] = [];
-    let indice = 0;
-
-    async function trabalhador() {
-      while (indice < lista.length) {
-        const candidato = lista[indice++]!;
-        const resultadoAnalise = await analisarImagem(candidato.url);
-        const fonte = diagnostico.porFonte[candidato.source]!;
-
-        if (!resultadoAnalise.analise) {
-          const motivo = resultadoAnalise.motivo ?? "desconhecido";
-          fonte.rejeicoes[motivo] = (fonte.rejeicoes[motivo] ?? 0) + 1;
-          continue;
-        }
-
-        fonte.validos += 1;
-        diagnostico.totalValidos += 1;
-
-        const score = pontuar(candidato, { descricao: data.descricao, categoria: data.categoria, ean }, resultadoAnalise.analise);
-        resultado.push({
-          url: candidato.url,
-          titulo: candidato.titulo,
-          source: candidato.source,
-          score: score.total,
-          scoreDetails: score.detalhes,
-          width: resultadoAnalise.analise.width,
-          height: resultadoAnalise.analise.height,
-          backgroundScore: resultadoAnalise.analise.backgroundScore,
-          eanExato: candidato.eanExato,
-        });
-      }
-    }
-
-    await Promise.all(Array.from({ length: Math.min(5, lista.length) }, trabalhador));
-    resultado.sort((a, b) => b.score - a.score);
+    // Só cai na busca textual quando as fontes exatas não entregam candidato
+    // suficiente. Google e UPC textual rodam com concorrência limitada.
+    const porDescricao = await candidatosPorDescricao(data.descricao);
+    const resultadoTexto = await analisarCandidatos(porDescricao, produto);
+    const candidatos = [...resultadoEan.candidatos, ...resultadoTexto.candidatos]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+    const diagnostico = mesclarDiagnosticos(
+      resultadoEan.diagnostico,
+      resultadoTexto.diagnostico,
+    );
 
     console.info("[Nodus image search]", {
       ean,
       descricao: data.descricao,
+      estrategia: "ean_plus_text",
       diagnostico,
     });
 
-    return { candidatos: resultado.slice(0, 5), diagnostico };
+    return { candidatos, diagnostico };
   });
