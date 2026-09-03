@@ -1,4 +1,4 @@
-import { Check, ImageIcon, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
+import { Check, CheckCheck, ImageIcon, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useImagensPendentes } from "@/modules/imagens/use-imagens-pendentes";
 
@@ -56,20 +56,20 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
             Estado da busca salvo no Supabase. Categoria ativa: <strong>{categoriaLabel}</strong>.
           </p>
           <p className="text-xs text-muted-foreground">
-            Cada execução processa até {fila.limitePorExecucao} produtos, com concorrência controlada. Itens ambíguos ficam salvos para revisão.
+            Cada execução processa até {fila.limitePorExecucao} produtos, com concorrência controlada. Aprovação automática exige score mínimo de <strong>{fila.pontuacaoMinimaAprovacao}/100</strong>, fundo branco e resolução mínima.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
-            disabled={fila.rodando}
+            disabled={fila.rodando || fila.aprovandoTodos}
             onClick={() => void fila.pesquisarNovamente()}
             title="Devolve para a fila produtos sem resultado ou aguardando revisão"
           >
             <RotateCcw className="size-4" /> Reenfileirar pendentes
           </Button>
-          <Button disabled={fila.rodando || !fila.totalNaFila} onClick={() => void fila.completar()}>
+          <Button disabled={fila.rodando || fila.aprovandoTodos || !fila.totalNaFila} onClick={() => void fila.completar()}>
             {fila.rodando ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
             Buscar próximo lote
           </Button>
@@ -107,11 +107,22 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
 
       {fila.gruposRevisao.length ? (
         <div className="space-y-4 border-t pt-4">
-          <div>
-            <h3 className="text-base font-semibold">Aguardando revisão</h3>
-            <p className="text-xs text-muted-foreground">
-              Compare os candidatos do mesmo produto. Aprovar vincula a imagem ao catálogo; rejeitar descarta somente aquele candidato.
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold">Aguardando revisão</h3>
+              <p className="text-xs text-muted-foreground">
+                Compare os candidatos do mesmo produto. A aprovação em massa usa somente o melhor candidato de cada produto que também atende aos mesmos critérios técnicos da aprovação automática.
+              </p>
+            </div>
+
+            <Button
+              disabled={fila.aprovandoTodos || fila.rodando || fila.totalAprovaveisEmMassa === 0}
+              onClick={() => void fila.aprovarTodos()}
+              title={`Aprova o melhor candidato de cada produto com score mínimo ${fila.pontuacaoMinimaAprovacao} e critérios técnicos válidos`}
+            >
+              {fila.aprovandoTodos ? <Loader2 className="size-4 animate-spin" /> : <CheckCheck className="size-4" />}
+              Aprovar todos ({fila.totalAprovaveisEmMassa})
+            </Button>
           </div>
 
           {fila.gruposRevisao.map((grupo) => (
