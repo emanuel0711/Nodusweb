@@ -1,12 +1,5 @@
-import {
-  Check,
-  CheckCheck,
-  ImageIcon,
-  Loader2,
-  RefreshCw,
-  RotateCcw,
-  X,
-} from "lucide-react";
+import { useState } from "react";
+import { Check, ChevronDown, ChevronUp, ImageIcon, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useImagensPendentes } from "@/modules/imagens/use-imagens-pendentes";
 
@@ -18,7 +11,6 @@ function formatarOrigem(origem: string): string {
   const nomes: Record<string, string> = {
     cosmos: "Cosmos",
     ean_pictures: "EAN Pictures",
-    open_food_facts: "Open Food Facts",
     upcitemdb: "UPC Item DB",
     upcitemdb_text: "UPC Item DB · texto",
     google_images: "Google Imagens",
@@ -27,24 +19,10 @@ function formatarOrigem(origem: string): string {
   return nomes[origem] ?? origem;
 }
 
-function detalhesPontuacao(
-  valor: unknown,
-): Array<{ rotulo: string; pontos: number }> {
-  if (!Array.isArray(valor)) return [];
-
-  return valor.filter(
-    (item): item is { rotulo: string; pontos: number } =>
-      Boolean(item) &&
-      typeof item === "object" &&
-      typeof (item as { rotulo?: unknown }).rotulo === "string" &&
-      typeof (item as { pontos?: unknown }).pontos === "number",
-  );
-}
-
-export function ImagensPendentes({
-  categoria = "__all__",
-}: ImagensPendentesProps) {
+export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProps) {
   const fila = useImagensPendentes(categoria);
+  const [mostrarRevisao, setMostrarRevisao] = useState(false);
+
   const categoriaLabel =
     categoria === "__all__"
       ? "Todas as categorias"
@@ -52,223 +30,156 @@ export function ImagensPendentes({
         ? "Sem categoria"
         : categoria;
 
-  const contadores = [
+  const resumo = [
+    ["Com imagem", fila.totalConcluidos],
+    ["Para revisar", fila.aguardandoAprovacao],
     ["Sem imagem", fila.totalSemImagem],
-    ["Na fila", fila.totalNaFila],
-    ["Processando", fila.totalProcessando],
-    ["Já processados", fila.jaProcessados],
-    ["Aguardando aprovação", fila.aguardandoAprovacao],
-    ["Sem resultado", fila.totalSemResultado],
   ] as const;
 
+  const podeBuscar = fila.totalNaFila > 0;
+  const podeReenfileirar = !podeBuscar && fila.totalSemImagem > 0;
+
   return (
-    <section className="surface mt-4 space-y-5 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className="surface mt-4 space-y-5 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold">Imagens de produtos</h2>
+          <h2 className="text-lg font-semibold">Imagens do catálogo</h2>
           <p className="text-sm text-muted-foreground">
-            Estado da busca salvo no Supabase. Categoria ativa:{" "}
-            <strong>{categoriaLabel}</strong>.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Cada execução processa até {fila.limitePorExecucao} produtos. Imagens
-            com score de <strong>{fila.pontuacaoMinimaAprovacao}/100</strong> ou
-            mais entram automaticamente; abaixo disso ficam para revisão manual.
+            {categoriaLabel}. O Nódus encontra imagens e envia apenas os casos duvidosos para revisão.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            disabled={fila.rodando || fila.aprovandoTodos}
-            onClick={() => void fila.pesquisarNovamente()}
-            title="Devolve para a fila produtos sem resultado ou aguardando revisão"
-          >
-            <RotateCcw className="size-4" /> Reenfileirar pendentes
-          </Button>
+          {fila.aguardandoAprovacao > 0 ? (
+            <Button variant="outline" onClick={() => setMostrarRevisao((atual) => !atual)}>
+              {mostrarRevisao ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+              Revisar ({fila.aguardandoAprovacao})
+            </Button>
+          ) : null}
 
-          <Button
-            disabled={
-              fila.rodando || fila.aprovandoTodos || !fila.totalNaFila
-            }
-            onClick={() => void fila.completar()}
-          >
-            {fila.rodando ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <RefreshCw className="size-4" />
-            )}
-            Buscar próximo lote
+          {podeReenfileirar ? (
+            <Button
+              variant="outline"
+              disabled={fila.rodando}
+              onClick={() => void fila.pesquisarNovamente()}
+            >
+              <RotateCcw className="size-4" /> Tentar novamente
+            </Button>
+          ) : null}
+
+          <Button disabled={fila.rodando || !podeBuscar} onClick={() => void fila.completar()}>
+            {fila.rodando ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            {fila.rodando ? "Buscando..." : "Buscar imagens"}
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        {contadores.map(([rotulo, valor]) => (
-          <div key={rotulo} className="rounded-md border p-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        {resumo.map(([rotulo, valor]) => (
+          <div key={rotulo} className="rounded-lg border px-4 py-3">
             <div className="text-xs text-muted-foreground">{rotulo}</div>
-            <div className="text-xl font-semibold">{valor}</div>
+            <div className="mt-1 text-2xl font-semibold">{valor}</div>
           </div>
         ))}
       </div>
 
       {fila.rodando ? (
-        <div className="space-y-1 text-sm text-muted-foreground">
-          <p>
-            Processando <strong>{fila.processados}</strong> produto(s) neste lote.
-          </p>
-          <p className="text-xs">
-            A fila permanece registrada mesmo se a página for recarregada.
-          </p>
+        <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
+          Buscando imagens: <strong>{fila.processados}</strong> de até <strong>{fila.limitePorExecucao}</strong> produtos neste lote.
         </div>
       ) : null}
 
-      {fila.encontrados || fila.semResultadoExecucao ? (
-        <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-          <span>
-            Aprovados automaticamente nesta execução:{" "}
-            <strong>{fila.encontrados}</strong>
-          </span>
-          <span>
-            Sem candidato nesta execução:{" "}
-            <strong>{fila.semResultadoExecucao}</strong>
-          </span>
-        </div>
-      ) : null}
-
-      {fila.gruposRevisao.length ? (
-        <div className="space-y-4 border-t pt-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-base font-semibold">Aguardando revisão</h3>
-              <p className="text-xs text-muted-foreground">
-                Aqui ficam somente candidatos abaixo do score automático. Compare
-                as opções e aprove manualmente quando necessário.
-              </p>
-            </div>
-
-            <Button
-              disabled={
-                fila.aprovandoTodos ||
-                fila.rodando ||
-                fila.totalAprovaveisEmMassa === 0
-              }
-              onClick={() => void fila.aprovarTodos()}
-              title={`Aprova o melhor candidato de cada produto com score mínimo ${fila.pontuacaoMinimaAprovacao}`}
-            >
-              {fila.aprovandoTodos ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <CheckCheck className="size-4" />
-              )}
-              Aprovar todos ({fila.totalAprovaveisEmMassa})
-            </Button>
+      {mostrarRevisao && fila.gruposRevisao.length ? (
+        <div className="space-y-4 border-t pt-5">
+          <div>
+            <h3 className="font-semibold">Revisão de imagens</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Veja o melhor resultado primeiro. Se ele não servir, escolha uma alternativa ou pesquise novamente.
+            </p>
           </div>
 
-          {fila.gruposRevisao.map((grupo) => (
-            <article
-              key={grupo.produto.id}
-              className="space-y-3 rounded-lg border p-4"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h4 className="font-medium">{grupo.produto.description}</h4>
-                  <p className="text-xs text-muted-foreground">
-                    EAN: {grupo.produto.ean || "não informado"} ·{" "}
-                    {grupo.candidatos.length} candidato(s)
-                  </p>
+          {fila.gruposRevisao.map((grupo) => {
+            const principal = grupo.candidatos[0];
+            if (!principal) return null;
+
+            return (
+              <article key={grupo.produto.id} className="rounded-lg border p-4">
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="font-medium">{grupo.produto.description}</h4>
+                    <p className="text-xs text-muted-foreground">
+                      {grupo.produto.ean ? `EAN ${grupo.produto.ean}` : "Sem EAN público informado"}
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => void fila.pesquisarNovamente(grupo.produto.id)}>
+                    <RotateCcw className="size-4" /> Pesquisar novamente
+                  </Button>
                 </div>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    void fila.pesquisarNovamente(grupo.produto.id)
-                  }
-                >
-                  <RotateCcw className="size-4" /> Pesquisar novamente
-                </Button>
-              </div>
+                <div className="grid gap-4 md:grid-cols-[220px_1fr]">
+                  <div className="flex min-h-56 items-center justify-center rounded-lg border bg-white p-3">
+                    <img
+                      src={principal.url}
+                      alt={grupo.produto.description}
+                      loading="lazy"
+                      className="max-h-52 max-w-full object-contain"
+                    />
+                  </div>
 
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {grupo.candidatos.map((candidato) => {
-                  const detalhes = detalhesPontuacao(candidato.score_details);
-
-                  return (
-                    <div
-                      key={candidato.id}
-                      className="flex h-full flex-col gap-3 rounded-md border p-3"
-                    >
-                      <div className="flex min-h-52 items-center justify-center rounded-md bg-white p-3">
-                        <img
-                          src={candidato.url}
-                          alt={grupo.produto.description}
-                          loading="lazy"
-                          className="max-h-48 max-w-full object-contain"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between gap-2 text-sm">
-                          <span className="font-medium">
-                            {formatarOrigem(candidato.source)}
-                          </span>
-                          <strong>{candidato.score}/100</strong>
-                        </div>
-
-                        <p className="text-xs text-muted-foreground">
-                          {candidato.width && candidato.height
-                            ? `${candidato.width}×${candidato.height}`
-                            : "resolução não informada"}
-                          {candidato.background_score != null
-                            ? ` · fundo branco ${Math.round(candidato.background_score * 100)}%`
-                            : ""}
-                        </p>
-
-                        <details className="text-xs text-muted-foreground">
-                          <summary className="cursor-pointer">
-                            Ver composição da confiança
-                          </summary>
-                          <ul className="mt-1 space-y-0.5">
-                            {detalhes.map((item) => (
-                              <li key={`${candidato.id}-${item.rotulo}`}>
-                                {item.rotulo}: {item.pontos > 0 ? `+${item.pontos}` : item.pontos}
-                              </li>
-                            ))}
-                          </ul>
-                        </details>
-                      </div>
-
-                      <div className="mt-auto flex gap-2">
-                        <Button
-                          className="flex-1"
-                          size="sm"
-                          onClick={() => void fila.aprovar(candidato)}
-                        >
-                          <Check className="size-4" /> Aprovar
-                        </Button>
-                        <Button
-                          className="flex-1"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void fila.rejeitar(candidato)}
-                        >
-                          <X className="size-4" /> Rejeitar
-                        </Button>
+                  <div className="flex min-w-0 flex-col gap-4">
+                    <div>
+                      <div className="text-sm font-medium">{formatarOrigem(principal.source)}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        Confiança: <strong className="text-foreground">{principal.score}/100</strong>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </article>
-          ))}
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" onClick={() => void fila.aprovar(principal)}>
+                        <Check className="size-4" /> Aprovar
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => void fila.rejeitar(principal)}>
+                        <X className="size-4" /> Não serve
+                      </Button>
+                    </div>
+
+                    {grupo.candidatos.length > 1 ? (
+                      <div className="mt-auto">
+                        <div className="mb-2 text-xs font-medium text-muted-foreground">Outras opções</div>
+                        <div className="flex flex-wrap gap-2">
+                          {grupo.candidatos.slice(1, 5).map((candidato) => (
+                            <button
+                              key={candidato.id}
+                              type="button"
+                              className="group relative flex size-20 items-center justify-center overflow-hidden rounded-md border bg-white p-1"
+                              title={`${formatarOrigem(candidato.source)} · ${candidato.score}/100`}
+                              onClick={() => void fila.aprovar(candidato)}
+                            >
+                              <img
+                                src={candidato.url}
+                                alt={grupo.produto.description}
+                                loading="lazy"
+                                className="max-h-full max-w-full object-contain"
+                              />
+                              <span className="absolute bottom-0 right-0 bg-background/90 px-1 text-[10px] font-semibold">
+                                {candidato.score}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </div>
       ) : null}
 
-      {!fila.carregando && !fila.totalSemImagem ? (
+      {!fila.carregando && fila.totalSemImagem === 0 ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <ImageIcon className="size-4" /> Nenhum produto sem imagem nesta
-          categoria.
+          <ImageIcon className="size-4" /> Todos os produtos desta seleção já possuem imagem.
         </p>
       ) : null}
     </section>
