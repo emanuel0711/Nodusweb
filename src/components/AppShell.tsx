@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import "@/app-overrides.css";
 import "@/catalogo-overrides.css";
+import "@/ui-polish.css";
 
 const NAV = [
   { to: "/painel", label: "Visão geral", icon: LayoutDashboard },
@@ -60,7 +61,7 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
     queryClient.clear();
     await supabase.auth.signOut();
     await router.invalidate();
-    navigate({ to: "/auth", replace: true });
+    navigate({ to: "/", replace: true });
   }
 
   return (
