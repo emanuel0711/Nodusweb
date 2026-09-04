@@ -24,9 +24,6 @@
     "exactOptionalPropertyTypes": true,
     "noUncheckedSideEffectImports": true,
     "paths": {
-      "@/modules/imagens/busca-imagens.functions": [
-        "./src/modules/imagens/buscar-imagem.functions.ts"
-      ],
       "@/*": ["./src/*"]
     }
   }
