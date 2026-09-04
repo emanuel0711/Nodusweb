@@ -3,10 +3,12 @@ import {
   type CandidatoImagemServidor,
   type TipoProdutoImagem,
 } from "./busca-imagens.functions";
+import { buscarCandidatosWeb } from "./busca-web-imagens.functions";
 import { recalcularScoreImagem } from "./score-imagem";
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const CACHE_MAX_ITENS = 300;
+const MIN_CANDIDATOS_ANTES_FALLBACK = 2;
 
 type ResultadoBusca = Awaited<ReturnType<typeof buscarCandidatosImagemBase>> & {
   candidatos: CandidatoImagemServidor[];
@@ -51,31 +53,64 @@ function salvarCache(chave: string, resultado: ResultadoBusca) {
   });
 }
 
+function mesclarCandidatos(
+  principais: CandidatoImagemServidor[],
+  fallback: CandidatoImagemServidor[],
+): CandidatoImagemServidor[] {
+  const mapa = new Map<string, CandidatoImagemServidor>();
+
+  for (const candidato of [...principais, ...fallback]) {
+    if (!candidato.url || mapa.has(candidato.url)) continue;
+    mapa.set(candidato.url, candidato);
+  }
+
+  return [...mapa.values()];
+}
+
 async function executarBusca(
   argumentos: Parameters<typeof buscarCandidatosImagemBase>[0],
 ): Promise<ResultadoBusca> {
   const resultado = await buscarCandidatosImagemBase(argumentos);
   const tipoProduto: TipoProdutoImagem =
     resultado.tipoProduto ?? "industrializado";
-  const descricao = argumentos.data.descricao;
+
+  let candidatos = resultado.candidatos;
+
+  // Se as fontes principais trouxerem pouco ou nenhum resultado, buscamos uma
+  // segunda fonte web. Isso evita transformar falha do scraping do Google em
+  // "não existe imagem" e aumenta a chance de gerar opções para revisão manual.
+  if (candidatos.length < MIN_CANDIDATOS_ANTES_FALLBACK) {
+    const fallback = await buscarCandidatosWeb({
+      data: {
+        descricao: argumentos.data.descricao,
+        categoria: argumentos.data.categoria,
+      },
+    });
+
+    candidatos = mesclarCandidatos(candidatos, fallback.candidatos);
+  }
 
   return {
     ...resultado,
-    candidatos: resultado.candidatos
+    candidatos: candidatos
       .map((candidato) =>
-        recalcularScoreImagem(candidato, descricao, tipoProduto),
+        recalcularScoreImagem(
+          candidato,
+          argumentos.data.descricao,
+          tipoProduto,
+        ),
       )
-      .sort((a, b) => b.score - a.score),
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5),
   };
 }
 
 /**
  * Ponto único usado pela interface para pesquisar imagens.
  *
- * A camada também evita repetir a mesma consulta enquanto uma busca idêntica
- * está em andamento e mantém um cache curto durante a sessão. Isso reduz custo
- * e latência em reprocessamentos acidentais sem transformar o cache em fonte de
- * verdade; o Supabase continua sendo responsável pelo estado persistente.
+ * A camada evita repetir a mesma consulta enquanto uma busca idêntica está em
+ * andamento, mantém cache curto e aciona um fallback web quando as fontes
+ * principais não produzem candidatos suficientes.
  */
 export async function buscarCandidatosImagem(
   argumentos: Parameters<typeof buscarCandidatosImagemBase>[0],
