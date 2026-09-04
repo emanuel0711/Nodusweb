@@ -16,17 +16,24 @@ const UPC_SEARCH_API = "https://api.upcitemdb.com/prod/trial/search";
 const TIMEOUT_MS = 6_000;
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_CANDIDATOS_ANALISADOS = 12;
+const MAX_RESULTADOS_GOOGLE = 18;
 const CONCORRENCIA_ANALISE = 8;
 const CONCORRENCIA_GOOGLE = 3;
 const SCORE_SUFICIENTE_POR_EAN = 50;
 
-const FONTES_PRIORITARIAS = [
+const FONTES_INDUSTRIALIZADAS = [
   "zaffari.com.br",
   "carrefour.com.br",
   "paodeacucar.com",
   "mercadolivre.com.br",
   "amazon.com.br",
   "magazineluiza.com.br",
+];
+
+const FONTES_VARIAVEIS = [
+  "zaffari.com.br",
+  "carrefour.com.br",
+  "paodeacucar.com",
 ];
 
 const CATEGORIAS_VARIAVEIS = [
@@ -39,6 +46,22 @@ const CATEGORIAS_VARIAVEIS = [
   "verduras",
   "legume",
   "legumes",
+];
+
+const TERMOS_ACOUGUE = [
+  "acougue",
+  "bovino",
+  "bovina",
+  "suino",
+  "suina",
+  "carne",
+  "patinho",
+  "alcatra",
+  "picanha",
+  "maminha",
+  "coxao",
+  "costela",
+  "file",
 ];
 
 const IGNORAR_GOOGLE =
@@ -61,6 +84,11 @@ const PALAVRAS_IGNORADAS = new Set([
 const PESO = /(\d+[.,]?\d*)\s?(kg|g|gr|ml|l|lt|litro|litros)\b/gi;
 const VENDIDO_POR_PESO = /\b(kg|quilo|quilos)\b/i;
 const EAN13_USO_INTERNO = /^2\d{12}$/;
+const UNIDADES_VARIAVEIS =
+  /\b(?:kg|quilo|quilos|un|und|unidade|unidades|pct|pacote|cx|caixa|bandeja)\b/gi;
+const MEDIDA_VARIAVEL =
+  /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|ml|l|lt|litro|litros|un|und)\b/gi;
+const CODIGO_INTERNO_SOLTO = /\b\d{3,6}\b/g;
 
 export type TipoProdutoImagem = "industrializado" | "variavel";
 
@@ -106,6 +134,18 @@ type ResultadoAnalise =
   | { analise: AnaliseImagem; motivo: null }
   | { analise: null; motivo: string };
 
+type ProdutoBuscaImagem = {
+  ean: string;
+  descricao: string;
+  categoria?: string | null;
+};
+
+type PlanoBuscaTexto = {
+  termoBase: string;
+  consultasGoogle: string[];
+  consultarUpcPorTexto: boolean;
+};
+
 function somenteNumeros(valor: unknown): string {
   return String(valor ?? "").replace(/\D/g, "");
 }
@@ -133,24 +173,22 @@ function gtinValido(codigo: string): boolean {
 function eanPublicoValido(ean: string): boolean {
   if (!gtinValido(ean)) return false;
 
-  // Prefixos 20–29 em EAN-13 são reservados com frequência para circulação
+  // Prefixos 20–29 em EAN-13 são usados com frequência para circulação
   // restrita, peso/preço variável e códigos internos de varejo.
   if (EAN13_USO_INTERNO.test(ean)) return false;
 
   return true;
 }
 
-export function classificarProdutoImagem(produto: {
-  ean: string;
-  descricao: string;
-  categoria?: string | null;
-}): TipoProdutoImagem {
+export function classificarProdutoImagem(
+  produto: ProdutoBuscaImagem,
+): TipoProdutoImagem {
   const categoria = normalizarTexto(produto.categoria ?? "");
   const descricao = normalizarTexto(produto.descricao);
   const temEanPublico = eanPublicoValido(produto.ean);
 
-  // Um GTIN público válido é o sinal mais forte. Isso evita classificar como
-  // variável itens embalados de Fruteira que realmente possuem código público.
+  // Um GTIN público válido é o sinal mais forte. Assim, um item embalado da
+  // Fruteira continua seguindo a estratégia de produto industrializado.
   if (temEanPublico) return "industrializado";
 
   const categoriaVariavel = CATEGORIAS_VARIAVEIS.some((termo) =>
@@ -164,6 +202,73 @@ export function classificarProdutoImagem(produto: {
   }
 
   return "industrializado";
+}
+
+function compactarTermo(texto: string): string {
+  return texto.replace(/\s+/g, " ").trim();
+}
+
+function limparDescricaoIndustrializada(descricao: string): string {
+  return compactarTermo(normalizarTexto(descricao));
+}
+
+function limparDescricaoVariavel(descricao: string): string {
+  const normalizada = normalizarTexto(descricao)
+    .replace(MEDIDA_VARIAVEL, " ")
+    .replace(UNIDADES_VARIAVEIS, " ")
+    .replace(CODIGO_INTERNO_SOLTO, " ")
+    .replace(/\b(?:aprox|aproximadamente|emb|embalado|embalada)\b/gi, " ");
+
+  return compactarTermo(normalizada);
+}
+
+function produtoDeAcougue(produto: ProdutoBuscaImagem): boolean {
+  const alvo = normalizarTexto(`${produto.categoria ?? ""} ${produto.descricao}`);
+  return TERMOS_ACOUGUE.some((termo) => alvo.includes(termo));
+}
+
+function consultasUnicas(consultas: string[]): string[] {
+  return [...new Set(consultas.map(compactarTermo).filter(Boolean))];
+}
+
+function montarPlanoBuscaTexto(
+  produto: ProdutoBuscaImagem,
+  tipo: TipoProdutoImagem,
+): PlanoBuscaTexto {
+  if (tipo === "variavel") {
+    const termoBase = limparDescricaoVariavel(produto.descricao);
+    const complemento = produtoDeAcougue(produto)
+      ? "corte carne fundo branco"
+      : "produto isolado fundo branco";
+
+    return {
+      termoBase,
+      consultarUpcPorTexto: false,
+      consultasGoogle: consultasUnicas([
+        `${termoBase} fundo branco`,
+        `${termoBase} ${complemento}`,
+        ...FONTES_VARIAVEIS.map((dominio) => `${termoBase} site:${dominio}`),
+      ]),
+    };
+  }
+
+  const termoBase = limparDescricaoIndustrializada(produto.descricao);
+  const consultaComEan = eanPublicoValido(produto.ean)
+    ? `${termoBase} ${produto.ean}`
+    : "";
+
+  return {
+    termoBase,
+    consultarUpcPorTexto: true,
+    consultasGoogle: consultasUnicas([
+      consultaComEan,
+      `${termoBase} produto embalagem fundo branco`,
+      `${termoBase} produto`,
+      ...FONTES_INDUSTRIALIZADAS.map(
+        (dominio) => `${termoBase} site:${dominio}`,
+      ),
+    ]),
+  };
 }
 
 async function fetchComTimeout(
@@ -253,10 +358,12 @@ function extrairGoogle(
       (texto ?? "").replace(/\\u[\dA-Fa-f]{4}/g, " ").trim(),
   );
 
-  return [...encontrados.keys()].slice(0, 18).map((url, indice) => ({
-    url,
-    titulo: titulos[indice] ?? "",
-  }));
+  return [...encontrados.keys()]
+    .slice(0, MAX_RESULTADOS_GOOGLE)
+    .map((url, indice) => ({
+      url,
+      titulo: titulos[indice] ?? "",
+    }));
 }
 
 async function buscarGoogle(
@@ -278,9 +385,9 @@ async function buscarGoogle(
 }
 
 async function candidatosPorEan(ean: string): Promise<CandidatoBruto[]> {
-  if (ean.length < 8) return [];
+  if (!eanPublicoValido(ean)) return [];
 
-  const cosmosEanPictures: CandidatoBruto[] = [
+  const diretos: CandidatoBruto[] = [
     {
       url: `${COSMOS_CDN}/${encodeURIComponent(ean)}`,
       titulo: ean,
@@ -295,67 +402,69 @@ async function candidatosPorEan(ean: string): Promise<CandidatoBruto[]> {
     },
   ];
 
-  const upc = (async (): Promise<CandidatoBruto[]> => {
-    const resposta = await fetchComTimeout(
-      `${UPC_SEARCH_API}?s=${encodeURIComponent(ean)}&match_mode=1`,
-    );
-    if (!resposta?.ok) return [];
+  const resposta = await fetchComTimeout(
+    `${UPC_SEARCH_API}?s=${encodeURIComponent(ean)}&match_mode=1`,
+  );
+  if (!resposta?.ok) return diretos;
 
-    const dados = (await resposta.json()) as {
-      items?: Array<{
-        title?: string;
-        ean?: string;
-        upc?: string;
-        images?: string[];
-      }>;
-    };
+  const dados = (await resposta.json()) as {
+    items?: Array<{
+      title?: string;
+      ean?: string;
+      upc?: string;
+      images?: string[];
+    }>;
+  };
 
-    return (dados.items ?? []).flatMap((item) =>
-      (item.images ?? []).map((url) => ({
-        url,
-        titulo: item.title ?? "",
-        source: "upcitemdb",
-        eanExato: [item.ean, item.upc].map(somenteNumeros).includes(ean),
-      })),
-    );
-  })();
+  const upc = (dados.items ?? []).flatMap((item) =>
+    (item.images ?? []).map((url) => ({
+      url,
+      titulo: item.title ?? "",
+      source: "upcitemdb",
+      eanExato: [item.ean, item.upc].map(somenteNumeros).includes(ean),
+    })),
+  );
 
-  return [...cosmosEanPictures, ...(await upc)];
+  return [...diretos, ...upc];
 }
 
-async function candidatosPorDescricao(
-  descricao: string,
-): Promise<CandidatoBruto[]> {
-  const buscaUpc = (async (): Promise<CandidatoBruto[]> => {
-    const resposta = await fetchComTimeout(
-      `${UPC_SEARCH_API}?s=${encodeURIComponent(`${descricao} produto`)}&match_mode=0`,
-    );
-    if (!resposta?.ok) return [];
+async function buscarUpcPorTexto(termoBase: string): Promise<CandidatoBruto[]> {
+  const resposta = await fetchComTimeout(
+    `${UPC_SEARCH_API}?s=${encodeURIComponent(`${termoBase} produto`)}&match_mode=0`,
+  );
+  if (!resposta?.ok) return [];
 
-    const dados = (await resposta.json()) as {
-      items?: Array<{ title?: string; images?: string[] }>;
-    };
+  const dados = (await resposta.json()) as {
+    items?: Array<{ title?: string; images?: string[] }>;
+  };
 
-    return (dados.items ?? []).flatMap((item) =>
-      (item.images ?? []).map((url) => ({
-        url,
-        titulo: item.title ?? "",
-        source: "upcitemdb_text",
-        eanExato: false,
-      })),
-    );
-  })();
+  return (dados.items ?? []).flatMap((item) =>
+    (item.images ?? []).map((url) => ({
+      url,
+      titulo: item.title ?? "",
+      source: "upcitemdb_text",
+      eanExato: false,
+    })),
+  );
+}
+
+async function candidatosPorTexto(
+  produto: ProdutoBuscaImagem,
+  tipo: TipoProdutoImagem,
+): Promise<{ candidatos: CandidatoBruto[]; plano: PlanoBuscaTexto }> {
+  const plano = montarPlanoBuscaTexto(produto, tipo);
+
+  if (!plano.termoBase) {
+    return { candidatos: [], plano };
+  }
+
+  const buscaUpc = plano.consultarUpcPorTexto
+    ? buscarUpcPorTexto(plano.termoBase)
+    : Promise.resolve([] as CandidatoBruto[]);
 
   const buscaGoogle = (async (): Promise<CandidatoBruto[]> => {
-    const consultas = [
-      `${descricao} produto embalagem fundo branco`,
-      ...FONTES_PRIORITARIAS.map(
-        (dominio) => `${descricao} site:${dominio}`,
-      ),
-    ];
-
     const resultados = await executarComConcorrencia(
-      consultas,
+      plano.consultasGoogle,
       CONCORRENCIA_GOOGLE,
       buscarGoogle,
     );
@@ -364,7 +473,7 @@ async function candidatosPorDescricao(
 
     for (const lista of resultados) {
       for (const resultado of lista) {
-        if (encontrados.size >= 18) break;
+        if (encontrados.size >= MAX_RESULTADOS_GOOGLE) break;
         if (encontrados.has(resultado.url)) continue;
 
         encontrados.set(resultado.url, {
@@ -373,14 +482,14 @@ async function candidatosPorDescricao(
           eanExato: false,
         });
       }
-      if (encontrados.size >= 18) break;
+      if (encontrados.size >= MAX_RESULTADOS_GOOGLE) break;
     }
 
     return [...encontrados.values()];
   })();
 
   const [upc, google] = await Promise.all([buscaUpc, buscaGoogle]);
-  return [...upc, ...google];
+  return { candidatos: [...upc, ...google], plano };
 }
 
 async function analisarImagem(url: string): Promise<ResultadoAnalise> {
@@ -481,17 +590,26 @@ function palavras(texto: string): string[] {
     );
 }
 
+function decodificarUrlSeguro(url: string): string {
+  try {
+    return decodeURIComponent(url);
+  } catch {
+    return url;
+  }
+}
+
 function pontuar(
   candidato: CandidatoBruto,
-  produto: { descricao: string; categoria?: string | null; ean: string },
+  produto: ProdutoBuscaImagem,
   analise: AnaliseImagem,
 ): { total: number; detalhes: Array<{ rotulo: string; pontos: number }> } {
   const alvo = normalizarTexto(
-    `${candidato.titulo} ${decodeURIComponent(candidato.url)}`,
+    `${candidato.titulo} ${decodificarUrlSeguro(candidato.url)}`,
   );
   const termos = palavras(produto.descricao);
   const detalhes: Array<{ rotulo: string; pontos: number }> = [];
 
+  // A regra de score permanece a mesma nesta fase. Ela será revisada na Fase 4.
   const pesoFonte: Record<string, number> = {
     cosmos: 22,
     ean_pictures: 20,
@@ -575,7 +693,7 @@ function criarDiagnostico(lista: CandidatoBruto[]): DiagnosticoBuscaImagem {
 
 async function analisarCandidatos(
   lista: CandidatoBruto[],
-  produto: { descricao: string; categoria?: string | null; ean: string },
+  produto: ProdutoBuscaImagem,
 ): Promise<{
   candidatos: CandidatoImagemServidor[];
   diagnostico: DiagnosticoBuscaImagem;
@@ -636,7 +754,7 @@ export const buscarCandidatosImagem = createServerFn({ method: "POST" })
   .inputValidator((dados: unknown) => entrada.parse(dados))
   .handler(async ({ data }) => {
     const ean = somenteNumeros(data.ean);
-    const produto = {
+    const produto: ProdutoBuscaImagem = {
       descricao: data.descricao,
       categoria: data.categoria,
       ean,
@@ -677,8 +795,8 @@ export const buscarCandidatosImagem = createServerFn({ method: "POST" })
       }
     }
 
-    const candidatosTexto = await candidatosPorDescricao(data.descricao);
-    const lista = unicos([...candidatosEan, ...candidatosTexto]).slice(
+    const buscaTexto = await candidatosPorTexto(produto, tipoProduto);
+    const lista = unicos([...candidatosEan, ...buscaTexto.candidatos]).slice(
       0,
       MAX_CANDIDATOS_ANALISADOS,
     );
@@ -690,6 +808,9 @@ export const buscarCandidatosImagem = createServerFn({ method: "POST" })
       descricao: data.descricao,
       tipoProduto,
       estrategia,
+      termoBusca: buscaTexto.plano.termoBase,
+      consultasGoogle: buscaTexto.plano.consultasGoogle,
+      upcTexto: buscaTexto.plano.consultarUpcPorTexto,
       diagnostico: resultado.diagnostico,
     });
 
