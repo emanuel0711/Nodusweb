@@ -27,7 +27,6 @@ const PALAVRAS_IGNORADAS = new Set([
 
 const PESO = /(\d+[.,]?\d*)\s?(kg|g|gr|ml|l|lt|litro|litros)\b/gi;
 const CODIGO_INTERNO_SOLTO = /^\d{3,6}$/;
-const FONTES_WEB_TEXTO = new Set(["google_images", "bing_images"]);
 
 function palavrasRelevantes(
   descricao: string,
@@ -59,10 +58,11 @@ function pontosFonte(candidato: CandidatoImagemServidor): number {
   const fontes: Record<string, number> = {
     cosmos: 15,
     ean_pictures: 14,
+    zaffari: 13,
+    carrefour: 13,
     upcitemdb: candidato.eanExato ? 12 : 8,
     upcitemdb_text: 7,
     google_images: 5,
-    bing_images: 5,
   };
 
   return fontes[candidato.source] ?? 3;
@@ -166,15 +166,10 @@ export function recalcularScoreImagem(
     });
   }
 
-  // Produtos variáveis encontrados apenas por pesquisa textual na web devem
-  // passar por revisão humana. Nome parecido em uma busca de imagens não é
-  // evidência suficiente para vincular automaticamente frutas, legumes ou
-  // cortes por peso ao catálogo.
-  if (
-    tipoProduto === "variavel" &&
-    !candidato.eanExato &&
-    FONTES_WEB_TEXTO.has(candidato.source)
-  ) {
+  // Produtos variáveis sem GTIN público nunca são aprovados automaticamente.
+  // Mesmo uma boa correspondência em catálogo de supermercado exige revisão
+  // humana, pois cortes por peso e hortifrúti podem ter apresentações distintas.
+  if (tipoProduto === "variavel" && !candidato.eanExato) {
     total = Math.min(total, 49);
     detalhes.push({
       rotulo: "Proteção · produto variável requer revisão",
