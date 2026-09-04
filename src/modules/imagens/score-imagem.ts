@@ -55,6 +55,8 @@ function alvoCandidato(candidato: CandidatoImagemServidor): string {
 }
 
 function pontosFonte(candidato: CandidatoImagemServidor): number {
+  if (candidato.source.startsWith("oficial_")) return 15;
+
   const fontes: Record<string, number> = {
     cosmos: 15,
     ean_pictures: 14,
@@ -167,7 +169,7 @@ export function recalcularScoreImagem(
   }
 
   // Produtos variáveis sem GTIN público nunca são aprovados automaticamente.
-  // Mesmo uma boa correspondência em catálogo de supermercado exige revisão
+  // Mesmo uma boa correspondência em site oficial ou supermercado exige revisão
   // humana, pois cortes por peso e hortifrúti podem ter apresentações distintas.
   if (tipoProduto === "variavel" && !candidato.eanExato) {
     total = Math.min(total, 49);
