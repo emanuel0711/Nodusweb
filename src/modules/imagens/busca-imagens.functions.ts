@@ -133,9 +133,8 @@ function gtinValido(codigo: string): boolean {
 function eanPublicoValido(ean: string): boolean {
   if (!gtinValido(ean)) return false;
 
-  // Prefixos 20–29 em EAN-13 são usados com frequência para circulação restrita,
-  // peso/preço variável e códigos internos de varejo. Não devem identificar
-  // produtos públicos em bases externas.
+  // Prefixos 20–29 em EAN-13 são reservados com frequência para circulação
+  // restrita, peso/preço variável e códigos internos de varejo.
   if (EAN13_USO_INTERNO.test(ean)) return false;
 
   return true;
@@ -148,19 +147,19 @@ export function classificarProdutoImagem(produto: {
 }): TipoProdutoImagem {
   const categoria = normalizarTexto(produto.categoria ?? "");
   const descricao = normalizarTexto(produto.descricao);
+  const temEanPublico = eanPublicoValido(produto.ean);
+
+  // Um GTIN público válido é o sinal mais forte. Isso evita classificar como
+  // variável itens embalados de Fruteira que realmente possuem código público.
+  if (temEanPublico) return "industrializado";
 
   const categoriaVariavel = CATEGORIAS_VARIAVEIS.some((termo) =>
     categoria.includes(termo),
   );
   const codigoInternoDePeso = EAN13_USO_INTERNO.test(produto.ean);
-  const semEanPublico = !eanPublicoValido(produto.ean);
   const vendidoPorPeso = VENDIDO_POR_PESO.test(descricao);
 
-  if (
-    categoriaVariavel ||
-    codigoInternoDePeso ||
-    (semEanPublico && vendidoPorPeso)
-  ) {
+  if (categoriaVariavel || codigoInternoDePeso || vendidoPorPeso) {
     return "variavel";
   }
 
