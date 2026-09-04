@@ -11,7 +11,6 @@ const entrada = z.object({
 
 const TIMEOUT_MS = 7_000;
 const MAX_BYTES = 6 * 1024 * 1024;
-const MAX_URLS = 10;
 const MAX_VALIDOS = 5;
 const CONCORRENCIA_ANALISE = 3;
 
@@ -19,11 +18,43 @@ const UNIDADES = /\b(?:kg|quilo|quilos|un|und|unidade|unidades|pct|pacote|cx|cai
 const MEDIDAS = /\b\d+(?:[.,]\d+)?\s*(?:kg|g|gr|ml|l|lt|litro|litros|un|und)\b/gi;
 const CODIGO_INTERNO = /\b\d{3,6}\b/g;
 
+const FONTES = [
+  {
+    source: "zaffari",
+    baseUrl: "https://www.zaffari.com.br",
+  },
+  {
+    source: "carrefour",
+    baseUrl: "https://mercado.carrefour.com.br",
+  },
+] as const;
+
+type ProdutoVtex = {
+  productName?: string;
+  productTitle?: string;
+  linkText?: string;
+  items?: Array<{
+    ean?: string;
+    images?: Array<{
+      imageUrl?: string;
+      imageLabel?: string;
+      imageText?: string;
+    }>;
+  }>;
+};
+
+type CandidatoCatalogo = {
+  url: string;
+  titulo: string;
+  source: string;
+};
+
 function limparDescricao(descricao: string): string {
   return normalizarTexto(descricao)
     .replace(MEDIDAS, " ")
     .replace(UNIDADES, " ")
     .replace(CODIGO_INTERNO, " ")
+    .replace(/\b(?:aprox|aproximadamente|emb|embalado|embalada)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -45,44 +76,89 @@ async function fetchComTimeout(url: string, init?: RequestInit): Promise<Respons
   }
 }
 
-function decodificarHtml(valor: string): string {
-  return valor
-    .replace(/&quot;/gi, '"')
-    .replace(/&amp;/gi, "&")
-    .replace(/\\u002f/gi, "/")
-    .replace(/\\u003a/gi, ":")
-    .replace(/\\u0026/gi, "&")
-    .replace(/\\\//g, "/");
+function palavras(texto: string): string[] {
+  return normalizarTexto(texto)
+    .split(/\s+/)
+    .filter((palavra) => palavra.length >= 3);
 }
 
-function extrairUrlsBing(html: string): string[] {
-  const texto = decodificarHtml(html);
-  const urls = new Set<string>();
+function coberturaTitulo(termo: string, titulo: string): number {
+  const termos = palavras(termo);
+  if (!termos.length) return 0;
+  const alvo = normalizarTexto(titulo);
+  const acertos = termos.filter((palavra) => alvo.includes(palavra)).length;
+  return acertos / termos.length;
+}
 
-  for (const match of texto.matchAll(/"murl"\s*:\s*"(https?:[^"<>]+)"/gi)) {
-    const url = decodificarHtml(match[1] ?? "").trim();
-    if (!url || urls.has(url)) continue;
-    urls.add(url);
-    if (urls.size >= MAX_URLS) break;
+async function consultarVtex(
+  baseUrl: string,
+  termo: string,
+): Promise<ProdutoVtex[]> {
+  const consultas = [
+    `${baseUrl}/api/catalog_system/pub/products/search/${encodeURIComponent(termo)}`,
+    `${baseUrl}/api/catalog_system/pub/products/search?ft=${encodeURIComponent(termo)}`,
+  ];
+
+  for (const url of consultas) {
+    const resposta = await fetchComTimeout(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; NodusCatalogBot/1.0)",
+        Range: "resources=0-9",
+      },
+    });
+
+    if (!resposta?.ok) continue;
+
+    try {
+      const dados = (await resposta.json()) as ProdutoVtex[];
+      if (Array.isArray(dados) && dados.length) return dados;
+    } catch {
+      // Tenta a próxima forma de consulta.
+    }
   }
 
-  return [...urls];
+  return [];
 }
 
-async function buscarBing(termo: string): Promise<string[]> {
-  const resposta = await fetchComTimeout(
-    `https://www.bing.com/images/search?q=${encodeURIComponent(termo)}&form=HDRSC3&first=1`,
-    {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
-        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.7",
-      },
-    },
+async function buscarCatalogos(termo: string): Promise<CandidatoCatalogo[]> {
+  const resultados = await Promise.all(
+    FONTES.map(async ({ source, baseUrl }) => {
+      const produtos = await consultarVtex(baseUrl, termo);
+      const candidatos: CandidatoCatalogo[] = [];
+
+      for (const produto of produtos) {
+        const titulo =
+          produto.productName ?? produto.productTitle ?? produto.linkText ?? "";
+
+        // Catálogo de supermercado só entra se o nome real do produto tiver
+        // relação mínima com a descrição pesquisada. Isso evita imagens aleatórias.
+        if (!titulo || coberturaTitulo(termo, titulo) < 0.5) continue;
+
+        for (const item of produto.items ?? []) {
+          for (const imagem of item.images ?? []) {
+            const url = imagem.imageUrl?.trim();
+            if (!url) continue;
+
+            candidatos.push({
+              url,
+              titulo,
+              source,
+            });
+          }
+        }
+      }
+
+      return candidatos;
+    }),
   );
 
-  if (!resposta?.ok) return [];
-  return extrairUrlsBing(await resposta.text());
+  const unicos = new Map<string, CandidatoCatalogo>();
+  for (const candidato of resultados.flat()) {
+    if (!unicos.has(candidato.url)) unicos.set(candidato.url, candidato);
+  }
+
+  return [...unicos.values()].slice(0, 12);
 }
 
 async function analisarImagem(url: string) {
@@ -147,20 +223,22 @@ async function analisarImagem(url: string) {
   }
 }
 
-async function analisarComConcorrencia(urls: string[], descricao: string) {
+async function analisarComConcorrencia(
+  candidatos: CandidatoCatalogo[],
+): Promise<CandidatoImagemServidor[]> {
   const resultados: CandidatoImagemServidor[] = [];
   let indice = 0;
 
   async function trabalhador() {
-    while (indice < urls.length && resultados.length < MAX_VALIDOS) {
-      const url = urls[indice++]!;
-      const analise = await analisarImagem(url);
+    while (indice < candidatos.length && resultados.length < MAX_VALIDOS) {
+      const candidato = candidatos[indice++]!;
+      const analise = await analisarImagem(candidato.url);
       if (!analise) continue;
 
       resultados.push({
-        url,
-        titulo: descricao,
-        source: "bing_images",
+        url: candidato.url,
+        titulo: candidato.titulo,
+        source: candidato.source,
         score: 0,
         scoreDetails: [],
         width: analise.width,
@@ -173,7 +251,7 @@ async function analisarComConcorrencia(urls: string[], descricao: string) {
 
   await Promise.all(
     Array.from(
-      { length: Math.min(CONCORRENCIA_ANALISE, urls.length) },
+      { length: Math.min(CONCORRENCIA_ANALISE, candidatos.length) },
       trabalhador,
     ),
   );
@@ -187,32 +265,16 @@ export const buscarCandidatosWeb = createServerFn({ method: "POST" })
     const termoBase = limparDescricao(data.descricao);
     if (!termoBase) return { candidatos: [] as CandidatoImagemServidor[] };
 
-    const consultas = [
-      `${termoBase} fundo branco`,
-      `${termoBase} supermercado`,
-    ];
+    const candidatosCatalogo = await buscarCatalogos(termoBase);
+    const candidatos = await analisarComConcorrencia(candidatosCatalogo);
 
-    const urls = new Set<string>();
-
-    for (const consulta of consultas) {
-      for (const url of await buscarBing(consulta)) {
-        urls.add(url);
-        if (urls.size >= MAX_URLS) break;
-      }
-      if (urls.size >= MAX_URLS) break;
-    }
-
-    const candidatos = await analisarComConcorrencia(
-      [...urls].slice(0, MAX_URLS),
-      termoBase,
-    );
-
-    console.info("[Nodus web image fallback]", {
+    console.info("[Nodus retailer image search]", {
       descricao: data.descricao,
       categoria: data.categoria,
       termoBase,
-      urlsEncontradas: urls.size,
+      candidatosCatalogo: candidatosCatalogo.length,
       candidatosValidos: candidatos.length,
+      fontes: [...new Set(candidatos.map((item) => item.source))],
     });
 
     return { candidatos };
