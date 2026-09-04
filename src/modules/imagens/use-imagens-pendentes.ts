@@ -5,12 +5,15 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   buscarCandidatosImagem,
   type CandidatoImagemServidor,
-} from "@/modules/imagens/busca-imagens.functions";
+} from "@/modules/imagens/buscar-imagem.functions";
 import type { Json } from "@/integrations/supabase/types";
 
-const PAGINA = 500;
-const CONCORRENCIA = 10;
-const LIMITE_POR_EXECUCAO = 100;
+const PAGINA = 750;
+const CONCORRENCIA = 12;
+const CONCORRENCIA_APROVACAO = 10;
+const LIMITE_POR_EXECUCAO = 250;
+const RETENTATIVA_APOS_MS = 15 * 60 * 1000;
+const VERSAO_BUSCA = 4;
 const TODAS_CATEGORIAS = "__all__";
 const SEM_CATEGORIA = "__uncategorized__";
 
@@ -145,6 +148,15 @@ function candidatoAprovavel(candidato: { score: number }): boolean {
   return candidato.score >= PONTUACAO_MINIMA_APROVACAO;
 }
 
+function podeTentarAgora(produto: ProdutoImagem): boolean {
+  if (!produto.image_last_checked_at) return true;
+
+  const ultimaTentativa = Date.parse(produto.image_last_checked_at);
+  if (Number.isNaN(ultimaTentativa)) return true;
+
+  return Date.now() - ultimaTentativa >= RETENTATIVA_APOS_MS;
+}
+
 export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
   const queryClient = useQueryClient();
   const [rodando, setRodando] = useState(false);
@@ -171,7 +183,11 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
     [produtos],
   );
   const naFila = useMemo(
-    () => semImagem.filter((produto) => produto.image_status === "pending"),
+    () =>
+      semImagem.filter(
+        (produto) =>
+          produto.image_status === "pending" && podeTentarAgora(produto),
+      ),
     [semImagem],
   );
   const processando = useMemo(
@@ -258,7 +274,7 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
         .update({
           image_status: "processing",
           image_last_checked_at: agora,
-          image_search_version: 2,
+          image_search_version: VERSAO_BUSCA,
         })
         .in(
           "id",
@@ -290,7 +306,7 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
                 image_url: melhor.url,
                 image_status: "found",
                 image_last_checked_at: new Date().toISOString(),
-                image_search_version: 2,
+                image_search_version: VERSAO_BUSCA,
               });
 
               const { error: erroAprovacao } = await supabase
@@ -309,24 +325,26 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
               await atualizarProduto(produto.id, {
                 image_status: "pending_approval",
                 image_last_checked_at: new Date().toISOString(),
-                image_search_version: 2,
+                image_search_version: VERSAO_BUSCA,
               });
             } else {
               await atualizarProduto(produto.id, {
                 image_status: "not_found",
                 image_last_checked_at: new Date().toISOString(),
-                image_search_version: 2,
+                image_search_version: VERSAO_BUSCA,
               });
               setSemResultadoExecucao((valor) => valor + 1);
             }
           } catch (erro) {
-            console.error("Falha ao pesquisar imagem", produto.id, erro);
+            console.error("Falha transitória ao pesquisar imagem", produto.id, erro);
+
+            // Falha técnica não é o mesmo que "nenhuma imagem encontrada".
+            // O item volta para pending e respeita um cooldown antes de nova tentativa.
             await atualizarProduto(produto.id, {
-              image_status: "not_found",
+              image_status: "pending",
               image_last_checked_at: new Date().toISOString(),
-              image_search_version: 2,
+              image_search_version: VERSAO_BUSCA,
             });
-            setSemResultadoExecucao((valor) => valor + 1);
           } finally {
             setProcessados((valor) => valor + 1);
           }
@@ -359,7 +377,7 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
         image_url: candidato.url,
         image_status: "found",
         image_last_checked_at: agora,
-        image_search_version: 2,
+        image_search_version: VERSAO_BUSCA,
       });
 
       const { error: erroAprovado } = await supabase
@@ -404,7 +422,12 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
 
     try {
       const trabalhadores = Array.from(
-        { length: Math.min(8, candidatosParaAprovacaoEmMassa.length) },
+        {
+          length: Math.min(
+            CONCORRENCIA_APROVACAO,
+            candidatosParaAprovacaoEmMassa.length,
+          ),
+        },
         async () => {
           while (indice < candidatosParaAprovacaoEmMassa.length) {
             const candidato = candidatosParaAprovacaoEmMassa[indice++]!;
@@ -459,6 +482,7 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
           await atualizarProduto(candidato.product_id, {
             image_status: "not_found",
             image_last_checked_at: new Date().toISOString(),
+            image_search_version: VERSAO_BUSCA,
           });
         }
 
@@ -481,7 +505,7 @@ export function useImagensPendentes(categoria = TODAS_CATEGORIAS) {
           .update({
             image_status: "pending",
             image_last_checked_at: null,
-            image_search_version: 2,
+            image_search_version: VERSAO_BUSCA,
           })
           .is("image_url", null);
 
