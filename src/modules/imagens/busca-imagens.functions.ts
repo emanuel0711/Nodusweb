@@ -29,6 +29,18 @@ const FONTES_PRIORITARIAS = [
   "magazineluiza.com.br",
 ];
 
+const CATEGORIAS_VARIAVEIS = [
+  "acougue",
+  "fruteira",
+  "hortifruti",
+  "fruta",
+  "frutas",
+  "verdura",
+  "verduras",
+  "legume",
+  "legumes",
+];
+
 const IGNORAR_GOOGLE =
   /gstatic|googleusercontent|google\.com|googleapis|\.svg(\?|$)|sprite|favicon|logo/i;
 const EXTENSAO_IMAGEM = /\.(?:jpe?g|png|webp)(?:[?#&]|$)/i;
@@ -47,6 +59,10 @@ const PALAVRAS_IGNORADAS = new Set([
   "produto",
 ]);
 const PESO = /(\d+[.,]?\d*)\s?(kg|g|gr|ml|l|lt|litro|litros)\b/gi;
+const VENDIDO_POR_PESO = /\b(kg|quilo|quilos)\b/i;
+const EAN13_USO_INTERNO = /^2\d{12}$/;
+
+export type TipoProdutoImagem = "industrializado" | "variavel";
 
 export interface CandidatoImagemServidor {
   url: string;
@@ -94,7 +110,67 @@ function somenteNumeros(valor: unknown): string {
   return String(valor ?? "").replace(/\D/g, "");
 }
 
-async function fetchComTimeout(url: string, init?: RequestInit): Promise<Response | null> {
+function gtinValido(codigo: string): boolean {
+  if (![8, 12, 13, 14].includes(codigo.length) || !/^\d+$/.test(codigo)) {
+    return false;
+  }
+
+  const digitos = codigo.split("").map(Number);
+  const verificador = digitos.pop();
+  if (verificador == null) return false;
+
+  let soma = 0;
+  let peso = 3;
+
+  for (let indice = digitos.length - 1; indice >= 0; indice -= 1) {
+    soma += digitos[indice]! * peso;
+    peso = peso === 3 ? 1 : 3;
+  }
+
+  return (10 - (soma % 10)) % 10 === verificador;
+}
+
+function eanPublicoValido(ean: string): boolean {
+  if (!gtinValido(ean)) return false;
+
+  // Prefixos 20–29 em EAN-13 são usados com frequência para circulação restrita,
+  // peso/preço variável e códigos internos de varejo. Não devem identificar
+  // produtos públicos em bases externas.
+  if (EAN13_USO_INTERNO.test(ean)) return false;
+
+  return true;
+}
+
+export function classificarProdutoImagem(produto: {
+  ean: string;
+  descricao: string;
+  categoria?: string | null;
+}): TipoProdutoImagem {
+  const categoria = normalizarTexto(produto.categoria ?? "");
+  const descricao = normalizarTexto(produto.descricao);
+
+  const categoriaVariavel = CATEGORIAS_VARIAVEIS.some((termo) =>
+    categoria.includes(termo),
+  );
+  const codigoInternoDePeso = EAN13_USO_INTERNO.test(produto.ean);
+  const semEanPublico = !eanPublicoValido(produto.ean);
+  const vendidoPorPeso = VENDIDO_POR_PESO.test(descricao);
+
+  if (
+    categoriaVariavel ||
+    codigoInternoDePeso ||
+    (semEanPublico && vendidoPorPeso)
+  ) {
+    return "variavel";
+  }
+
+  return "industrializado";
+}
+
+async function fetchComTimeout(
+  url: string,
+  init?: RequestInit,
+): Promise<Response | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -129,7 +205,10 @@ async function executarComConcorrencia<T, R>(
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(concorrencia, itens.length) }, trabalhador),
+    Array.from(
+      { length: Math.min(concorrencia, itens.length) },
+      trabalhador,
+    ),
   );
 
   return resultados;
@@ -143,7 +222,9 @@ function limparUrlGoogle(valor: string): string {
     .replace(/&amp;/gi, "&");
 }
 
-function extrairGoogle(html: string): Array<{ url: string; titulo: string }> {
+function extrairGoogle(
+  html: string,
+): Array<{ url: string; titulo: string }> {
   const encontrados = new Map<string, string>();
   const urls = html.match(/https?:\\?\/\\?\/[^"'<>\\s\\]+/gi) ?? [];
 
@@ -169,7 +250,8 @@ function extrairGoogle(html: string): Array<{ url: string; titulo: string }> {
   }
 
   const titulos = [...html.matchAll(/"(?:pt|2003)":"([^"]{6,200})"/g)].map(
-    ([, texto]) => (texto ?? "").replace(/\\u[\dA-Fa-f]{4}/g, " ").trim(),
+    ([, texto]) =>
+      (texto ?? "").replace(/\\u[\dA-Fa-f]{4}/g, " ").trim(),
   );
 
   return [...encontrados.keys()].slice(0, 18).map((url, indice) => ({
@@ -178,7 +260,9 @@ function extrairGoogle(html: string): Array<{ url: string; titulo: string }> {
   }));
 }
 
-async function buscarGoogle(termo: string): Promise<Array<{ url: string; titulo: string }>> {
+async function buscarGoogle(
+  termo: string,
+): Promise<Array<{ url: string; titulo: string }>> {
   const resposta = await fetchComTimeout(
     `https://www.google.com/search?tbm=isch&hl=pt-BR&q=${encodeURIComponent(termo)}`,
     {
@@ -240,7 +324,9 @@ async function candidatosPorEan(ean: string): Promise<CandidatoBruto[]> {
   return [...cosmosEanPictures, ...(await upc)];
 }
 
-async function candidatosPorDescricao(descricao: string): Promise<CandidatoBruto[]> {
+async function candidatosPorDescricao(
+  descricao: string,
+): Promise<CandidatoBruto[]> {
   const buscaUpc = (async (): Promise<CandidatoBruto[]> => {
     const resposta = await fetchComTimeout(
       `${UPC_SEARCH_API}?s=${encodeURIComponent(`${descricao} produto`)}&match_mode=0`,
@@ -264,7 +350,9 @@ async function candidatosPorDescricao(descricao: string): Promise<CandidatoBruto
   const buscaGoogle = (async (): Promise<CandidatoBruto[]> => {
     const consultas = [
       `${descricao} produto embalagem fundo branco`,
-      ...FONTES_PRIORITARIAS.map((dominio) => `${descricao} site:${dominio}`),
+      ...FONTES_PRIORITARIAS.map(
+        (dominio) => `${descricao} site:${dominio}`,
+      ),
     ];
 
     const resultados = await executarComConcorrencia(
@@ -305,14 +393,20 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
   });
 
   if (!resposta) return { analise: null, motivo: "rede_ou_timeout" };
-  if (!resposta.ok) return { analise: null, motivo: `http_${resposta.status}` };
+  if (!resposta.ok) {
+    return { analise: null, motivo: `http_${resposta.status}` };
+  }
 
   const tamanho = Number(resposta.headers.get("content-length") ?? 0);
-  if (tamanho > MAX_BYTES) return { analise: null, motivo: "arquivo_muito_grande" };
+  if (tamanho > MAX_BYTES) {
+    return { analise: null, motivo: "arquivo_muito_grande" };
+  }
 
   const buffer = Buffer.from(await resposta.arrayBuffer());
   if (!buffer.length) return { analise: null, motivo: "arquivo_vazio" };
-  if (buffer.length > MAX_BYTES) return { analise: null, motivo: "arquivo_muito_grande" };
+  if (buffer.length > MAX_BYTES) {
+    return { analise: null, motivo: "arquivo_muito_grande" };
+  }
 
   try {
     const imagem = sharp(buffer, { failOn: "none" });
@@ -320,8 +414,12 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
     const width = metadata.width ?? 0;
     const height = metadata.height ?? 0;
 
-    if (!width || !height) return { analise: null, motivo: "formato_nao_reconhecido" };
-    if (width < 160 || height < 160) return { analise: null, motivo: "resolucao_baixa" };
+    if (!width || !height) {
+      return { analise: null, motivo: "formato_nao_reconhecido" };
+    }
+    if (width < 160 || height < 160) {
+      return { analise: null, motivo: "resolucao_baixa" };
+    }
 
     const { data, info } = await imagem
       .resize(48, 48, { fit: "fill" })
@@ -340,6 +438,7 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
           x >= info.width - margem ||
           y < margem ||
           y >= info.height - margem;
+
         if (!naBorda) continue;
 
         borda += 1;
@@ -363,7 +462,9 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
       analise: {
         width,
         height,
-        backgroundScore: borda ? Number((brancos / borda).toFixed(4)) : 0,
+        backgroundScore: borda
+          ? Number((brancos / borda).toFixed(4))
+          : 0,
       },
       motivo: null,
     };
@@ -375,7 +476,10 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
 function palavras(texto: string): string[] {
   return normalizarTexto(texto)
     .split(/\s+/)
-    .filter((palavra) => palavra.length >= 3 && !PALAVRAS_IGNORADAS.has(palavra));
+    .filter(
+      (palavra) =>
+        palavra.length >= 3 && !PALAVRAS_IGNORADAS.has(palavra),
+    );
 }
 
 function pontuar(
@@ -383,7 +487,9 @@ function pontuar(
   produto: { descricao: string; categoria?: string | null; ean: string },
   analise: AnaliseImagem,
 ): { total: number; detalhes: Array<{ rotulo: string; pontos: number }> } {
-  const alvo = normalizarTexto(`${candidato.titulo} ${decodeURIComponent(candidato.url)}`);
+  const alvo = normalizarTexto(
+    `${candidato.titulo} ${decodeURIComponent(candidato.url)}`,
+  );
   const termos = palavras(produto.descricao);
   const detalhes: Array<{ rotulo: string; pontos: number }> = [];
 
@@ -411,9 +517,11 @@ function pontuar(
     pontos: Math.round(cobertura * 24),
   });
 
-  const pesos = [...produto.descricao.matchAll(PESO)].map(([, numero, medida]) =>
-    normalizarTexto(`${numero}${medida}`).replace(",", "."),
+  const pesos = [...produto.descricao.matchAll(PESO)].map(
+    ([, numero, medida]) =>
+      normalizarTexto(`${numero}${medida}`).replace(",", "."),
   );
+
   if (
     pesos.some((peso) =>
       alvo.replace(/\s/g, "").includes(peso.replace(/\s/g, "")),
@@ -469,7 +577,10 @@ function criarDiagnostico(lista: CandidatoBruto[]): DiagnosticoBuscaImagem {
 async function analisarCandidatos(
   lista: CandidatoBruto[],
   produto: { descricao: string; categoria?: string | null; ean: string },
-): Promise<{ candidatos: CandidatoImagemServidor[]; diagnostico: DiagnosticoBuscaImagem }> {
+): Promise<{
+  candidatos: CandidatoImagemServidor[];
+  diagnostico: DiagnosticoBuscaImagem;
+}> {
   const diagnostico = criarDiagnostico(lista);
 
   const analisados = await executarComConcorrencia(
@@ -512,9 +623,13 @@ async function analisarCandidatos(
 
 function unicos(lista: CandidatoBruto[]): CandidatoBruto[] {
   const mapa = new Map<string, CandidatoBruto>();
+
   for (const candidato of lista) {
-    if (candidato.url && !mapa.has(candidato.url)) mapa.set(candidato.url, candidato);
+    if (candidato.url && !mapa.has(candidato.url)) {
+      mapa.set(candidato.url, candidato);
+    }
   }
+
   return [...mapa.values()];
 }
 
@@ -528,23 +643,37 @@ export const buscarCandidatosImagem = createServerFn({ method: "POST" })
       ean,
     };
 
-    const candidatosEan = unicos(await candidatosPorEan(ean)).slice(
-      0,
-      MAX_CANDIDATOS_ANALISADOS,
-    );
+    const tipoProduto = classificarProdutoImagem(produto);
+    const usarBuscaPorEan =
+      tipoProduto === "industrializado" && eanPublicoValido(ean);
+
+    const candidatosEan = usarBuscaPorEan
+      ? unicos(await candidatosPorEan(ean)).slice(
+          0,
+          MAX_CANDIDATOS_ANALISADOS,
+        )
+      : [];
 
     if (candidatosEan.length) {
       const resultadoEan = await analisarCandidatos(candidatosEan, produto);
-      if ((resultadoEan.candidatos[0]?.score ?? 0) >= SCORE_SUFICIENTE_POR_EAN) {
+
+      if (
+        (resultadoEan.candidatos[0]?.score ?? 0) >=
+        SCORE_SUFICIENTE_POR_EAN
+      ) {
         console.info("[Nodus image search]", {
           ean,
           descricao: data.descricao,
+          tipoProduto,
           estrategia: "ean",
           diagnostico: resultadoEan.diagnostico,
         });
+
         return {
           candidatos: resultadoEan.candidatos.slice(0, 5),
           diagnostico: resultadoEan.diagnostico,
+          tipoProduto,
+          estrategia: "ean" as const,
         };
       }
     }
@@ -555,16 +684,20 @@ export const buscarCandidatosImagem = createServerFn({ method: "POST" })
       MAX_CANDIDATOS_ANALISADOS,
     );
     const resultado = await analisarCandidatos(lista, produto);
+    const estrategia = usarBuscaPorEan ? "ean+texto" : "texto";
 
     console.info("[Nodus image search]", {
       ean,
       descricao: data.descricao,
-      estrategia: "ean+texto",
+      tipoProduto,
+      estrategia,
       diagnostico: resultado.diagnostico,
     });
 
     return {
       candidatos: resultado.candidatos.slice(0, 5),
       diagnostico: resultado.diagnostico,
+      tipoProduto,
+      estrategia,
     };
   });
