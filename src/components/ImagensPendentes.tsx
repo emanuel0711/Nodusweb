@@ -1,8 +1,6 @@
 import { useState } from "react";
 import {
   Check,
-  ChevronDown,
-  ChevronUp,
   ImageIcon,
   Loader2,
   RefreshCw,
@@ -10,6 +8,13 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useImagensPendentes } from "@/modules/imagens/use-imagens-pendentes";
 
 interface ImagensPendentesProps {
@@ -32,7 +37,7 @@ export function ImagensPendentes({
   categoria = "__all__",
 }: ImagensPendentesProps) {
   const fila = useImagensPendentes(categoria);
-  const [mostrarRevisao, setMostrarRevisao] = useState(false);
+  const [revisaoAberta, setRevisaoAberta] = useState(false);
 
   const categoriaLabel =
     categoria === "__all__"
@@ -52,195 +57,196 @@ export function ImagensPendentes({
   const podeTentarNovamente = fila.totalSemResultado > 0;
 
   return (
-    <section className="surface mt-4 space-y-5 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold">Imagens do catálogo</h2>
-          <p className="text-sm text-muted-foreground">
-            {categoriaLabel}. O Nódus encontra imagens e envia apenas os casos
-            duvidosos para revisão.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            disabled={fila.rodando || !podeRevisar}
-            onClick={() => setMostrarRevisao((atual) => !atual)}
-            title={
-              podeRevisar
-                ? "Abrir itens que precisam de revisão"
-                : "Nenhuma imagem aguardando revisão"
-            }
-          >
-            {mostrarRevisao ? (
-              <ChevronUp className="size-4" />
-            ) : (
-              <ChevronDown className="size-4" />
-            )}
-            Revisar ({fila.aguardandoAprovacao})
-          </Button>
-
-          <Button
-            variant="outline"
-            disabled={fila.rodando || !podeTentarNovamente}
-            onClick={() => void fila.pesquisarNovamente()}
-            title={
-              podeTentarNovamente
-                ? "Devolver produtos sem resultado para a fila"
-                : "Nenhum produto sem resultado para pesquisar novamente"
-            }
-          >
-            <RotateCcw className="size-4" /> Tentar novamente
-          </Button>
-
-          <Button
-            disabled={fila.rodando || !podeBuscar}
-            onClick={() => void fila.completar()}
-          >
-            {fila.rodando ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <RefreshCw className="size-4" />
-            )}
-            {fila.rodando ? "Buscando..." : "Buscar imagens"}
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        {resumo.map(([rotulo, valor]) => (
-          <div key={rotulo} className="rounded-lg border px-4 py-3">
-            <div className="text-xs text-muted-foreground">{rotulo}</div>
-            <div className="mt-1 text-2xl font-semibold">{valor}</div>
-          </div>
-        ))}
-      </div>
-
-      {fila.rodando ? (
-        <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
-          Buscando imagens: <strong>{fila.processados}</strong> de até{" "}
-          <strong>{fila.limitePorExecucao}</strong> produtos neste lote.
-        </div>
-      ) : null}
-
-      {mostrarRevisao && fila.gruposRevisao.length ? (
-        <div className="space-y-4 border-t pt-5">
-          <div>
-            <h3 className="font-semibold">Revisão de imagens</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Veja o melhor resultado primeiro. Se ele não servir, escolha uma
-              alternativa ou pesquise novamente.
+    <>
+      <section className="surface mt-4 space-y-5 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold">Imagens do catálogo</h2>
+            <p className="text-sm text-muted-foreground">
+              {categoriaLabel}. O Nódus aplica automaticamente imagens confiáveis
+              e separa os casos duvidosos para sua revisão.
             </p>
           </div>
 
-          {fila.gruposRevisao.map((grupo) => {
-            const principal = grupo.candidatos[0];
-            if (!principal) return null;
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={fila.rodando || !podeRevisar}
+              onClick={() => setRevisaoAberta(true)}
+              title={
+                podeRevisar
+                  ? "Abrir imagens que precisam de aprovação"
+                  : "Nenhuma imagem aguardando aprovação"
+              }
+            >
+              <ImageIcon className="size-4" />
+              Revisar imagens ({fila.aguardandoAprovacao})
+            </Button>
 
-            return (
-              <article key={grupo.produto.id} className="rounded-lg border p-4">
-                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h4 className="font-medium">{grupo.produto.description}</h4>
-                    <p className="text-xs text-muted-foreground">
-                      {grupo.produto.ean
-                        ? `EAN ${grupo.produto.ean}`
-                        : "Sem EAN público informado"}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      void fila.pesquisarNovamente(grupo.produto.id)
-                    }
-                  >
-                    <RotateCcw className="size-4" /> Pesquisar novamente
-                  </Button>
-                </div>
+            <Button
+              variant="outline"
+              disabled={fila.rodando || !podeTentarNovamente}
+              onClick={() => void fila.pesquisarNovamente()}
+              title={
+                podeTentarNovamente
+                  ? "Devolver produtos sem resultado para a fila"
+                  : "Nenhum produto sem resultado para pesquisar novamente"
+              }
+            >
+              <RotateCcw className="size-4" /> Tentar novamente
+            </Button>
 
-                <div className="grid gap-4 md:grid-cols-[220px_1fr]">
-                  <div className="flex min-h-56 items-center justify-center rounded-lg border bg-white p-3">
-                    <img
-                      src={principal.url}
-                      alt={grupo.produto.description}
-                      loading="lazy"
-                      className="max-h-52 max-w-full object-contain"
-                    />
-                  </div>
-
-                  <div className="flex min-w-0 flex-col gap-4">
-                    <div>
-                      <div className="text-sm font-medium">
-                        {formatarOrigem(principal.source)}
-                      </div>
-                      <div className="mt-1 text-sm text-muted-foreground">
-                        Confiança:{" "}
-                        <strong className="text-foreground">
-                          {principal.score}/100
-                        </strong>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => void fila.aprovar(principal)}
-                      >
-                        <Check className="size-4" /> Aprovar
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void fila.rejeitar(principal)}
-                      >
-                        <X className="size-4" /> Não serve
-                      </Button>
-                    </div>
-
-                    {grupo.candidatos.length > 1 ? (
-                      <div className="mt-auto">
-                        <div className="mb-2 text-xs font-medium text-muted-foreground">
-                          Outras opções
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {grupo.candidatos.slice(1, 5).map((candidato) => (
-                            <button
-                              key={candidato.id}
-                              type="button"
-                              className="group relative flex size-20 items-center justify-center overflow-hidden rounded-md border bg-white p-1"
-                              title={`${formatarOrigem(candidato.source)} · ${candidato.score}/100`}
-                              onClick={() => void fila.aprovar(candidato)}
-                            >
-                              <img
-                                src={candidato.url}
-                                alt={grupo.produto.description}
-                                loading="lazy"
-                                className="max-h-full max-w-full object-contain"
-                              />
-                              <span className="absolute bottom-0 right-0 bg-background/90 px-1 text-[10px] font-semibold">
-                                {candidato.score}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </article>
-            );
-          })}
+            <Button
+              disabled={fila.rodando || !podeBuscar}
+              onClick={() => void fila.completar()}
+            >
+              {fila.rodando ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              {fila.rodando ? "Buscando..." : "Buscar imagens"}
+            </Button>
+          </div>
         </div>
-      ) : null}
 
-      {!fila.carregando && fila.totalSemImagem === 0 ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <ImageIcon className="size-4" /> Todos os produtos desta seleção já
-          possuem imagem.
-        </p>
-      ) : null}
-    </section>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {resumo.map(([rotulo, valor]) => (
+            <div key={rotulo} className="rounded-lg border px-4 py-3">
+              <div className="text-xs text-muted-foreground">{rotulo}</div>
+              <div className="mt-1 text-2xl font-semibold">{valor}</div>
+            </div>
+          ))}
+        </div>
+
+        {fila.rodando ? (
+          <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
+            Buscando imagens: <strong>{fila.processados}</strong> de até{" "}
+            <strong>{fila.limitePorExecucao}</strong> produtos neste lote.
+          </div>
+        ) : null}
+
+        {!fila.carregando && fila.totalSemImagem === 0 ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <ImageIcon className="size-4" /> Todos os produtos desta seleção já
+            possuem imagem.
+          </p>
+        ) : null}
+      </section>
+
+      <Dialog open={revisaoAberta} onOpenChange={setRevisaoAberta}>
+        <DialogContent className="max-h-[88vh] max-w-5xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Revisar imagens</DialogTitle>
+            <DialogDescription>
+              Estas imagens não atingiram confiança suficiente para entrar
+              automaticamente. Aprove a opção correta ou rejeite o resultado.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!fila.gruposRevisao.length ? (
+            <div className="rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+              Nenhuma imagem aguardando aprovação.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {fila.gruposRevisao.map((grupo) => {
+                const principal = grupo.candidatos[0];
+                if (!principal) return null;
+
+                return (
+                  <article key={grupo.produto.id} className="rounded-xl border p-4">
+                    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold">{grupo.produto.description}</h3>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {grupo.produto.ean
+                            ? `EAN ${grupo.produto.ean}`
+                            : "Sem EAN público informado"}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void fila.pesquisarNovamente(grupo.produto.id)}
+                      >
+                        <RotateCcw className="size-4" /> Pesquisar novamente
+                      </Button>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-[240px_1fr]">
+                      <div className="flex min-h-60 items-center justify-center rounded-lg border bg-white p-3">
+                        <img
+                          src={principal.url}
+                          alt={grupo.produto.description}
+                          loading="lazy"
+                          className="max-h-56 max-w-full object-contain"
+                        />
+                      </div>
+
+                      <div className="flex min-w-0 flex-col gap-4">
+                        <div>
+                          <div className="text-sm font-medium">
+                            {formatarOrigem(principal.source)}
+                          </div>
+                          <div className="mt-1 text-sm text-muted-foreground">
+                            Confiança:{" "}
+                            <strong className="text-foreground">
+                              {principal.score}/100
+                            </strong>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" onClick={() => void fila.aprovar(principal)}>
+                            <Check className="size-4" /> Aprovar imagem
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void fila.rejeitar(principal)}
+                          >
+                            <X className="size-4" /> Não serve
+                          </Button>
+                        </div>
+
+                        {grupo.candidatos.length > 1 ? (
+                          <div className="mt-auto">
+                            <div className="mb-2 text-xs font-medium text-muted-foreground">
+                              Outras opções — clique para aprovar
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {grupo.candidatos.slice(1, 5).map((candidato) => (
+                                <button
+                                  key={candidato.id}
+                                  type="button"
+                                  className="group relative flex size-24 items-center justify-center overflow-hidden rounded-md border bg-white p-1 transition hover:ring-2 hover:ring-primary/40"
+                                  title={`${formatarOrigem(candidato.source)} · ${candidato.score}/100`}
+                                  onClick={() => void fila.aprovar(candidato)}
+                                >
+                                  <img
+                                    src={candidato.url}
+                                    alt={grupo.produto.description}
+                                    loading="lazy"
+                                    className="max-h-full max-w-full object-contain"
+                                  />
+                                  <span className="absolute bottom-0 right-0 rounded-tl bg-background/90 px-1.5 py-0.5 text-[10px] font-semibold">
+                                    {candidato.score}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
