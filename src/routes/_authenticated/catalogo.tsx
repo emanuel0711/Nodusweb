@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { CheckSquare, ImageIcon, Loader2, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { ImagensPendentes } from "@/components/ImagensPendentes";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -43,6 +44,7 @@ function PaginaCatalogo() {
   return (
     <AppShell title="Catálogo de produtos" subtitle="Base usada no cruzamento automático das ofertas.">
       <BarraCatalogo {...catalogo} />
+      <ImagensPendentes categoria={catalogo.categoria} />
       <TabelaCatalogo {...catalogo} onVisualizar={setProdutoVisualizado} />
       <Paginacao {...catalogo} />
       <DialogProduto {...catalogo} />
