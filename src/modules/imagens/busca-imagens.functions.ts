@@ -9,7 +9,6 @@ const entrada = z.object({
   categoria: z.string().max(120).nullable().optional(),
 });
 
-const OFF_API = "https://world.openfoodfacts.org/api/v2/product";
 const COSMOS_CDN = "https://cdn-cosmos.bluesoft.com.br/products";
 const EAN_PICTURES = "https://www.eanpictures.com.br:9000/api/gtin";
 const UPC_SEARCH_API = "https://api.upcitemdb.com/prod/trial/search";
@@ -95,10 +94,7 @@ function somenteNumeros(valor: unknown): string {
   return String(valor ?? "").replace(/\D/g, "");
 }
 
-async function fetchComTimeout(
-  url: string,
-  init?: RequestInit,
-): Promise<Response | null> {
+async function fetchComTimeout(url: string, init?: RequestInit): Promise<Response | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -133,10 +129,7 @@ async function executarComConcorrencia<T, R>(
   }
 
   await Promise.all(
-    Array.from(
-      { length: Math.min(concorrencia, itens.length) },
-      trabalhador,
-    ),
+    Array.from({ length: Math.min(concorrencia, itens.length) }, trabalhador),
   );
 
   return resultados;
@@ -150,9 +143,7 @@ function limparUrlGoogle(valor: string): string {
     .replace(/&amp;/gi, "&");
 }
 
-function extrairGoogle(
-  html: string,
-): Array<{ url: string; titulo: string }> {
+function extrairGoogle(html: string): Array<{ url: string; titulo: string }> {
   const encontrados = new Map<string, string>();
   const urls = html.match(/https?:\\?\/\\?\/[^"'<>\\s\\]+/gi) ?? [];
 
@@ -178,8 +169,7 @@ function extrairGoogle(
   }
 
   const titulos = [...html.matchAll(/"(?:pt|2003)":"([^"]{6,200})"/g)].map(
-    ([, texto]) =>
-      (texto ?? "").replace(/\\u[\dA-Fa-f]{4}/g, " ").trim(),
+    ([, texto]) => (texto ?? "").replace(/\\u[\dA-Fa-f]{4}/g, " ").trim(),
   );
 
   return [...encontrados.keys()].slice(0, 18).map((url, indice) => ({
@@ -188,9 +178,7 @@ function extrairGoogle(
   }));
 }
 
-async function buscarGoogle(
-  termo: string,
-): Promise<Array<{ url: string; titulo: string }>> {
+async function buscarGoogle(termo: string): Promise<Array<{ url: string; titulo: string }>> {
   const resposta = await fetchComTimeout(
     `https://www.google.com/search?tbm=isch&hl=pt-BR&q=${encodeURIComponent(termo)}`,
     {
@@ -209,98 +197,55 @@ async function buscarGoogle(
 async function candidatosPorEan(ean: string): Promise<CandidatoBruto[]> {
   if (ean.length < 8) return [];
 
-  const tarefas: Array<Promise<CandidatoBruto[]>> = [
-    Promise.resolve([
-      {
-        url: `${COSMOS_CDN}/${encodeURIComponent(ean)}`,
-        titulo: ean,
-        source: "cosmos",
-        eanExato: true,
-      },
-      {
-        url: `${EAN_PICTURES}/${encodeURIComponent(ean)}`,
-        titulo: ean,
-        source: "ean_pictures",
-        eanExato: true,
-      },
-    ]),
-    (async () => {
-      const resposta = await fetchComTimeout(
-        `${UPC_SEARCH_API}?s=${encodeURIComponent(ean)}&match_mode=1`,
-      );
-      if (!resposta?.ok) return [];
-
-      const dados = (await resposta.json()) as {
-        items?: Array<{
-          title?: string;
-          ean?: string;
-          upc?: string;
-          images?: string[];
-        }>;
-      };
-
-      return (dados.items ?? []).flatMap((item) =>
-        (item.images ?? []).map((url) => ({
-          url,
-          titulo: item.title ?? "",
-          source: "upcitemdb",
-          eanExato: [item.ean, item.upc].map(somenteNumeros).includes(ean),
-        })),
-      );
-    })(),
-    (async () => {
-      const codigos = ean.length === 12 ? [ean, `0${ean}`] : [ean];
-      const saida: CandidatoBruto[] = [];
-
-      for (const codigo of codigos) {
-        const resposta = await fetchComTimeout(
-          `${OFF_API}/${encodeURIComponent(codigo)}.json?fields=product_name,code,image_front_url,image_url,image_front_small_url`,
-        );
-        if (!resposta?.ok) continue;
-
-        const dados = (await resposta.json()) as {
-          status?: number;
-          product?: {
-            product_name?: string;
-            code?: string;
-            image_front_url?: string;
-            image_url?: string;
-            image_front_small_url?: string;
-          };
-        };
-
-        if (dados.status !== 1 || !dados.product) continue;
-
-        for (const url of [
-          dados.product.image_front_url,
-          dados.product.image_url,
-          dados.product.image_front_small_url,
-        ]) {
-          if (!url) continue;
-          saida.push({
-            url,
-            titulo: dados.product.product_name ?? "",
-            source: "open_food_facts",
-            eanExato: somenteNumeros(dados.product.code) === codigo,
-          });
-        }
-      }
-
-      return saida;
-    })(),
+  const cosmosEanPictures: CandidatoBruto[] = [
+    {
+      url: `${COSMOS_CDN}/${encodeURIComponent(ean)}`,
+      titulo: ean,
+      source: "cosmos",
+      eanExato: true,
+    },
+    {
+      url: `${EAN_PICTURES}/${encodeURIComponent(ean)}`,
+      titulo: ean,
+      source: "ean_pictures",
+      eanExato: true,
+    },
   ];
 
-  return (await Promise.all(tarefas)).flat();
+  const upc = (async (): Promise<CandidatoBruto[]> => {
+    const resposta = await fetchComTimeout(
+      `${UPC_SEARCH_API}?s=${encodeURIComponent(ean)}&match_mode=1`,
+    );
+    if (!resposta?.ok) return [];
+
+    const dados = (await resposta.json()) as {
+      items?: Array<{
+        title?: string;
+        ean?: string;
+        upc?: string;
+        images?: string[];
+      }>;
+    };
+
+    return (dados.items ?? []).flatMap((item) =>
+      (item.images ?? []).map((url) => ({
+        url,
+        titulo: item.title ?? "",
+        source: "upcitemdb",
+        eanExato: [item.ean, item.upc].map(somenteNumeros).includes(ean),
+      })),
+    );
+  })();
+
+  return [...cosmosEanPictures, ...(await upc)];
 }
 
-async function candidatosPorDescricao(
-  descricao: string,
-): Promise<CandidatoBruto[]> {
-  const buscaUpc = (async () => {
+async function candidatosPorDescricao(descricao: string): Promise<CandidatoBruto[]> {
+  const buscaUpc = (async (): Promise<CandidatoBruto[]> => {
     const resposta = await fetchComTimeout(
       `${UPC_SEARCH_API}?s=${encodeURIComponent(`${descricao} produto`)}&match_mode=0`,
     );
-    if (!resposta?.ok) return [] as CandidatoBruto[];
+    if (!resposta?.ok) return [];
 
     const dados = (await resposta.json()) as {
       items?: Array<{ title?: string; images?: string[] }>;
@@ -316,12 +261,10 @@ async function candidatosPorDescricao(
     );
   })();
 
-  const buscaGoogle = (async () => {
+  const buscaGoogle = (async (): Promise<CandidatoBruto[]> => {
     const consultas = [
       `${descricao} produto embalagem fundo branco`,
-      ...FONTES_PRIORITARIAS.map(
-        (dominio) => `${descricao} site:${dominio}`,
-      ),
+      ...FONTES_PRIORITARIAS.map((dominio) => `${descricao} site:${dominio}`),
     ];
 
     const resultados = await executarComConcorrencia(
@@ -362,20 +305,14 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
   });
 
   if (!resposta) return { analise: null, motivo: "rede_ou_timeout" };
-  if (!resposta.ok) {
-    return { analise: null, motivo: `http_${resposta.status}` };
-  }
+  if (!resposta.ok) return { analise: null, motivo: `http_${resposta.status}` };
 
   const tamanho = Number(resposta.headers.get("content-length") ?? 0);
-  if (tamanho > MAX_BYTES) {
-    return { analise: null, motivo: "arquivo_muito_grande" };
-  }
+  if (tamanho > MAX_BYTES) return { analise: null, motivo: "arquivo_muito_grande" };
 
   const buffer = Buffer.from(await resposta.arrayBuffer());
   if (!buffer.length) return { analise: null, motivo: "arquivo_vazio" };
-  if (buffer.length > MAX_BYTES) {
-    return { analise: null, motivo: "arquivo_muito_grande" };
-  }
+  if (buffer.length > MAX_BYTES) return { analise: null, motivo: "arquivo_muito_grande" };
 
   try {
     const imagem = sharp(buffer, { failOn: "none" });
@@ -383,12 +320,8 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
     const width = metadata.width ?? 0;
     const height = metadata.height ?? 0;
 
-    if (!width || !height) {
-      return { analise: null, motivo: "formato_nao_reconhecido" };
-    }
-    if (width < 160 || height < 160) {
-      return { analise: null, motivo: "resolucao_baixa" };
-    }
+    if (!width || !height) return { analise: null, motivo: "formato_nao_reconhecido" };
+    if (width < 160 || height < 160) return { analise: null, motivo: "resolucao_baixa" };
 
     const { data, info } = await imagem
       .resize(48, 48, { fit: "fill" })
@@ -398,16 +331,15 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
 
     let borda = 0;
     let brancos = 0;
+    const margem = 6;
 
     for (let y = 0; y < info.height; y += 1) {
       for (let x = 0; x < info.width; x += 1) {
-        const margem = 6;
         const naBorda =
           x < margem ||
           x >= info.width - margem ||
           y < margem ||
           y >= info.height - margem;
-
         if (!naBorda) continue;
 
         borda += 1;
@@ -431,9 +363,7 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
       analise: {
         width,
         height,
-        backgroundScore: borda
-          ? Number((brancos / borda).toFixed(4))
-          : 0,
+        backgroundScore: borda ? Number((brancos / borda).toFixed(4)) : 0,
       },
       motivo: null,
     };
@@ -445,30 +375,21 @@ async function analisarImagem(url: string): Promise<ResultadoAnalise> {
 function palavras(texto: string): string[] {
   return normalizarTexto(texto)
     .split(/\s+/)
-    .filter(
-      (palavra) =>
-        palavra.length >= 3 && !PALAVRAS_IGNORADAS.has(palavra),
-    );
+    .filter((palavra) => palavra.length >= 3 && !PALAVRAS_IGNORADAS.has(palavra));
 }
 
 function pontuar(
   candidato: CandidatoBruto,
   produto: { descricao: string; categoria?: string | null; ean: string },
   analise: AnaliseImagem,
-): {
-  total: number;
-  detalhes: Array<{ rotulo: string; pontos: number }>;
-} {
-  const alvo = normalizarTexto(
-    `${candidato.titulo} ${decodeURIComponent(candidato.url)}`,
-  );
+): { total: number; detalhes: Array<{ rotulo: string; pontos: number }> } {
+  const alvo = normalizarTexto(`${candidato.titulo} ${decodeURIComponent(candidato.url)}`);
   const termos = palavras(produto.descricao);
   const detalhes: Array<{ rotulo: string; pontos: number }> = [];
 
   const pesoFonte: Record<string, number> = {
     cosmos: 22,
     ean_pictures: 20,
-    open_food_facts: 16,
     upcitemdb: 15,
     upcitemdb_text: 8,
     google_images: 5,
@@ -490,11 +411,9 @@ function pontuar(
     pontos: Math.round(cobertura * 24),
   });
 
-  const pesos = [...produto.descricao.matchAll(PESO)].map(
-    ([, numero, medida]) =>
-      normalizarTexto(`${numero}${medida}`).replace(",", "."),
+  const pesos = [...produto.descricao.matchAll(PESO)].map(([, numero, medida]) =>
+    normalizarTexto(`${numero}${medida}`).replace(",", "."),
   );
-
   if (
     pesos.some((peso) =>
       alvo.replace(/\s/g, "").includes(peso.replace(/\s/g, "")),
@@ -512,35 +431,20 @@ function pontuar(
     pontos: resolucao,
   });
 
-  const fundo = Math.round(analise.backgroundScore * 10);
   detalhes.push({
     rotulo: `Fundo branco ${Math.round(analise.backgroundScore * 100)}%`,
-    pontos: fundo,
+    pontos: Math.round(analise.backgroundScore * 10),
   });
 
   const total = Math.max(
     0,
-    Math.min(
-      100,
-      detalhes.reduce((soma, item) => soma + item.pontos, 0),
-    ),
+    Math.min(100, detalhes.reduce((soma, item) => soma + item.pontos, 0)),
   );
 
   return {
     total,
     detalhes: detalhes.filter((item) => item.pontos !== 0),
   };
-}
-
-function unificarCandidatos(candidatos: CandidatoBruto[]): CandidatoBruto[] {
-  const unicos = new Map<string, CandidatoBruto>();
-
-  for (const candidato of candidatos) {
-    if (!candidato.url || unicos.has(candidato.url)) continue;
-    unicos.set(candidato.url, candidato);
-  }
-
-  return [...unicos.values()];
 }
 
 function criarDiagnostico(lista: CandidatoBruto[]): DiagnosticoBuscaImagem {
@@ -563,27 +467,20 @@ function criarDiagnostico(lista: CandidatoBruto[]): DiagnosticoBuscaImagem {
 }
 
 async function analisarCandidatos(
-  candidatos: CandidatoBruto[],
+  lista: CandidatoBruto[],
   produto: { descricao: string; categoria?: string | null; ean: string },
-): Promise<{
-  candidatos: CandidatoImagemServidor[];
-  diagnostico: DiagnosticoBuscaImagem;
-}> {
-  const lista = unificarCandidatos(candidatos).slice(
-    0,
-    MAX_CANDIDATOS_ANALISADOS,
-  );
+): Promise<{ candidatos: CandidatoImagemServidor[]; diagnostico: DiagnosticoBuscaImagem }> {
   const diagnostico = criarDiagnostico(lista);
 
-  const processados = await executarComConcorrencia(
+  const analisados = await executarComConcorrencia(
     lista,
     CONCORRENCIA_ANALISE,
     async (candidato) => {
-      const resultadoAnalise = await analisarImagem(candidato.url);
+      const resultado = await analisarImagem(candidato.url);
       const fonte = diagnostico.porFonte[candidato.source]!;
 
-      if (!resultadoAnalise.analise) {
-        const motivo = resultadoAnalise.motivo ?? "desconhecido";
+      if (!resultado.analise) {
+        const motivo = resultado.motivo ?? "desconhecido";
         fonte.rejeicoes[motivo] = (fonte.rejeicoes[motivo] ?? 0) + 1;
         return null;
       }
@@ -591,59 +488,34 @@ async function analisarCandidatos(
       fonte.validos += 1;
       diagnostico.totalValidos += 1;
 
-      const score = pontuar(candidato, produto, resultadoAnalise.analise);
-
+      const score = pontuar(candidato, produto, resultado.analise);
       return {
         url: candidato.url,
         titulo: candidato.titulo,
         source: candidato.source,
         score: score.total,
         scoreDetails: score.detalhes,
-        width: resultadoAnalise.analise.width,
-        height: resultadoAnalise.analise.height,
-        backgroundScore: resultadoAnalise.analise.backgroundScore,
+        width: resultado.analise.width,
+        height: resultado.analise.height,
+        backgroundScore: resultado.analise.backgroundScore,
         eanExato: candidato.eanExato,
       } satisfies CandidatoImagemServidor;
     },
   );
 
-  const validos = processados.filter(
-    (candidato): candidato is CandidatoImagemServidor => candidato !== null,
-  );
-  validos.sort((a, b) => b.score - a.score);
+  const candidatos = analisados
+    .filter((item): item is CandidatoImagemServidor => Boolean(item))
+    .sort((a, b) => b.score - a.score);
 
-  return { candidatos: validos, diagnostico };
+  return { candidatos, diagnostico };
 }
 
-function mesclarDiagnosticos(
-  primeiro: DiagnosticoBuscaImagem,
-  segundo: DiagnosticoBuscaImagem,
-): DiagnosticoBuscaImagem {
-  const resultado: DiagnosticoBuscaImagem = {
-    totalBrutos: primeiro.totalBrutos + segundo.totalBrutos,
-    totalValidos: primeiro.totalValidos + segundo.totalValidos,
-    porFonte: { ...primeiro.porFonte },
-  };
-
-  for (const [fonte, dados] of Object.entries(segundo.porFonte)) {
-    const atual = resultado.porFonte[fonte] ?? {
-      brutos: 0,
-      validos: 0,
-      rejeicoes: {},
-    };
-
-    atual.brutos += dados.brutos;
-    atual.validos += dados.validos;
-
-    for (const [motivo, quantidade] of Object.entries(dados.rejeicoes)) {
-      atual.rejeicoes[motivo] =
-        (atual.rejeicoes[motivo] ?? 0) + quantidade;
-    }
-
-    resultado.porFonte[fonte] = atual;
+function unicos(lista: CandidatoBruto[]): CandidatoBruto[] {
+  const mapa = new Map<string, CandidatoBruto>();
+  for (const candidato of lista) {
+    if (candidato.url && !mapa.has(candidato.url)) mapa.set(candidato.url, candidato);
   }
-
-  return resultado;
+  return [...mapa.values()];
 }
 
 export const buscarCandidatosImagem = createServerFn({ method: "POST" })
@@ -656,44 +528,43 @@ export const buscarCandidatosImagem = createServerFn({ method: "POST" })
       ean,
     };
 
-    // Primeiro tenta apenas as fontes baseadas em EAN. Se uma imagem válida já
-    // atinge o score de aprovação, evitamos buscas textuais mais lentas.
-    const porEan = await candidatosPorEan(ean);
-    const resultadoEan = await analisarCandidatos(porEan, produto);
-    const melhorEan = resultadoEan.candidatos[0];
+    const candidatosEan = unicos(await candidatosPorEan(ean)).slice(
+      0,
+      MAX_CANDIDATOS_ANALISADOS,
+    );
 
-    if (melhorEan && melhorEan.score >= SCORE_SUFICIENTE_POR_EAN) {
-      console.info("[Nodus image search]", {
-        ean,
-        descricao: data.descricao,
-        estrategia: "ean_fast_path",
-        diagnostico: resultadoEan.diagnostico,
-      });
-
-      return {
-        candidatos: resultadoEan.candidatos.slice(0, 5),
-        diagnostico: resultadoEan.diagnostico,
-      };
+    if (candidatosEan.length) {
+      const resultadoEan = await analisarCandidatos(candidatosEan, produto);
+      if ((resultadoEan.candidatos[0]?.score ?? 0) >= SCORE_SUFICIENTE_POR_EAN) {
+        console.info("[Nodus image search]", {
+          ean,
+          descricao: data.descricao,
+          estrategia: "ean",
+          diagnostico: resultadoEan.diagnostico,
+        });
+        return {
+          candidatos: resultadoEan.candidatos.slice(0, 5),
+          diagnostico: resultadoEan.diagnostico,
+        };
+      }
     }
 
-    // Só cai na busca textual quando as fontes exatas não entregam candidato
-    // suficiente. Google e UPC textual rodam com concorrência limitada.
-    const porDescricao = await candidatosPorDescricao(data.descricao);
-    const resultadoTexto = await analisarCandidatos(porDescricao, produto);
-    const candidatos = [...resultadoEan.candidatos, ...resultadoTexto.candidatos]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-    const diagnostico = mesclarDiagnosticos(
-      resultadoEan.diagnostico,
-      resultadoTexto.diagnostico,
+    const candidatosTexto = await candidatosPorDescricao(data.descricao);
+    const lista = unicos([...candidatosEan, ...candidatosTexto]).slice(
+      0,
+      MAX_CANDIDATOS_ANALISADOS,
     );
+    const resultado = await analisarCandidatos(lista, produto);
 
     console.info("[Nodus image search]", {
       ean,
       descricao: data.descricao,
-      estrategia: "ean_plus_text",
-      diagnostico,
+      estrategia: "ean+texto",
+      diagnostico: resultado.diagnostico,
     });
 
-    return { candidatos, diagnostico };
+    return {
+      candidatos: resultado.candidatos.slice(0, 5),
+      diagnostico: resultado.diagnostico,
+    };
   });
