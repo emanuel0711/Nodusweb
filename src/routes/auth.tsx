@@ -50,15 +50,33 @@ function AuthPage() {
   const [newPassword, setNewPassword] = useState("");
   const [forgotMode, setForgotMode] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState(false);
-  const [acceptedLegal, setAcceptedLegal] = useState(false);
+  const [acceptedLegal, setAcceptedLegal] = useState(() =>
+    typeof window !== "undefined" && localStorage.getItem(LEGAL_ACCEPTANCE_KEY) === "accepted",
+  );
 
   useEffect(() => {
     let active = true;
 
+    if (localStorage.getItem(LEGAL_ACCEPTANCE_KEY) === "accepted") {
+      setAcceptedLegal(true);
+    }
+
+    const sincronizarAceiteDaConta = (user: { user_metadata?: Record<string, unknown> } | null | undefined) => {
+      const metadata = user?.user_metadata;
+      if (!metadata) return;
+
+      const termosAtuais = metadata.terms_version === TERMS_VERSION;
+      const privacidadeAtual = metadata.privacy_version === TERMS_VERSION;
+      if (termosAtuais && privacidadeAtual) {
+        localStorage.setItem(LEGAL_ACCEPTANCE_KEY, "accepted");
+        if (active) setAcceptedLegal(true);
+      }
+    };
+
     const registrarAceitePendente = async () => {
       if (localStorage.getItem(LEGAL_ACCEPTANCE_KEY) !== "pending") return;
       const acceptedAt = new Date().toISOString();
-      const { error } = await supabase.auth.updateUser({
+      const { data, error } = await supabase.auth.updateUser({
         data: {
           terms_accepted_at: acceptedAt,
           terms_version: TERMS_VERSION,
@@ -66,7 +84,10 @@ function AuthPage() {
           privacy_version: TERMS_VERSION,
         },
       });
-      if (!error) localStorage.setItem(LEGAL_ACCEPTANCE_KEY, "accepted");
+      if (!error) {
+        localStorage.setItem(LEGAL_ACCEPTANCE_KEY, "accepted");
+        sincronizarAceiteDaConta(data.user);
+      }
     };
 
     const finishOAuthRedirect = async () => {
@@ -88,6 +109,7 @@ function AuthPage() {
         }
 
         if (active && session) {
+          sincronizarAceiteDaConta(session.user);
           if (isRecovery) return;
           await registrarAceitePendente();
           if (hasOAuthTokens) window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
@@ -108,6 +130,7 @@ function AuthPage() {
         return;
       }
       if (session && active && event === "SIGNED_IN") {
+        sincronizarAceiteDaConta(session.user);
         const isRecovery = window.location.search.includes("reset=1") || window.location.hash.includes("type=recovery");
         if (isRecovery) return;
         void registrarAceitePendente().finally(() => {
@@ -156,6 +179,8 @@ function AuthPage() {
           },
         });
         if (error) throw error;
+        localStorage.setItem(LEGAL_ACCEPTANCE_KEY, "accepted");
+        setAcceptedLegal(true);
         if (data.session) {
           toast.success("Conta criada com sucesso!");
           await navigate({ to: "/painel", replace: true });
@@ -179,7 +204,9 @@ function AuthPage() {
 
     setLoading(true);
     try {
-      localStorage.setItem(LEGAL_ACCEPTANCE_KEY, "pending");
+      if (localStorage.getItem(LEGAL_ACCEPTANCE_KEY) !== "accepted") {
+        localStorage.setItem(LEGAL_ACCEPTANCE_KEY, "pending");
+      }
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -191,7 +218,9 @@ function AuthPage() {
       if (!data.url) throw new Error("O serviço de autenticação não retornou a URL do Google.");
       window.location.assign(data.url);
     } catch (error) {
-      localStorage.removeItem(LEGAL_ACCEPTANCE_KEY);
+      if (localStorage.getItem(LEGAL_ACCEPTANCE_KEY) === "pending") {
+        localStorage.removeItem(LEGAL_ACCEPTANCE_KEY);
+      }
       console.error("[Auth] Erro no Google OAuth:", error);
       toast.error(getAuthErrorMessage(error));
       setLoading(false);
@@ -301,7 +330,7 @@ function AuthPage() {
                         <div className="flex items-center justify-between gap-3"><Label htmlFor={`${mode}-password`}>Senha</Label>{mode === "login" ? <button type="button" onClick={() => setForgotMode(true)} className="text-xs text-primary hover:underline">Esqueci minha senha</button> : null}</div>
                         <Input id={`${mode}-password`} className="h-11 rounded-xl" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} maxLength={72} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" />
                       </div>
-                      {mode === "signup" ? <LegalConsent checked={acceptedLegal} onChange={setAcceptedLegal} /> : null}
+                      {mode === "signup" && !acceptedLegal ? <LegalConsent checked={acceptedLegal} onChange={setAcceptedLegal} /> : null}
                       <Button className="h-11 w-full rounded-xl" disabled={loading} onClick={() => submit(mode)}>{mode === "login" ? "Entrar" : "Criar conta"}<ArrowRight className="ml-1 size-4" /></Button>
                     </TabsContent>
                   ))}
@@ -309,7 +338,7 @@ function AuthPage() {
 
                 <div className="my-6 flex items-center gap-3 text-xs text-muted-foreground"><span className="h-px flex-1 bg-border" />ou<span className="h-px flex-1 bg-border" /></div>
                 <div className="space-y-4">
-                  <LegalConsent checked={acceptedLegal} onChange={setAcceptedLegal} compact />
+                  {!acceptedLegal ? <LegalConsent checked={acceptedLegal} onChange={setAcceptedLegal} compact /> : null}
                   <Button variant="outline" className="h-11 w-full rounded-xl" disabled={loading} onClick={signInWithGoogle}>Continuar com Google</Button>
                 </div>
               </>
