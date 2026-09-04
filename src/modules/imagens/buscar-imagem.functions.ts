@@ -3,6 +3,7 @@ import {
   type CandidatoImagemServidor,
   type TipoProdutoImagem,
 } from "./busca-imagens.functions";
+import { buscarCandidatosFabricante } from "./busca-fabricantes.functions";
 import { buscarCandidatosWeb } from "./busca-web-imagens.functions";
 import { recalcularScoreImagem } from "./score-imagem";
 
@@ -84,11 +85,11 @@ function filtrarPrincipaisParaProdutoVariavel(
 
 function mesclarCandidatos(
   principais: CandidatoImagemServidor[],
-  fallback: CandidatoImagemServidor[],
+  adicionais: CandidatoImagemServidor[],
 ): CandidatoImagemServidor[] {
   const mapa = new Map<string, CandidatoImagemServidor>();
 
-  for (const candidato of [...principais, ...fallback]) {
+  for (const candidato of [...principais, ...adicionais]) {
     if (!candidato.url || mapa.has(candidato.url)) continue;
     mapa.set(candidato.url, candidato);
   }
@@ -108,19 +109,31 @@ async function executarBusca(
       ? filtrarPrincipaisParaProdutoVariavel(resultado.candidatos)
       : resultado.candidatos;
 
-  // Para produtos variáveis, não aceitamos mais busca ampla da web como
-  // fallback. Quando faltam candidatos, consultamos catálogos reais de grandes
-  // supermercados e só preservamos imagens cuja descrição do produto bate com
-  // o termo pesquisado.
+  // Quando a descrição contém uma marca conhecida, o site oficial do fabricante
+  // é a primeira alternativa depois das fontes por GTIN. A busca só aceita
+  // imagens cercadas por texto compatível com o nome do produto.
   if (candidatos.length < MIN_CANDIDATOS_ANTES_FALLBACK) {
-    const fallback = await buscarCandidatosWeb({
+    const fabricante = await buscarCandidatosFabricante({
       data: {
         descricao: argumentos.data.descricao,
         categoria: argumentos.data.categoria,
       },
     });
 
-    candidatos = mesclarCandidatos(candidatos, fallback.candidatos);
+    candidatos = mesclarCandidatos(candidatos, fabricante.candidatos);
+  }
+
+  // Se o fabricante não tiver imagem utilizável, tenta catálogos estruturados
+  // de grandes supermercados. Não voltamos a usar busca aberta de imagens.
+  if (candidatos.length < MIN_CANDIDATOS_ANTES_FALLBACK) {
+    const varejistas = await buscarCandidatosWeb({
+      data: {
+        descricao: argumentos.data.descricao,
+        categoria: argumentos.data.categoria,
+      },
+    });
+
+    candidatos = mesclarCandidatos(candidatos, varejistas.candidatos);
   }
 
   return {
@@ -141,8 +154,8 @@ async function executarBusca(
 /**
  * Ponto único usado pela interface para pesquisar imagens.
  *
- * A camada evita repetir a mesma consulta enquanto uma busca idêntica está em
- * andamento, mantém cache curto e usa catálogos de varejistas como fallback.
+ * Ordem de descoberta: bases por GTIN, site oficial do fabricante quando a
+ * marca é reconhecida e, por último, catálogos de varejistas confiáveis.
  */
 export async function buscarCandidatosImagem(
   argumentos: Parameters<typeof buscarCandidatosImagemBase>[0],
