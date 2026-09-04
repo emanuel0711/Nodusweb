@@ -1,5 +1,8 @@
 import { normalizarTexto } from "@/shared/texto";
-import type { CandidatoImagemServidor, TipoProdutoImagem } from "./busca-imagens.functions";
+import type {
+  CandidatoImagemServidor,
+  TipoProdutoImagem,
+} from "./busca-imagens.functions";
 
 const PALAVRAS_IGNORADAS = new Set([
   "de",
@@ -24,6 +27,7 @@ const PALAVRAS_IGNORADAS = new Set([
 
 const PESO = /(\d+[.,]?\d*)\s?(kg|g|gr|ml|l|lt|litro|litros)\b/gi;
 const CODIGO_INTERNO_SOLTO = /^\d{3,6}$/;
+const FONTES_WEB_TEXTO = new Set(["google_images", "bing_images"]);
 
 function palavrasRelevantes(
   descricao: string,
@@ -58,6 +62,7 @@ function pontosFonte(candidato: CandidatoImagemServidor): number {
     upcitemdb: candidato.eanExato ? 12 : 8,
     upcitemdb_text: 7,
     google_images: 5,
+    bing_images: 5,
   };
 
   return fontes[candidato.source] ?? 3;
@@ -119,12 +124,16 @@ export function recalcularScoreImagem(
       pontos: descricao,
     });
     if (peso) {
-      detalhes.push({ rotulo: "Correspondência · peso/volume", pontos: peso });
+      detalhes.push({
+        rotulo: "Correspondência · peso/volume",
+        pontos: peso,
+      });
     }
   } else {
     const descricao = Math.round(cobertura * 55);
     const peso =
-      tipoProduto === "industrializado" && pesoCompativel(descricaoProduto, alvo)
+      tipoProduto === "industrializado" &&
+      pesoCompativel(descricaoProduto, alvo)
         ? 5
         : 0;
     correspondencia = Math.min(60, descricao + peso);
@@ -134,7 +143,10 @@ export function recalcularScoreImagem(
       pontos: descricao,
     });
     if (peso) {
-      detalhes.push({ rotulo: "Correspondência · peso/volume", pontos: peso });
+      detalhes.push({
+        rotulo: "Correspondência · peso/volume",
+        pontos: peso,
+      });
     }
   }
 
@@ -148,14 +160,34 @@ export function recalcularScoreImagem(
 
   if (!candidato.eanExato && termos.length > 0 && cobertura < 0.5) {
     total = Math.min(total, 49);
-    detalhes.push({ rotulo: "Proteção · baixa correspondência", pontos: 0 });
+    detalhes.push({
+      rotulo: "Proteção · baixa correspondência",
+      pontos: 0,
+    });
+  }
+
+  // Produtos variáveis encontrados apenas por pesquisa textual na web devem
+  // passar por revisão humana. Nome parecido em uma busca de imagens não é
+  // evidência suficiente para vincular automaticamente frutas, legumes ou
+  // cortes por peso ao catálogo.
+  if (
+    tipoProduto === "variavel" &&
+    !candidato.eanExato &&
+    FONTES_WEB_TEXTO.has(candidato.source)
+  ) {
+    total = Math.min(total, 49);
+    detalhes.push({
+      rotulo: "Proteção · produto variável requer revisão",
+      pontos: 0,
+    });
   }
 
   return {
     ...candidato,
     score: total,
     scoreDetails: detalhes.filter(
-      (item) => item.pontos !== 0 || item.rotulo.startsWith("Proteção"),
+      (item) =>
+        item.pontos !== 0 || item.rotulo.startsWith("Proteção"),
     ),
   };
 }
