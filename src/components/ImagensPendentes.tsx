@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Check, ChevronDown, ChevronUp, ImageIcon, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  ImageIcon,
+  Loader2,
+  RefreshCw,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useImagensPendentes } from "@/modules/imagens/use-imagens-pendentes";
 
@@ -19,7 +28,9 @@ function formatarOrigem(origem: string): string {
   return nomes[origem] ?? origem;
 }
 
-export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProps) {
+export function ImagensPendentes({
+  categoria = "__all__",
+}: ImagensPendentesProps) {
   const fila = useImagensPendentes(categoria);
   const [mostrarRevisao, setMostrarRevisao] = useState(false);
 
@@ -37,7 +48,8 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
   ] as const;
 
   const podeBuscar = fila.totalNaFila > 0;
-  const podeReenfileirar = !podeBuscar && fila.totalSemImagem > 0;
+  const podeRevisar = fila.aguardandoAprovacao > 0;
+  const podeTentarNovamente = fila.totalSemResultado > 0;
 
   return (
     <section className="surface mt-4 space-y-5 p-5">
@@ -45,30 +57,52 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">Imagens do catálogo</h2>
           <p className="text-sm text-muted-foreground">
-            {categoriaLabel}. O Nódus encontra imagens e envia apenas os casos duvidosos para revisão.
+            {categoriaLabel}. O Nódus encontra imagens e envia apenas os casos
+            duvidosos para revisão.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {fila.aguardandoAprovacao > 0 ? (
-            <Button variant="outline" onClick={() => setMostrarRevisao((atual) => !atual)}>
-              {mostrarRevisao ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-              Revisar ({fila.aguardandoAprovacao})
-            </Button>
-          ) : null}
+          <Button
+            variant="outline"
+            disabled={fila.rodando || !podeRevisar}
+            onClick={() => setMostrarRevisao((atual) => !atual)}
+            title={
+              podeRevisar
+                ? "Abrir itens que precisam de revisão"
+                : "Nenhuma imagem aguardando revisão"
+            }
+          >
+            {mostrarRevisao ? (
+              <ChevronUp className="size-4" />
+            ) : (
+              <ChevronDown className="size-4" />
+            )}
+            Revisar ({fila.aguardandoAprovacao})
+          </Button>
 
-          {podeReenfileirar ? (
-            <Button
-              variant="outline"
-              disabled={fila.rodando}
-              onClick={() => void fila.pesquisarNovamente()}
-            >
-              <RotateCcw className="size-4" /> Tentar novamente
-            </Button>
-          ) : null}
+          <Button
+            variant="outline"
+            disabled={fila.rodando || !podeTentarNovamente}
+            onClick={() => void fila.pesquisarNovamente()}
+            title={
+              podeTentarNovamente
+                ? "Devolver produtos sem resultado para a fila"
+                : "Nenhum produto sem resultado para pesquisar novamente"
+            }
+          >
+            <RotateCcw className="size-4" /> Tentar novamente
+          </Button>
 
-          <Button disabled={fila.rodando || !podeBuscar} onClick={() => void fila.completar()}>
-            {fila.rodando ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+          <Button
+            disabled={fila.rodando || !podeBuscar}
+            onClick={() => void fila.completar()}
+          >
+            {fila.rodando ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
             {fila.rodando ? "Buscando..." : "Buscar imagens"}
           </Button>
         </div>
@@ -85,7 +119,8 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
 
       {fila.rodando ? (
         <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
-          Buscando imagens: <strong>{fila.processados}</strong> de até <strong>{fila.limitePorExecucao}</strong> produtos neste lote.
+          Buscando imagens: <strong>{fila.processados}</strong> de até{" "}
+          <strong>{fila.limitePorExecucao}</strong> produtos neste lote.
         </div>
       ) : null}
 
@@ -94,7 +129,8 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
           <div>
             <h3 className="font-semibold">Revisão de imagens</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Veja o melhor resultado primeiro. Se ele não servir, escolha uma alternativa ou pesquise novamente.
+              Veja o melhor resultado primeiro. Se ele não servir, escolha uma
+              alternativa ou pesquise novamente.
             </p>
           </div>
 
@@ -108,10 +144,18 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
                   <div>
                     <h4 className="font-medium">{grupo.produto.description}</h4>
                     <p className="text-xs text-muted-foreground">
-                      {grupo.produto.ean ? `EAN ${grupo.produto.ean}` : "Sem EAN público informado"}
+                      {grupo.produto.ean
+                        ? `EAN ${grupo.produto.ean}`
+                        : "Sem EAN público informado"}
                     </p>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => void fila.pesquisarNovamente(grupo.produto.id)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      void fila.pesquisarNovamente(grupo.produto.id)
+                    }
+                  >
                     <RotateCcw className="size-4" /> Pesquisar novamente
                   </Button>
                 </div>
@@ -128,24 +172,38 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
 
                   <div className="flex min-w-0 flex-col gap-4">
                     <div>
-                      <div className="text-sm font-medium">{formatarOrigem(principal.source)}</div>
+                      <div className="text-sm font-medium">
+                        {formatarOrigem(principal.source)}
+                      </div>
                       <div className="mt-1 text-sm text-muted-foreground">
-                        Confiança: <strong className="text-foreground">{principal.score}/100</strong>
+                        Confiança:{" "}
+                        <strong className="text-foreground">
+                          {principal.score}/100
+                        </strong>
                       </div>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      <Button size="sm" onClick={() => void fila.aprovar(principal)}>
+                      <Button
+                        size="sm"
+                        onClick={() => void fila.aprovar(principal)}
+                      >
                         <Check className="size-4" /> Aprovar
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => void fila.rejeitar(principal)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void fila.rejeitar(principal)}
+                      >
                         <X className="size-4" /> Não serve
                       </Button>
                     </div>
 
                     {grupo.candidatos.length > 1 ? (
                       <div className="mt-auto">
-                        <div className="mb-2 text-xs font-medium text-muted-foreground">Outras opções</div>
+                        <div className="mb-2 text-xs font-medium text-muted-foreground">
+                          Outras opções
+                        </div>
                         <div className="flex flex-wrap gap-2">
                           {grupo.candidatos.slice(1, 5).map((candidato) => (
                             <button
@@ -179,7 +237,8 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
 
       {!fila.carregando && fila.totalSemImagem === 0 ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <ImageIcon className="size-4" /> Todos os produtos desta seleção já possuem imagem.
+          <ImageIcon className="size-4" /> Todos os produtos desta seleção já
+          possuem imagem.
         </p>
       ) : null}
     </section>
