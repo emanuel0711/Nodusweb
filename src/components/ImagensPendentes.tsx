@@ -22,12 +22,22 @@ interface ImagensPendentesProps {
 }
 
 function formatarOrigem(origem: string): string {
+  if (origem.startsWith("oficial_")) {
+    const marca = origem
+      .slice("oficial_".length)
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (letra) => letra.toUpperCase());
+    return `Site oficial · ${marca}`;
+  }
+
   const nomes: Record<string, string> = {
     cosmos: "Cosmos",
     ean_pictures: "EAN Pictures",
     upcitemdb: "UPC Item DB",
     upcitemdb_text: "UPC Item DB · texto",
     google_images: "Google Imagens",
+    zaffari: "Zaffari",
+    carrefour: "Carrefour",
   };
 
   return nomes[origem] ?? origem;
@@ -63,8 +73,8 @@ export function ImagensPendentes({
           <div className="space-y-1">
             <h2 className="text-lg font-semibold">Imagens do catálogo</h2>
             <p className="text-sm text-muted-foreground">
-              {categoriaLabel}. O Nódus aplica automaticamente imagens confiáveis
-              e separa os casos duvidosos para sua revisão.
+              {categoriaLabel}. O Nódus encontra imagens e envia apenas os casos
+              duvidosos para revisão.
             </p>
           </div>
 
@@ -75,8 +85,8 @@ export function ImagensPendentes({
               onClick={() => setRevisaoAberta(true)}
               title={
                 podeRevisar
-                  ? "Abrir imagens que precisam de aprovação"
-                  : "Nenhuma imagem aguardando aprovação"
+                  ? "Abrir itens que precisam de revisão"
+                  : "Nenhuma imagem aguardando revisão"
               }
             >
               <ImageIcon className="size-4" />
@@ -139,16 +149,12 @@ export function ImagensPendentes({
           <DialogHeader>
             <DialogTitle>Revisar imagens</DialogTitle>
             <DialogDescription>
-              Estas imagens não atingiram confiança suficiente para entrar
-              automaticamente. Aprove a opção correta ou rejeite o resultado.
+              Resultados abaixo da confiança automática ficam aqui para sua
+              confirmação. Escolha a imagem correta ou descarte o resultado.
             </DialogDescription>
           </DialogHeader>
 
-          {!fila.gruposRevisao.length ? (
-            <div className="rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
-              Nenhuma imagem aguardando aprovação.
-            </div>
-          ) : (
+          {fila.gruposRevisao.length ? (
             <div className="space-y-4">
               {fila.gruposRevisao.map((grupo) => {
                 const principal = grupo.candidatos[0];
@@ -158,8 +164,8 @@ export function ImagensPendentes({
                   <article key={grupo.produto.id} className="rounded-xl border p-4">
                     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <h3 className="font-semibold">{grupo.produto.description}</h3>
-                        <p className="mt-1 text-xs text-muted-foreground">
+                        <h3 className="font-medium">{grupo.produto.description}</h3>
+                        <p className="text-xs text-muted-foreground">
                           {grupo.produto.ean
                             ? `EAN ${grupo.produto.ean}`
                             : "Sem EAN público informado"}
@@ -174,13 +180,13 @@ export function ImagensPendentes({
                       </Button>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-[240px_1fr]">
-                      <div className="flex min-h-60 items-center justify-center rounded-lg border bg-white p-3">
+                    <div className="grid gap-4 md:grid-cols-[220px_1fr]">
+                      <div className="flex min-h-56 items-center justify-center rounded-lg border bg-white p-3">
                         <img
                           src={principal.url}
                           alt={grupo.produto.description}
                           loading="lazy"
-                          className="max-h-56 max-w-full object-contain"
+                          className="max-h-52 max-w-full object-contain"
                         />
                       </div>
 
@@ -220,7 +226,7 @@ export function ImagensPendentes({
                                 <button
                                   key={candidato.id}
                                   type="button"
-                                  className="group relative flex size-24 items-center justify-center overflow-hidden rounded-md border bg-white p-1 transition hover:ring-2 hover:ring-primary/40"
+                                  className="group relative flex size-20 items-center justify-center overflow-hidden rounded-md border bg-white p-1"
                                   title={`${formatarOrigem(candidato.source)} · ${candidato.score}/100`}
                                   onClick={() => void fila.aprovar(candidato)}
                                 >
@@ -230,7 +236,7 @@ export function ImagensPendentes({
                                     loading="lazy"
                                     className="max-h-full max-w-full object-contain"
                                   />
-                                  <span className="absolute bottom-0 right-0 rounded-tl bg-background/90 px-1.5 py-0.5 text-[10px] font-semibold">
+                                  <span className="absolute bottom-0 right-0 bg-background/90 px-1 text-[10px] font-semibold">
                                     {candidato.score}
                                   </span>
                                 </button>
@@ -243,6 +249,10 @@ export function ImagensPendentes({
                   </article>
                 );
               })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+              Nenhuma imagem aguardando revisão nesta seleção.
             </div>
           )}
         </DialogContent>
