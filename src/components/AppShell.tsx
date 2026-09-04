@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { LayoutDashboard, Package, Sparkles, LogOut, PackageOpen, Moon, Sun, Settings2, X } from "lucide-react";
+import { Images, LayoutDashboard, Package, Sparkles, LogOut, PackageOpen, Moon, Sun, Settings2, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import "@/ui-polish.css";
 const NAV = [
   { to: "/painel", label: "Visão geral", icon: LayoutDashboard },
   { to: "/catalogo", label: "Catálogo", icon: Package },
+  { to: "/imagens", label: "Imagens", icon: Images },
   { to: "/ofertas", label: "Ofertas", icon: Sparkles },
 ] as const;
 
