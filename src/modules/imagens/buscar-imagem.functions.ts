@@ -10,6 +10,15 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 const CACHE_MAX_ITENS = 300;
 const MIN_CANDIDATOS_ANTES_FALLBACK = 2;
 
+const DOMINIOS_CONFIAVEIS_VARIAVEIS = [
+  "zaffari.com.br",
+  "zaffari.vtexassets.com",
+  "carrefour.com.br",
+  "mercado.carrefour.com.br",
+  "paodeacucar.com",
+  "paodeacucar.vtexassets.com",
+];
+
 type ResultadoBusca = Awaited<ReturnType<typeof buscarCandidatosImagemBase>> & {
   candidatos: CandidatoImagemServidor[];
 };
@@ -53,6 +62,26 @@ function salvarCache(chave: string, resultado: ResultadoBusca) {
   });
 }
 
+function dominioConfiavel(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return DOMINIOS_CONFIAVEIS_VARIAVEIS.some(
+      (dominio) => host === dominio || host.endsWith(`.${dominio}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function filtrarPrincipaisParaProdutoVariavel(
+  candidatos: CandidatoImagemServidor[],
+): CandidatoImagemServidor[] {
+  return candidatos.filter((candidato) => {
+    if (candidato.source !== "google_images") return true;
+    return dominioConfiavel(candidato.url);
+  });
+}
+
 function mesclarCandidatos(
   principais: CandidatoImagemServidor[],
   fallback: CandidatoImagemServidor[],
@@ -74,11 +103,15 @@ async function executarBusca(
   const tipoProduto: TipoProdutoImagem =
     resultado.tipoProduto ?? "industrializado";
 
-  let candidatos = resultado.candidatos;
+  let candidatos =
+    tipoProduto === "variavel"
+      ? filtrarPrincipaisParaProdutoVariavel(resultado.candidatos)
+      : resultado.candidatos;
 
-  // Se as fontes principais trouxerem pouco ou nenhum resultado, buscamos uma
-  // segunda fonte web. Isso evita transformar falha do scraping do Google em
-  // "não existe imagem" e aumenta a chance de gerar opções para revisão manual.
+  // Para produtos variáveis, não aceitamos mais busca ampla da web como
+  // fallback. Quando faltam candidatos, consultamos catálogos reais de grandes
+  // supermercados e só preservamos imagens cuja descrição do produto bate com
+  // o termo pesquisado.
   if (candidatos.length < MIN_CANDIDATOS_ANTES_FALLBACK) {
     const fallback = await buscarCandidatosWeb({
       data: {
@@ -109,8 +142,7 @@ async function executarBusca(
  * Ponto único usado pela interface para pesquisar imagens.
  *
  * A camada evita repetir a mesma consulta enquanto uma busca idêntica está em
- * andamento, mantém cache curto e aciona um fallback web quando as fontes
- * principais não produzem candidatos suficientes.
+ * andamento, mantém cache curto e usa catálogos de varejistas como fallback.
  */
 export async function buscarCandidatosImagem(
   argumentos: Parameters<typeof buscarCandidatosImagemBase>[0],
