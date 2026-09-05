@@ -7,11 +7,14 @@ import { lerPreco, melhorCorrespondencia, normalizarTexto, semelhanca } from "@/
 import { carregarTodosProdutos, limparCodigo, limparEan, type Produto } from "@/lib/catalogo";
 import { aplicarRegras, type RegraOferta } from "@/lib/regras-oferta";
 import { codigosDaFamiliaOferta, extrairExcecoes, normalizarCodigos, chaveBaseOferta } from "@/lib/codigos-oferta";
+import { classificarAgrupamento, type ClassificacaoAgrupamento, type ModoAgrupamento } from "@/modules/ofertas/agrupamento-oferta";
 
 export interface Oferta extends RegraOferta {
   nome: string; preco: number | null; precoClube: number | null; limiteBruto: string;
   ean: string; codigo: string; codigoInterno: string; codigos: string[]; codigosEditados?: boolean;
   excecoes: string[][]; imagem: string; encontrado: string | null; nota: number;
+  origemId?: string; nomeOriginal?: string; modoAgrupamento?: ModoAgrupamento;
+  agrupamentoDetectado?: ClassificacaoAgrupamento; motivoAgrupamento?: string; nomesSeparacao?: string[];
 }
 
 export const CARROSSEIS = [
@@ -192,6 +195,57 @@ function cruzar(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number): 
   };
 }
 
+function linhaComNome(linha: LinhaPlanilha, nome: string): LinhaPlanilha {
+  const copia = { ...linha };
+  const cabecalho = Object.keys(copia).find((chave) => NOMES.some((nomeCampo) => normalizarTexto(chave) === normalizarTexto(nomeCampo)));
+  if (cabecalho) copia[cabecalho] = nome;
+  else copia.PRODUTO = nome;
+  return copia;
+}
+
+function linhaDaOferta(oferta: Oferta, nome: string): LinhaPlanilha {
+  return {
+    PRODUTO: nome,
+    OFERTA: oferta.preco ?? "",
+    CLUBE: oferta.precoClube ?? "",
+    LIMITE: oferta.limiteBruto,
+  };
+}
+
+function aplicarMetadadosAgrupamento(oferta: Oferta, dados: {
+  origemId: string; nomeOriginal: string; modo: ModoAgrupamento; classificacao: ClassificacaoAgrupamento; motivo: string; nomesSeparacao: string[];
+}): Oferta {
+  return {
+    ...oferta,
+    origemId: dados.origemId,
+    nomeOriginal: dados.nomeOriginal,
+    modoAgrupamento: dados.modo,
+    agrupamentoDetectado: dados.classificacao,
+    motivoAgrupamento: dados.motivo,
+    nomesSeparacao: dados.nomesSeparacao,
+  };
+}
+
+function cruzarLinhaComAgrupamento(linha: LinhaPlanilha, catalogo: Produto[], notaMinima: number, origemId: string): Oferta[] {
+  const nomeOriginal = String(valorDoCampo(linha, NOMES) || "").trim();
+  if (!nomeOriginal) return [];
+  const classificacao = classificarAgrupamento(nomeOriginal, catalogo);
+  const nomes = classificacao.classificacao === "split" ? classificacao.nomesSeparados : [nomeOriginal];
+
+  return nomes.flatMap((nome) => {
+    const oferta = cruzar(linhaComNome(linha, nome), catalogo, notaMinima);
+    if (!oferta) return [];
+    return [aplicarMetadadosAgrupamento(oferta, {
+      origemId,
+      nomeOriginal,
+      modo: "auto",
+      classificacao: classificacao.classificacao,
+      motivo: classificacao.motivo,
+      nomesSeparacao: classificacao.nomesSeparados,
+    })];
+  });
+}
+
 /** Agrupa linhas irmãs da mesma oferta base e mesmo preço, unindo códigos únicos. */
 export function agruparOfertasIrmas(ofertas: Oferta[]): Oferta[] {
   const grupos = new Map<string, Oferta>();
@@ -205,8 +259,10 @@ export function agruparOfertasIrmas(ofertas: Oferta[]): Oferta[] {
       continue;
     }
 
-    const base = chaveBaseOferta(oferta.nome);
-    const chave = `${base}|${oferta.preco ?? ""}|${oferta.precoClube ?? ""}`;
+    const separada = oferta.modoAgrupamento === "split" || (oferta.modoAgrupamento !== "grouped" && oferta.agrupamentoDetectado === "split");
+    const base = separada ? normalizarTexto(oferta.nome) : chaveBaseOferta(oferta.nome);
+    const origem = separada && oferta.origemId ? `|${oferta.origemId}` : "";
+    const chave = `${base}|${oferta.preco ?? ""}|${oferta.precoClube ?? ""}${origem}`;
     const existente = grupos.get(chave);
 
     if (!existente) {
@@ -262,6 +318,31 @@ function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
   };
 }
 
+function unirGrupo(ofertas: Oferta[], alvo: Oferta, modo: ModoAgrupamento, classificacao: ClassificacaoAgrupamento, motivo: string): Oferta[] {
+  const origemId = alvo.origemId;
+  if (!origemId) return ofertas.map((item) => item === alvo ? { ...item, modoAgrupamento: modo, agrupamentoDetectado: classificacao, motivoAgrupamento: motivo } : item);
+  const indices = ofertas.map((item, i) => item.origemId === origemId ? i : -1).filter((i) => i >= 0);
+  if (!indices.length) return ofertas;
+  const irmas = indices.map((i) => ofertas[i]!);
+  const primeira = irmas[0]!;
+  const codigos = normalizarCodigos(irmas.flatMap((item) => item.codigos));
+  const unida: Oferta = {
+    ...primeira,
+    nome: alvo.nomeOriginal || primeira.nome,
+    codigos,
+    codigo: codigos.join(";"),
+    ean: primeira.porQuilo ? primeira.ean : (codigos[0] || primeira.ean),
+    modoAgrupamento: modo,
+    agrupamentoDetectado: classificacao,
+    motivoAgrupamento: motivo,
+    nota: Math.max(...irmas.map((item) => item.nota)),
+    imagem: irmas.find((item) => item.imagem)?.imagem || "",
+    encontrado: irmas.find((item) => item.encontrado)?.encontrado || null,
+  };
+  const primeiroIndice = indices[0]!;
+  return ofertas.filter((_, i) => !indices.includes(i) || i === primeiroIndice).map((item, i) => i === primeiroIndice ? unida : item);
+}
+
 export function useOfertas() {
   const queryClient = useQueryClient();
   const campoArquivo = useRef<HTMLInputElement>(null);
@@ -294,12 +375,59 @@ export function useOfertas() {
     setOfertas((atual) => atual.map((oferta, i) => i === indice ? { ...oferta, ...mudanca, ...(Object.hasOwn(mudanca, "codigos") ? { codigosEditados: true } : {}) } : oferta));
   }
 
+  async function alterarAgrupamento(indice: number, modo: ModoAgrupamento) {
+    const alvo = ofertas[indice];
+    if (!alvo) return;
+    const catalogo = await carregarTodosProdutos();
+    const original = alvo.nomeOriginal || alvo.nome;
+    const detectado = classificarAgrupamento(original, catalogo);
+
+    if (modo === "grouped") {
+      setOfertas((atuais) => unirGrupo(atuais, alvo, "grouped", "grouped", "Agrupamento definido manualmente pelo usuário."));
+      return;
+    }
+
+    const nomesSeparacao = alvo.nomesSeparacao?.length ? alvo.nomesSeparacao : detectado.nomesSeparados;
+    if ((modo === "split" || (modo === "auto" && detectado.classificacao === "split")) && nomesSeparacao.length >= 2) {
+      const origemId = alvo.origemId || `manual-${Date.now()}-${indice}`;
+      const novas = nomesSeparacao.flatMap((nome) => {
+        const cruzada = cruzar(linhaDaOferta(alvo, nome), catalogo, notaMinima);
+        if (!cruzada) return [];
+        return [aplicarMetadadosAgrupamento(cruzada, {
+          origemId,
+          nomeOriginal: original,
+          modo,
+          classificacao: "split",
+          motivo: modo === "split" ? "Separação definida manualmente pelo usuário." : detectado.motivo,
+          nomesSeparacao,
+        })];
+      });
+      if (novas.length < 2) { toast.error("Não foi possível encontrar códigos suficientes no catálogo para separar esta oferta."); return; }
+      setOfertas((atuais) => {
+        const indicesGrupo = atuais.map((item, i) => item.origemId === alvo.origemId && alvo.origemId ? i : -1).filter((i) => i >= 0);
+        const remover = indicesGrupo.length ? new Set(indicesGrupo) : new Set([indice]);
+        const primeiro = Math.min(...remover);
+        const resultado = atuais.filter((_, i) => !remover.has(i));
+        resultado.splice(primeiro, 0, ...novas);
+        return resultado;
+      });
+      return;
+    }
+
+    if (modo === "split") {
+      toast.error("Não encontrei variantes explícitas suficientes para separar esta oferta com segurança.");
+      return;
+    }
+
+    setOfertas((atuais) => unirGrupo(atuais, alvo, "auto", detectado.classificacao, detectado.motivo));
+  }
+
   async function processar(arquivo: File) {
     setProcessando(true);
     try {
       const [linhas, catalogo] = await Promise.all([lerPlanilha(arquivo), carregarTodosProdutos()]);
       if (!linhas.length) throw new Error("A planilha não possui linhas de produtos reconhecíveis.");
-      const cruzadas = linhas.map((linha) => cruzar(linha, catalogo, notaMinima)).filter((item): item is Oferta => item !== null);
+      const cruzadas = linhas.flatMap((linha, indice) => cruzarLinhaComAgrupamento(linha, catalogo, notaMinima, `linha-${indice}`));
       if (!cruzadas.length) throw new Error("Não encontrei uma coluna com o nome do produto na planilha.");
       const finais = agruparOfertasIrmas(cruzadas);
 
@@ -310,7 +438,8 @@ export function useOfertas() {
         await supabase.from("offer_runs").insert({ user_id: data.user.id, file_name: arquivo.name, total_items: finais.length, matched_items: correspondidas });
         queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       }
-      toast.success(`${finais.length} oferta(s) processada(s) — ${correspondidas} com código encontrado.`);
+      const separadas = finais.filter((item) => item.agrupamentoDetectado === "split").length;
+      toast.success(`${finais.length} oferta(s) processada(s) — ${correspondidas} com código encontrado${separadas ? ` — ${separadas} linha(s) separada(s) por variante` : ""}.`);
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Falha ao processar a planilha");
     } finally {
@@ -333,8 +462,8 @@ export function useOfertas() {
 
   return {
     campoArquivo, processando, ofertas, notaMinima, setNotaMinima, nomeArquivo,
-    precisamRevisao: ofertas.filter((item) => item.nota < notaMinima || !item.codigos.length || !item.imagem).length,
-    alterar, limparOfertas, setModalAberto, processar, modalAberto, carrossel, setCarrossel,
+    precisamRevisao: ofertas.filter((item) => item.nota < notaMinima || !item.codigos.length || !item.imagem || item.agrupamentoDetectado === "review").length,
+    alterar, alterarAgrupamento, limparOfertas, setModalAberto, processar, modalAberto, carrossel, setCarrossel,
     ativarEm, setAtivarEm, inativarEm, setInativarEm, exportar, modalVisualizacao, setModalVisualizacao,
   };
 }
