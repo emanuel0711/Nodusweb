@@ -30,6 +30,7 @@ function extrairCandidatos(html: string): Array<{ url: string; titulo: string }>
 
   // Também cobre o formato estruturado usado pelo Google Imagens em algumas respostas.
   for (const [, bruto] of html.matchAll(/\["(https?:\\?\/\\?\/[^"\\]+?\.(?:jpe?g|png|webp)(?:[?#&][^"\\]*)?)",\d+,\d+\]/gi)) {
+    if (!bruto) continue;
     const url = limparUrl(bruto);
     if (url && !IGNORAR.test(url) && !encontrados.has(url)) encontrados.set(url, "");
   }
