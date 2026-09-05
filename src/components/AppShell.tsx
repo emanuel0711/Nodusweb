@@ -40,7 +40,8 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
     let mounted = true;
     void supabase.auth.getUser().then(({ data }) => {
       if (!mounted || !data.user) return;
-      const nome = data.user.user_metadata?.full_name || data.user.user_metadata?.name || data.user.email?.split("@")[0] || "Usuário";
+      const metadata = data.user.user_metadata;
+      const nome = metadata?.["full_name"] || metadata?.["name"] || data.user.email?.split("@")[0] || "Usuário";
       setUserName(String(nome));
       setUserEmail(data.user.email ?? "");
     });
