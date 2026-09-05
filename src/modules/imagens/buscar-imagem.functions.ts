@@ -20,7 +20,16 @@ const DOMINIOS_CONFIAVEIS_VARIAVEIS = [
   "paodeacucar.vtexassets.com",
 ];
 
-type ResultadoBusca = Awaited<ReturnType<typeof buscarCandidatosImagemBase>> & {
+type ArgumentosBuscaImagem = {
+  data: {
+    ean?: string;
+    descricao: string;
+    categoria?: string | null;
+  };
+};
+
+type ResultadoBuscaBase = Awaited<ReturnType<typeof buscarCandidatosImagemBase>>;
+type ResultadoBusca = ResultadoBuscaBase & {
   candidatos: CandidatoImagemServidor[];
 };
 
@@ -32,9 +41,7 @@ type CacheItem = {
 const cache = new Map<string, CacheItem>();
 const buscasEmAndamento = new Map<string, Promise<ResultadoBusca>>();
 
-function chaveBusca(
-  argumentos: Parameters<typeof buscarCandidatosImagemBase>[0],
-): string {
+function chaveBusca(argumentos: ArgumentosBuscaImagem): string {
   const { ean = "", descricao, categoria = "" } = argumentos.data;
   return `${ean}|${descricao.trim().toLowerCase()}|${categoria ?? ""}`;
 }
@@ -97,9 +104,7 @@ function mesclarCandidatos(
   return [...mapa.values()];
 }
 
-async function executarBusca(
-  argumentos: Parameters<typeof buscarCandidatosImagemBase>[0],
-): Promise<ResultadoBusca> {
+async function executarBusca(argumentos: ArgumentosBuscaImagem): Promise<ResultadoBusca> {
   const resultado = await buscarCandidatosImagemBase(argumentos);
   const tipoProduto: TipoProdutoImagem =
     resultado.tipoProduto ?? "industrializado";
@@ -116,7 +121,7 @@ async function executarBusca(
     const fabricante = await buscarCandidatosFabricante({
       data: {
         descricao: argumentos.data.descricao,
-        categoria: argumentos.data.categoria,
+        categoria: argumentos.data.categoria ?? null,
       },
     });
 
@@ -129,7 +134,7 @@ async function executarBusca(
     const varejistas = await buscarCandidatosWeb({
       data: {
         descricao: argumentos.data.descricao,
-        categoria: argumentos.data.categoria,
+        categoria: argumentos.data.categoria ?? null,
       },
     });
 
@@ -158,7 +163,7 @@ async function executarBusca(
  * marca é reconhecida e, por último, catálogos de varejistas confiáveis.
  */
 export async function buscarCandidatosImagem(
-  argumentos: Parameters<typeof buscarCandidatosImagemBase>[0],
+  argumentos: ArgumentosBuscaImagem,
 ): Promise<ResultadoBusca> {
   const chave = chaveBusca(argumentos);
   const emCache = lerCache(chave);
