@@ -67,9 +67,13 @@ const TOKENS_GENERICOS = new Set([
   "kg", "g", "ml", "l", "un", "und", "pct", "pcte", "cx", "caixa", "fardo",
 ]);
 
+function textoComparavel(texto: string): string {
+  return normalizarTexto(texto).replace(/[\/|,;]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function contemExpressao(texto: string, expressao: string): boolean {
-  const alvo = normalizarTexto(texto);
-  const termo = normalizarTexto(expressao).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const alvo = textoComparavel(texto);
+  const termo = textoComparavel(expressao).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(?:^|\\s)${termo.replace(/\\ /g, "\\s+")}(?:$|\\s)`).test(alvo);
 }
 
@@ -83,8 +87,8 @@ function tamanhos(valor: string): string[] {
 }
 
 function tokensBase(nome: string, familia: FamiliaDef): string[] {
-  const aliases = new Set(familia.variantes.flatMap((v) => v.aliases.flatMap((a) => normalizarTexto(a).split(/\s+/))));
-  return [...new Set(normalizarTexto(nome).split(/\s+/).filter((token) => token.length >= 2 && !TOKENS_GENERICOS.has(token) && !aliases.has(token) && !/^\d/.test(token)))];
+  const aliases = new Set(familia.variantes.flatMap((v) => v.aliases.flatMap((a) => textoComparavel(a).split(/\s+/))));
+  return [...new Set(textoComparavel(nome).split(/\s+/).filter((token) => token.length >= 2 && !TOKENS_GENERICOS.has(token) && !aliases.has(token) && !/^\d/.test(token)))];
 }
 
 function produtoConfirmaVariante(nome: string, variante: VarianteDef, familia: FamiliaDef, produto: Produto): boolean {
@@ -94,7 +98,7 @@ function produtoConfirmaVariante(nome: string, variante: VarianteDef, familia: F
   if (tamanhosOferta.length && !tamanhosOferta.every((t) => tamanhos(descricao).includes(t))) return false;
   const base = tokensBase(nome, familia);
   if (!base.length) return true;
-  const textoProduto = normalizarTexto(descricao);
+  const textoProduto = textoComparavel(descricao);
   const encontrados = base.filter((token) => textoProduto.includes(token)).length;
   return encontrados / base.length >= 0.5;
 }
@@ -117,7 +121,7 @@ function removerAliases(nome: string, variantes: VarianteDef[], manter: Variante
 }
 
 export function classificarAgrupamento(nome: string, catalogo: Produto[]): ResultadoAgrupamento {
-  const normalizado = normalizarTexto(nome);
+  const normalizado = textoComparavel(nome);
   if (INDICIOS_AGRUPAMENTO.some((termo) => contemExpressao(normalizado, termo))) {
     return { classificacao: "grouped", confianca: 0.98, motivo: "A descrição indica itens agrupados (sabores, fragrâncias, sortidos ou equivalentes).", nomesSeparados: [] };
   }
