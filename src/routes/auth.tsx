@@ -65,8 +65,8 @@ function AuthPage() {
       const metadata = user?.user_metadata;
       if (!metadata) return;
 
-      const termosAtuais = metadata.terms_version === TERMS_VERSION;
-      const privacidadeAtual = metadata.privacy_version === TERMS_VERSION;
+      const termosAtuais = metadata["terms_version"] === TERMS_VERSION;
+      const privacidadeAtual = metadata["privacy_version"] === TERMS_VERSION;
       if (termosAtuais && privacidadeAtual) {
         localStorage.setItem(LEGAL_ACCEPTANCE_KEY, "accepted");
         if (active) setAcceptedLegal(true);
