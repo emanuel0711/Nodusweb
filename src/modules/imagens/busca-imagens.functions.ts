@@ -98,9 +98,9 @@ export interface CandidatoImagemServidor {
   source: string;
   score: number;
   scoreDetails: Array<{ rotulo: string; pontos: number }>;
-  width: number | null;
-  height: number | null;
-  backgroundScore: number | null;
+  width: number;
+  height: number;
+  backgroundScore: number;
   eanExato: boolean;
 }
 
@@ -137,7 +137,7 @@ type ResultadoAnalise =
 type ProdutoBuscaImagem = {
   ean: string;
   descricao: string;
-  categoria?: string | null;
+  categoria?: string | null | undefined;
 };
 
 type PlanoBuscaTexto = {
@@ -172,11 +172,7 @@ function gtinValido(codigo: string): boolean {
 
 function eanPublicoValido(ean: string): boolean {
   if (!gtinValido(ean)) return false;
-
-  // Prefixos 20–29 em EAN-13 são usados com frequência para circulação
-  // restrita, peso/preço variável e códigos internos de varejo.
   if (EAN13_USO_INTERNO.test(ean)) return false;
-
   return true;
 }
 
@@ -187,8 +183,6 @@ export function classificarProdutoImagem(
   const descricao = normalizarTexto(produto.descricao);
   const temEanPublico = eanPublicoValido(produto.ean);
 
-  // Um GTIN público válido é o sinal mais forte. Assim, um item embalado da
-  // Fruteira continua seguindo a estratégia de produto industrializado.
   if (temEanPublico) return "industrializado";
 
   const categoriaVariavel = CATEGORIAS_VARIAVEIS.some((termo) =>
@@ -318,8 +312,8 @@ async function executarComConcorrencia<T, R>(
   return resultados;
 }
 
-function limparUrlGoogle(valor: string): string {
-  return valor
+function limparUrlGoogle(valor: string | undefined): string {
+  return (valor ?? "")
     .replace(/\\\//g, "/")
     .replace(/\\u0026/gi, "&")
     .replace(/\\u003d/gi, "=")
@@ -609,7 +603,6 @@ function pontuar(
   const termos = palavras(produto.descricao);
   const detalhes: Array<{ rotulo: string; pontos: number }> = [];
 
-  // A regra de score permanece a mesma nesta fase. Ela será revisada na Fase 4.
   const pesoFonte: Record<string, number> = {
     cosmos: 22,
     ean_pictures: 20,
