@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CARROSSEIS, separarCodigos, useOfertas } from "@/modules/ofertas/use-ofertas";
+import type { ModoAgrupamento } from "@/modules/ofertas/agrupamento-oferta";
 
 export const Route = createFileRoute("/_authenticated/ofertas")({
   head: () => ({ meta: [
@@ -37,12 +38,19 @@ function BarraAcao({ campoArquivo, processando, ofertas, notaMinima, setNotaMini
     {ofertas.length > 0 && <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
       <span className="rounded-full bg-secondary px-3 py-1 font-medium">{nomeArquivo}</span><span className="rounded-full bg-secondary px-3 py-1">{ofertas.length} itens</span>
       {precisamRevisao ? <span className="flex items-center gap-2 rounded-full bg-warn px-3 py-1 font-medium text-warn-foreground"><AlertTriangle className="size-3.5" /> {precisamRevisao} precisam de revisão</span> : <span className="rounded-full bg-accent px-3 py-1 text-accent-foreground">Tudo pronto para exportar</span>}
-      <span className="text-xs text-muted-foreground">Clique em qualquer item para visualizar.</span>
+      <span className="text-xs text-muted-foreground">Use Agrupamento para corrigir manualmente quando uma linha representar mais de uma oferta.</span>
     </div>}
   </>;
 }
 
-function TabelaOfertas({ ofertas, notaMinima, alterar, setModalVisualizacao }: ReturnType<typeof useOfertas>) {
+function RotuloAgrupamento({ classificacao }: { classificacao?: string }) {
+  if (classificacao === "split") return <span className="text-xs font-medium">Separado</span>;
+  if (classificacao === "grouped") return <span className="text-xs font-medium">Agrupado</span>;
+  if (classificacao === "review") return <span className="text-xs font-medium text-warn-foreground">Revisar</span>;
+  return <span className="text-xs text-muted-foreground">Único</span>;
+}
+
+function TabelaOfertas({ ofertas, notaMinima, alterar, alterarAgrupamento, setModalVisualizacao }: ReturnType<typeof useOfertas>) {
   function remover(index: number) {
     const atual = { ofertas, nomeArquivo: "", carrossel: "", ativarEm: "", inativarEm: "", notaMinima };
     try {
@@ -53,10 +61,11 @@ function TabelaOfertas({ ofertas, notaMinima, alterar, setModalVisualizacao }: R
   }
 
   return <div className="surface mt-4 overflow-x-auto"><Table><TableHeader><TableRow>
-    <TableHead>Img</TableHead><TableHead>Nome</TableHead><TableHead>Produto encontrado</TableHead><TableHead>Confiança</TableHead><TableHead>Preço</TableHead><TableHead>Preço clube</TableHead><TableHead>Limite</TableHead><TableHead>Tipo de produto</TableHead><TableHead>EAN</TableHead><TableHead>Código</TableHead><TableHead>URL da imagem</TableHead><TableHead />
-  </TableRow></TableHeader><TableBody>{ofertas.map((item, index) => <TableRow key={`${item.nome}-${index}`} className={`${(!item.codigos.length || !item.imagem || item.nota < notaMinima) ? "bg-warn/40" : ""} cursor-pointer hover:bg-muted/60`} onClick={(e) => { if ((e.target as HTMLElement).closest("input,button")) return; setModalVisualizacao(item); }}>
+    <TableHead>Img</TableHead><TableHead>Nome</TableHead><TableHead>Produto encontrado</TableHead><TableHead>Confiança</TableHead><TableHead>Preço</TableHead><TableHead>Preço clube</TableHead><TableHead>Limite</TableHead><TableHead>Tipo de produto</TableHead><TableHead>Agrupamento</TableHead><TableHead>EAN</TableHead><TableHead>Código</TableHead><TableHead>URL da imagem</TableHead><TableHead />
+  </TableRow></TableHeader><TableBody>{ofertas.map((item, index) => <TableRow key={`${item.nome}-${item.origemId || index}-${index}`} className={`${(!item.codigos.length || !item.imagem || item.nota < notaMinima || item.agrupamentoDetectado === "review") ? "bg-warn/40" : ""} cursor-pointer hover:bg-muted/60`} onClick={(e) => { if ((e.target as HTMLElement).closest("input,button,select")) return; setModalVisualizacao(item); }}>
     <TableCell>{item.imagem ? <img src={item.imagem} alt={item.nome} loading="lazy" className="size-10 rounded-md object-contain bg-white" /> : <span className="flex size-10 items-center justify-center rounded-md bg-muted text-muted-foreground"><ImageIcon className="size-4" /></span>}</TableCell>
     <TableCell className="max-w-64 font-medium">{item.nome}</TableCell><TableCell className="max-w-72 text-xs text-muted-foreground">{item.encontrado || "Não encontrado"}</TableCell><TableCell>{Math.round(item.nota * 100)}%</TableCell><TableCell>{item.preco ?? "—"}</TableCell><TableCell>{item.precoClube ?? "—"}</TableCell><TableCell>{item.limite ?? "—"}</TableCell><TableCell>{item.unidade}</TableCell>
+    <TableCell className="min-w-48"><div className="space-y-1.5"><select value={item.modoAgrupamento || "auto"} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} onChange={(e) => void alterarAgrupamento(index, e.target.value as ModoAgrupamento)} className="h-9 w-full rounded-md border border-input bg-background px-2 text-xs outline-none"><option value="auto">Automático</option><option value="grouped">Manter agrupado</option><option value="split">Separar produtos</option></select><RotuloAgrupamento classificacao={item.agrupamentoDetectado} /></div></TableCell>
     <TableCell>{!item.porQuilo && <CodigoInput value={item.codigos.join(";")} onChange={(value) => { const codigos = separarCodigos(value, true); alterar(index, { codigos, ean: codigos[0] || "", codigo: codigos.join(";") }); }} />}</TableCell>
     <TableCell>{item.porQuilo && <CodigoInput value={item.codigos.join(";")} onChange={(value) => { const codigos = separarCodigos(value); alterar(index, { codigos, codigo: codigos.join(";") }); }} />}</TableCell>
     <TableCell><CodigoInput value={item.imagem} maxLength={1000} onChange={(imagem) => alterar(index, { imagem })} /></TableCell>
@@ -82,8 +91,8 @@ function DialogExportacao({ modalAberto, setModalAberto, carrossel, setCarrossel
 function DialogVisualizacao({ modalVisualizacao, setModalVisualizacao }: ReturnType<typeof useOfertas>) {
   return <Dialog open={!!modalVisualizacao} onOpenChange={(aberto) => { if (!aberto) setModalVisualizacao(null); }}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>{modalVisualizacao?.nome}</DialogTitle><DialogDescription>Conferência completa do item importado.</DialogDescription></DialogHeader>
     {modalVisualizacao && <div className="grid gap-5 sm:grid-cols-[180px_1fr]"><div className="flex min-h-44 items-center justify-center rounded-xl bg-muted p-3">{modalVisualizacao.imagem ? <img src={modalVisualizacao.imagem} alt={modalVisualizacao.nome} className="max-h-52 w-full rounded-lg object-contain bg-white" /> : <ImageIcon className="size-10 text-muted-foreground" />}</div><div className="grid gap-3 text-sm sm:grid-cols-2">
-      <Info label="Produto encontrado" value={modalVisualizacao.encontrado || "Não encontrado"} /><Info label="Confiança" value={`${Math.round(modalVisualizacao.nota * 100)}%`} /><Info label="Preço" value={modalVisualizacao.preco ?? "—"} /><Info label="Preço clube" value={modalVisualizacao.precoClube ?? "—"} /><Info label="Limite lido da planilha" value={modalVisualizacao.limiteBruto || "—"} /><Info label="Limite para o Clube" value={modalVisualizacao.limite ?? "—"} /><Info label="Tipo de produto" value={modalVisualizacao.unidade} /><Info label="Tipo do código" value={modalVisualizacao.porQuilo ? "Interno" : "EAN"} />
-      <div className="sm:col-span-2"><span className="text-muted-foreground">Códigos gerados</span><p className="font-medium break-words">{modalVisualizacao.codigos.join(";") || "—"}</p></div>{modalVisualizacao.excecoes.length > 0 && <div className="sm:col-span-2"><span className="text-muted-foreground">Exceções detectadas</span><p className="font-medium break-words">{modalVisualizacao.excecoes.map((e) => e.join(" ")).join(" | ")}</p></div>}
+      <Info label="Produto encontrado" value={modalVisualizacao.encontrado || "Não encontrado"} /><Info label="Confiança" value={`${Math.round(modalVisualizacao.nota * 100)}%`} /><Info label="Preço" value={modalVisualizacao.preco ?? "—"} /><Info label="Preço clube" value={modalVisualizacao.precoClube ?? "—"} /><Info label="Limite lido da planilha" value={modalVisualizacao.limiteBruto || "—"} /><Info label="Limite para o Clube" value={modalVisualizacao.limite ?? "—"} /><Info label="Tipo de produto" value={modalVisualizacao.unidade} /><Info label="Tipo do código" value={modalVisualizacao.porQuilo ? "Interno" : "EAN"} /><Info label="Agrupamento" value={modalVisualizacao.agrupamentoDetectado || "single"} /><Info label="Controle" value={modalVisualizacao.modoAgrupamento || "auto"} />
+      <div className="sm:col-span-2"><span className="text-muted-foreground">Motivo do agrupamento</span><p className="font-medium break-words">{modalVisualizacao.motivoAgrupamento || "—"}</p></div><div className="sm:col-span-2"><span className="text-muted-foreground">Códigos gerados</span><p className="font-medium break-words">{modalVisualizacao.codigos.join(";") || "—"}</p></div>{modalVisualizacao.excecoes.length > 0 && <div className="sm:col-span-2"><span className="text-muted-foreground">Exceções detectadas</span><p className="font-medium break-words">{modalVisualizacao.excecoes.map((e) => e.join(" ")).join(" | ")}</p></div>}
     </div></div>}</DialogContent></Dialog>;
 }
 
