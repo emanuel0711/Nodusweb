@@ -22,11 +22,21 @@ export const Route = createFileRoute("/auth")({
 });
 
 const TERMS_VERSION = "2026-09-04";
-const LEGAL_ACCEPTANCE_KEY = `nodus:legal-accepted:${TERMS_VERSION}`;
+const LEGAL_PENDING_KEY = `nodus:legal-pending:${TERMS_VERSION}`;
+const MIN_PASSWORD_LENGTH = 8;
+
+function legalAcceptanceKey(userId: string) {
+  return `nodus:legal-accepted:${TERMS_VERSION}:${userId}`;
+}
 
 const credentialsSchema = z.object({
   email: z.string().trim().email({ message: "Informe um e-mail válido" }).max(255),
-  password: z.string().min(6, { message: "A senha deve ter ao menos 6 caracteres" }).max(72),
+  password: z
+    .string()
+    .min(MIN_PASSWORD_LENGTH, {
+      message: `A senha deve ter ao menos ${MIN_PASSWORD_LENGTH} caracteres`,
+    })
+    .max(72),
 });
 
 function getAuthErrorMessage(error: unknown) {
@@ -35,6 +45,12 @@ function getAuthErrorMessage(error: unknown) {
   const message = value.message || String(error);
   if (/invalid login credentials/i.test(message)) return "E-mail ou senha incorretos";
   if (/email not confirmed/i.test(message)) return "Confirme seu e-mail antes de entrar";
+  if (/password.*(breach|leak|pwned)|known compromised/i.test(message)) {
+    return "Essa senha apareceu em vazamentos conhecidos. Escolha outra senha.";
+  }
+  if (/password.*weak|weak password/i.test(message)) {
+    return "Escolha uma senha mais forte.";
+  }
   if (/email rate limit|rate limit/i.test(message)) return "Muitas tentativas. Aguarde alguns minutos e tente novamente.";
   if (/failed to fetch|network|fetch/i.test(message)) return "Não foi possível conectar ao serviço. Verifique sua conexão.";
   if (/apikey|api key|invalid jwt|jwt/i.test(message)) return "A chave de acesso foi rejeitada. Verifique a configuração do projeto.";
@@ -50,31 +66,41 @@ function AuthPage() {
   const [newPassword, setNewPassword] = useState("");
   const [forgotMode, setForgotMode] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState(false);
-  const [acceptedLegal, setAcceptedLegal] = useState(() =>
-    typeof window !== "undefined" && localStorage.getItem(LEGAL_ACCEPTANCE_KEY) === "accepted",
-  );
+  const [acceptedLegal, setAcceptedLegal] = useState(false);
 
   useEffect(() => {
     let active = true;
 
-    if (localStorage.getItem(LEGAL_ACCEPTANCE_KEY) === "accepted") {
-      setAcceptedLegal(true);
-    }
+    const sincronizarAceiteDaConta = (
+      user: { id: string; user_metadata?: Record<string, unknown> } | null | undefined,
+    ) => {
+      if (!user) return false;
 
-    const sincronizarAceiteDaConta = (user: { user_metadata?: Record<string, unknown> } | null | undefined) => {
-      const metadata = user?.user_metadata;
-      if (!metadata) return;
+      const metadata = user.user_metadata;
+      const termosAtuais = metadata?.["terms_version"] === TERMS_VERSION;
+      const privacidadeAtual = metadata?.["privacy_version"] === TERMS_VERSION;
+      const aceiteAtual = termosAtuais && privacidadeAtual;
 
-      const termosAtuais = metadata["terms_version"] === TERMS_VERSION;
-      const privacidadeAtual = metadata["privacy_version"] === TERMS_VERSION;
-      if (termosAtuais && privacidadeAtual) {
-        localStorage.setItem(LEGAL_ACCEPTANCE_KEY, "accepted");
-        if (active) setAcceptedLegal(true);
+      if (aceiteAtual) {
+        localStorage.setItem(legalAcceptanceKey(user.id), "accepted");
+      } else {
+        localStorage.removeItem(legalAcceptanceKey(user.id));
       }
+
+      if (active) setAcceptedLegal(aceiteAtual);
+      return aceiteAtual;
     };
 
-    const registrarAceitePendente = async () => {
-      if (localStorage.getItem(LEGAL_ACCEPTANCE_KEY) !== "pending") return;
+    const registrarAceitePendente = async (
+      user: { id: string; user_metadata?: Record<string, unknown> },
+    ) => {
+      if (localStorage.getItem(LEGAL_PENDING_KEY) !== "pending") return;
+
+      if (sincronizarAceiteDaConta(user)) {
+        localStorage.removeItem(LEGAL_PENDING_KEY);
+        return;
+      }
+
       const acceptedAt = new Date().toISOString();
       const { data, error } = await supabase.auth.updateUser({
         data: {
@@ -84,10 +110,11 @@ function AuthPage() {
           privacy_version: TERMS_VERSION,
         },
       });
-      if (!error) {
-        localStorage.setItem(LEGAL_ACCEPTANCE_KEY, "accepted");
-        sincronizarAceiteDaConta(data.user);
-      }
+      if (error) throw error;
+
+      localStorage.removeItem(LEGAL_PENDING_KEY);
+      localStorage.setItem(legalAcceptanceKey(data.user.id), "accepted");
+      sincronizarAceiteDaConta(data.user);
     };
 
     const finishOAuthRedirect = async () => {
@@ -111,8 +138,14 @@ function AuthPage() {
         if (active && session) {
           sincronizarAceiteDaConta(session.user);
           if (isRecovery) return;
-          await registrarAceitePendente();
-          if (hasOAuthTokens) window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+          await registrarAceitePendente(session.user);
+          if (hasOAuthTokens) {
+            window.history.replaceState(
+              {},
+              document.title,
+              `${window.location.pathname}${window.location.search}`,
+            );
+          }
           await navigate({ to: "/painel", replace: true });
         }
       } catch (error) {
@@ -133,10 +166,19 @@ function AuthPage() {
         sincronizarAceiteDaConta(session.user);
         const isRecovery = window.location.search.includes("reset=1") || window.location.hash.includes("type=recovery");
         if (isRecovery) return;
-        void registrarAceitePendente().finally(() => {
-          window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
-          void navigate({ to: "/painel", replace: true });
-        });
+        void registrarAceitePendente(session.user)
+          .then(() => {
+            window.history.replaceState(
+              {},
+              document.title,
+              `${window.location.pathname}${window.location.search}`,
+            );
+            void navigate({ to: "/painel", replace: true });
+          })
+          .catch((error) => {
+            console.error("[Auth] Falha ao registrar aceite legal:", error);
+            if (active) toast.error(getAuthErrorMessage(error));
+          });
       }
     });
 
@@ -179,7 +221,9 @@ function AuthPage() {
           },
         });
         if (error) throw error;
-        localStorage.setItem(LEGAL_ACCEPTANCE_KEY, "accepted");
+        if (data.user) {
+          localStorage.setItem(legalAcceptanceKey(data.user.id), "accepted");
+        }
         setAcceptedLegal(true);
         if (data.session) {
           toast.success("Conta criada com sucesso!");
@@ -204,9 +248,7 @@ function AuthPage() {
 
     setLoading(true);
     try {
-      if (localStorage.getItem(LEGAL_ACCEPTANCE_KEY) !== "accepted") {
-        localStorage.setItem(LEGAL_ACCEPTANCE_KEY, "pending");
-      }
+      localStorage.setItem(LEGAL_PENDING_KEY, "pending");
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -218,9 +260,7 @@ function AuthPage() {
       if (!data.url) throw new Error("O serviço de autenticação não retornou a URL do Google.");
       window.location.assign(data.url);
     } catch (error) {
-      if (localStorage.getItem(LEGAL_ACCEPTANCE_KEY) === "pending") {
-        localStorage.removeItem(LEGAL_ACCEPTANCE_KEY);
-      }
+      localStorage.removeItem(LEGAL_PENDING_KEY);
       console.error("[Auth] Erro no Google OAuth:", error);
       toast.error(getAuthErrorMessage(error));
       setLoading(false);
@@ -249,8 +289,8 @@ function AuthPage() {
   }
 
   async function atualizarSenha() {
-    if (newPassword.length < 6 || newPassword.length > 72) {
-      toast.error("A nova senha deve ter entre 6 e 72 caracteres.");
+    if (newPassword.length < MIN_PASSWORD_LENGTH || newPassword.length > 72) {
+      toast.error(`A nova senha deve ter entre ${MIN_PASSWORD_LENGTH} e 72 caracteres.`);
       return;
     }
     setLoading(true);
@@ -296,6 +336,7 @@ function AuthPage() {
                 <div className="space-y-2">
                   <Label htmlFor="new-password">Nova senha</Label>
                   <Input id="new-password" className="h-11 rounded-xl" type="password" autoComplete="new-password" maxLength={72} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="••••••••" />
+                  <p className="text-xs text-muted-foreground">Use pelo menos {MIN_PASSWORD_LENGTH} caracteres.</p>
                 </div>
                 <Button className="h-11 w-full rounded-xl" disabled={loading} onClick={atualizarSenha}>Atualizar senha <ArrowRight className="ml-1 size-4" /></Button>
               </div>
@@ -329,6 +370,7 @@ function AuthPage() {
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-3"><Label htmlFor={`${mode}-password`}>Senha</Label>{mode === "login" ? <button type="button" onClick={() => setForgotMode(true)} className="text-xs text-primary hover:underline">Esqueci minha senha</button> : null}</div>
                         <Input id={`${mode}-password`} className="h-11 rounded-xl" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} maxLength={72} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" />
+                        {mode === "signup" ? <p className="text-xs text-muted-foreground">Use pelo menos {MIN_PASSWORD_LENGTH} caracteres.</p> : null}
                       </div>
                       {mode === "signup" && !acceptedLegal ? <LegalConsent checked={acceptedLegal} onChange={setAcceptedLegal} /> : null}
                       <Button className="h-11 w-full rounded-xl" disabled={loading} onClick={() => submit(mode)}>{mode === "login" ? "Entrar" : "Criar conta"}<ArrowRight className="ml-1 size-4" /></Button>
