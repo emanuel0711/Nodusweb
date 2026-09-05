@@ -29,8 +29,13 @@ function legalAcceptanceKey(userId: string) {
   return `nodus:legal-accepted:${TERMS_VERSION}:${userId}`;
 }
 
-const credentialsSchema = z.object({
-  email: z.string().trim().email({ message: "Informe um e-mail válido" }).max(255),
+const emailSchema = z.string().trim().email({ message: "Informe um e-mail válido" }).max(255);
+const loginCredentialsSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(1, { message: "Informe sua senha" }).max(72),
+});
+const signupCredentialsSchema = z.object({
+  email: emailSchema,
   password: z
     .string()
     .min(MIN_PASSWORD_LENGTH, {
@@ -189,7 +194,8 @@ function AuthPage() {
   }, [navigate]);
 
   async function submit(mode: "login" | "signup") {
-    const parsed = credentialsSchema.safeParse({ email, password });
+    const schema = mode === "login" ? loginCredentialsSchema : signupCredentialsSchema;
+    const parsed = schema.safeParse({ email, password });
     if (!parsed.success) {
       toast.error(parsed.error.issues[0]?.message ?? "Dados inválidos");
       return;
