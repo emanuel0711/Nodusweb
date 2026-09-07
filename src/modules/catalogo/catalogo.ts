@@ -1,30 +1,45 @@
 /** Domínio do catálogo: tipos, normalização de códigos e importação. */
 import { supabase } from "@/integrations/supabase/client";
 import { normalizarTexto, lerPreco } from "@/shared/texto";
+import { ehPorQuilo } from "@/modules/ofertas/regras-oferta";
+import { limparEan, limparCodigo } from "@/shared/codigos";
+export { limparEan, limparCodigo } from "@/shared/codigos";
 import { valorDaColuna, valorDoCampo, type LinhaPlanilha } from "@/modules/planilhas/planilha";
 
 export interface Produto {
-  id: string; internal_code: string | null; promotion_code: string | null; ean: string | null;
-  description: string; unit: string | null; unit_price: number | null; cost: number | null;
-  category: string | null; image_url: string | null;
+  id: string;
+  internal_code: string | null;
+  promotion_code: string | null;
+  ean: string | null;
+  description: string;
+  unit: string | null;
+  unit_price: number | null;
+  cost: number | null;
+  category: string | null;
+  image_url: string | null;
+  stock_quantity?: number | null;
+  stock_updated_at?: string | null;
 }
 
-export const COLUNAS_PRODUTO_BASE = "id, internal_code, promotion_code, ean, description, unit, unit_price, category, image_url";
-export const COLUNAS_PRODUTO = `${COLUNAS_PRODUTO_BASE}, cost`;
+export const COLUNAS_PRODUTO_BASE =
+  "id, internal_code, promotion_code, ean, description, unit, unit_price, category, image_url";
+export const COLUNAS_PRODUTO = `${COLUNAS_PRODUTO_BASE}, cost, stock_quantity, stock_updated_at`;
 
 /** Identifica erros do PostgREST causados pela ausência da coluna de custo. */
-export function erroDeCustoAusente(error: { code?: string | null; message?: string | null; details?: string | null } | null): boolean {
+export function erroDeCustoAusente(
+  error: { code?: string | null; message?: string | null; details?: string | null } | null,
+): boolean {
   if (!error) return false;
   const texto = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
   return (error.code === "PGRST204" || error.code === "42703") && /\bcost\b|custo/.test(texto);
 }
 
-export function limparEan(valor: unknown): string { return String(valor ?? "").replace(/\D/g, ""); }
-export function limparCodigo(valor: unknown): string { return String(valor ?? "").trim().replace(/\.0+$/, ""); }
-export function pareceEan(valor: unknown): boolean { return /^(\d{12}|\d{13}|\d{14})$/.test(limparEan(valor)); }
+export function pareceEan(valor: unknown): boolean {
+  return /^(\d{12}|\d{13}|\d{14})$/.test(limparEan(valor));
+}
 
 function unidadeEhKg(unidade: string | null, descricao: string): boolean {
-  return /\b(kg|quilo|kilo|quilograma)\b/.test(normalizarTexto(`${unidade ?? ""} ${descricao}`));
+  return ehPorQuilo(descricao, "", "", "", unidade ?? "");
 }
 
 function normalizarProduto(produto: Produto): Produto {
@@ -47,11 +62,23 @@ export async function carregarTodosProdutos(): Promise<Produto[]> {
 
   for (let inicio = 0; ; inicio += 1000) {
     const colunas = usarCusto ? COLUNAS_PRODUTO : COLUNAS_PRODUTO_BASE;
-    let { data, error } = await supabase.from("products").select(colunas as string).range(inicio, inicio + 999) as { data: unknown; error: { message?: string; code?: string } | null };
+    let { data, error } = (await supabase
+      .from("products")
+      .select(colunas as string)
+      .range(inicio, inicio + 999)) as {
+      data: unknown;
+      error: { message?: string; code?: string } | null;
+    };
 
     if (error && usarCusto && erroDeCustoAusente(error)) {
       usarCusto = false;
-      ({ data, error } = await supabase.from("products").select(COLUNAS_PRODUTO_BASE).range(inicio, inicio + 999) as { data: unknown; error: { message?: string; code?: string } | null });
+      ({ data, error } = (await supabase
+        .from("products")
+        .select(COLUNAS_PRODUTO_BASE)
+        .range(inicio, inicio + 999)) as {
+        data: unknown;
+        error: { message?: string; code?: string } | null;
+      });
     }
 
     if (error) throw error;
@@ -65,8 +92,15 @@ export async function carregarTodosProdutos(): Promise<Produto[]> {
 }
 
 export interface ProdutoImportado {
-  internal_code: string | null; promotion_code: string | null; ean: string | null; description: string;
-  unit: string | null; unit_price: number | null; cost: number | null; category: string; image_url: string | null;
+  internal_code: string | null;
+  promotion_code: string | null;
+  ean: string | null;
+  description: string;
+  unit: string | null;
+  unit_price: number | null;
+  cost: number | null;
+  category: string;
+  image_url: string | null;
 }
 
 function primeiroCustoValido(...valores: unknown[]): number | null {
@@ -83,35 +117,82 @@ function primeiroCustoValido(...valores: unknown[]): number | null {
  * Produtos por Kg usam código interno e deixam EAN vazio; unidades usam EAN.
  */
 export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): ProdutoImportado | null {
-  const descricao = String(valorDoCampo(linha, ["Descrição", "Descricao", "Produto", "Nome", "Mercadoria"]) || "").trim();
+  const descricao = String(
+    valorDoCampo(linha, ["Descrição", "Descricao", "Produto", "Nome", "Mercadoria"]) || "",
+  ).trim();
   if (!descricao) return null;
 
   const unidade = String(valorDoCampo(linha, ["Un.", "Un", "Unidade"]) || "").trim();
   const porQuilo = unidadeEhKg(unidade, descricao);
-  const eanInformado = limparEan(valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN", "EAN13"]));
-  const codigoPromocaoExplicito = limparCodigo(valorDoCampo(linha, ["Código da promoção", "Codigo da promocao", "Cód. Promoção", "Cod. Promocao", "Código promoção", "Codigo promocao"]));
-  const codigoInternoExplicito = limparCodigo(valorDoCampo(linha, ["Cód. Interno", "Cod. Interno", "Código Interno", "Codigo Interno", "Código da balança", "Codigo da balanca"]));
-  const codigoGenerico = limparCodigo(valorDoCampo(linha, ["Código do produto", "Codigo do produto", "Código", "Codigo", "Cod.", "Cod"]));
+  const eanInformado = limparEan(
+    valorDoCampo(linha, ["EAN", "Código de barras", "Codigo de barras", "GTIN", "EAN13"]),
+  );
+  const codigoPromocaoExplicito = limparCodigo(
+    valorDoCampo(linha, [
+      "Código da promoção",
+      "Codigo da promocao",
+      "Cód. Promoção",
+      "Cod. Promocao",
+      "Código promoção",
+      "Codigo promocao",
+    ]),
+  );
+  const codigoInternoExplicito = limparCodigo(
+    valorDoCampo(linha, [
+      "Cód. Interno",
+      "Cod. Interno",
+      "Código Interno",
+      "Codigo Interno",
+      "Código da balança",
+      "Codigo da balanca",
+    ]),
+  );
+  const codigoGenerico = limparCodigo(
+    valorDoCampo(linha, [
+      "Código do produto",
+      "Codigo do produto",
+      "Código",
+      "Codigo",
+      "Cod.",
+      "Cod",
+    ]),
+  );
 
   let internalCode = "";
   let ean = "";
   if (porQuilo) {
-    internalCode = codigoInternoExplicito || (!pareceEan(eanInformado) ? eanInformado : "") || (!pareceEan(codigoGenerico) ? codigoGenerico : "");
+    internalCode =
+      codigoInternoExplicito ||
+      (!pareceEan(eanInformado) ? eanInformado : "") ||
+      (!pareceEan(codigoGenerico) ? codigoGenerico : "");
   } else {
     ean = eanInformado || (pareceEan(codigoGenerico) ? limparEan(codigoGenerico) : "");
   }
 
   const custoPorCabecalho = valorDoCampo(linha, [
-    "Custo", "Custo unitário", "Custo unitario", "Custo Un.",
-    "Custo médio", "Custo medio", "Custo produto", "Custo do produto",
-    "Preço de custo", "Preco de custo", "Valor de custo", "CMV",
+    "Custo",
+    "Custo unitário",
+    "Custo unitario",
+    "Custo Un.",
+    "Custo médio",
+    "Custo medio",
+    "Custo produto",
+    "Custo do produto",
+    "Preço de custo",
+    "Preco de custo",
+    "Valor de custo",
+    "CMV",
   ]);
 
   // CSV: A é descartada, então O original fica no índice 13.
   // XLSX: A permanece, então O original fica no índice 14.
   const custoPorPosicaoCsv = valorDaColuna(linha, 13);
   const custoPorPosicaoXlsx = valorDaColuna(linha, 14);
-  const custoImportado = primeiroCustoValido(custoPorCabecalho, custoPorPosicaoCsv, custoPorPosicaoXlsx);
+  const custoImportado = primeiroCustoValido(
+    custoPorCabecalho,
+    custoPorPosicaoCsv,
+    custoPorPosicaoXlsx,
+  );
 
   return {
     internal_code: internalCode || null,
@@ -122,10 +203,22 @@ export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): Produ
     unit_price: lerPreco(valorDoCampo(linha, ["Preço Un.", "Preco Un", "Preço", "Preco", "Valor"])),
     cost: custoImportado,
     category: String(valorDoCampo(linha, ["Categoria"]) || categoria).trim() || categoria,
-    image_url: String(valorDoCampo(linha, ["URL da imagem", "URL Imagem", "Imagem", "Foto"]) || "").trim() || null,
+    image_url:
+      String(valorDoCampo(linha, ["URL da imagem", "URL Imagem", "Imagem", "Foto"]) || "").trim() ||
+      null,
   };
 }
 
-export function chaveDoProduto(produto: { internal_code: string | null; promotion_code: string | null; ean: string | null; description: string }): string {
-  return produto.ean || produto.internal_code || produto.promotion_code || normalizarTexto(produto.description);
+export function chaveDoProduto(produto: {
+  internal_code: string | null;
+  promotion_code: string | null;
+  ean: string | null;
+  description: string;
+}): string {
+  return (
+    produto.ean ||
+    produto.internal_code ||
+    produto.promotion_code ||
+    normalizarTexto(produto.description)
+  );
 }
