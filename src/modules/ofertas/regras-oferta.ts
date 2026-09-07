@@ -6,8 +6,12 @@ export function extrairNumeroLimite(valor: unknown): number | null {
   if (valor == null || valor === "") return null;
   if (typeof valor === "number" && Number.isFinite(valor)) return valor;
   const texto = String(valor).trim();
-  if (!texto || /segunda\s+unidade|segunda\s+un|na\s+segunda/.test(normalizarTexto(texto))) return null;
-  const numero = texto.replace(/\s/g, "").replace(/,(?=\d)/, ".").match(/\d+(?:\.\d+)?/)?.[0];
+  if (!texto || /segunda\s+unidade|segunda\s+un|na\s+segunda/.test(normalizarTexto(texto)))
+    return null;
+  const numero = texto
+    .replace(/\s/g, "")
+    .replace(/,(?=\d)/, ".")
+    .match(/\d+(?:\.\d+)?/)?.[0];
   const resultado = Number(numero);
   return Number.isFinite(resultado) ? resultado : null;
 }
@@ -28,22 +32,57 @@ export function unidadesPorFardo(nome: string): number {
 }
 
 /** Decide Kg primeiro pela unidade cadastrada e só depois por heurística. */
-export function ehPorQuilo(nome: string, limiteTexto: string, codigoInterno: string, ean: string, unidadeCatalogo = ""): boolean {
+export function ehPorQuilo(
+  nome: string,
+  limiteTexto: string,
+  codigoInterno: string,
+  ean: string,
+  unidadeCatalogo = "",
+): boolean {
   const unidade = normalizarTexto(unidadeCatalogo);
   const texto = normalizarTexto(`${limiteTexto} ${nome}`);
   if (/^kg$|\bkg\b|quilograma|quilo|kilo/.test(unidade)) return true;
-  if (/^un$|^und$|^unidade$|\bunidade\b|\bund\b|\bfardo\b|\bfd\b|\bcaixa\b|\bcx\b|\bpct\b/.test(unidade)) return false;
-  if (/\bkg\b|\bkilo\b|\bquilo\b|\bquilograma\b|\bgranel\b|\bpeso\b/.test(texto)) return true;
-  if (/\bfardo\b|\bfardos\b|\bfd\b|\bund\b|\bunidade\b|\bun\b|\bcx\b|\bcaixa\b|\bpct\b|\bpcte\b/.test(texto)) return false;
+  if (
+    /^un$|^und$|^unidade$|\bunidade\b|\bund\b|\bfardo\b|\bfd\b|\bcaixa\b|\bcx\b|\bpct\b/.test(
+      unidade,
+    )
+  )
+    return false;
+  // "5 kg" é o peso da embalagem, não a unidade de venda.
+  const nomeSemPeso = nome.replace(/\d+(?:[.,]\d+)?\s*(kg|g|ml|l)\b/gi, " ");
+  if (
+    /\bkg\b|\bkilo\b|\bquilo\b|\bquilograma\b|\bgranel\b|\bpeso\b/.test(
+      normalizarTexto(nomeSemPeso),
+    )
+  )
+    return true;
+  if (/\d+(?:[.,]\d+)?\s*(kg|g|ml|l)\b/i.test(nome)) return false;
+  if (/\bkg\b|\bkilo\b|\bquilo\b|\bquilograma\b/.test(normalizarTexto(limiteTexto))) return true;
+  if (
+    /\bfardo\b|\bfardos\b|\bfd\b|\bund\b|\bunidade\b|\bun\b|\bcx\b|\bcaixa\b|\bpct\b|\bpcte\b/.test(
+      texto,
+    )
+  )
+    return false;
   const interno = String(codigoInterno ?? "").trim();
   const barras = String(ean ?? "").replace(/\D/g, "");
   return !barras && /^\d{1,7}$/.test(interno);
 }
 
-export interface RegraOferta { porQuilo: boolean; unidade: "Kg" | "Unidade"; limite: number | null; }
+export interface RegraOferta {
+  porQuilo: boolean;
+  unidade: "Kg" | "Unidade";
+  limite: number | null;
+}
 
 /** Aplica todas as regras de unidade e limite em um único ponto do sistema. */
-export function aplicarRegras(nome: string, limiteBruto: unknown, codigoInterno: string, ean: string, unidadeCatalogo = ""): RegraOferta {
+export function aplicarRegras(
+  nome: string,
+  limiteBruto: unknown,
+  codigoInterno: string,
+  ean: string,
+  unidadeCatalogo = "",
+): RegraOferta {
   const limiteTexto = String(limiteBruto ?? "").trim();
   const porQuilo = ehPorQuilo(nome, limiteTexto, codigoInterno, ean, unidadeCatalogo);
   const numero = extrairNumeroLimite(limiteTexto);
@@ -51,5 +90,9 @@ export function aplicarRegras(nome: string, limiteBruto: unknown, codigoInterno:
   const normalizado = normalizarTexto(limiteTexto);
   const ehFardo = /\bfardo\b|\bfardos\b|\bfd\b|\bcaixa\b|\bcx\b/.test(normalizado);
   const limite = ehFardo ? numero * unidadesPorFardo(nome) : numero;
-  return { porQuilo, unidade: porQuilo ? "Kg" : "Unidade", limite: porQuilo ? limite : Math.round(limite) };
+  return {
+    porQuilo,
+    unidade: porQuilo ? "Kg" : "Unidade",
+    limite: porQuilo ? limite : Math.round(limite),
+  };
 }

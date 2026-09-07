@@ -1,8 +1,12 @@
 # Ofertas
 
-Regras determinísticas usadas para transformar uma oferta em dados do Clube.
+Regras determinísticas para transformar uma oferta em dados do Clube.
 
-- `regras-oferta.ts` — Kg, Unidade, limite e fardos.
-- `codigos-oferta.ts` — família de códigos, tamanhos e exceções.
+- `codigos-oferta.ts`: normalização de medidas, variantes, exclusões, famílias equivalentes e seleção somente no catálogo.
+- `processar-ofertas.ts`: fluxo puro de cruzamento, separação de variantes e agrupamento, compartilhado com os testes.
+- `regras-oferta.ts`: unidade de venda, limite e fardos.
+- `use-ofertas.ts`: estado de revisão, rascunho, carregamento do catálogo e exportação.
 
-Se uma regra nova aparecer, altere primeiro este módulo em vez de criar uma exceção dentro da tela `ofertas.tsx`.
+“Sabores” só expande uma família compatível e exige gramatura. Ambiguidades não escolhem o primeiro candidato. Produtos equivalentes retornam todos os códigos únicos. As variantes tradicional/zero e branco/parboilizado permanecem distintas.
+
+Execute `pnpm test` com Node.js 24 para os testes de seleção, importação CSV/XLSX e exportação. Veja `VALIDACAO-EANS.md` na raiz para evidências e limitações.
