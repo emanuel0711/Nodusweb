@@ -101,6 +101,8 @@ export type Database = {
           image_url: string | null
           internal_code: string | null
           promotion_code: string | null
+          stock_quantity: number | null
+          stock_updated_at: string | null
           unit: string | null
           unit_price: number | null
           updated_at: string
@@ -119,6 +121,8 @@ export type Database = {
           image_url?: string | null
           internal_code?: string | null
           promotion_code?: string | null
+          stock_quantity?: number | null
+          stock_updated_at?: string | null
           unit?: string | null
           unit_price?: number | null
           updated_at?: string
@@ -137,6 +141,8 @@ export type Database = {
           image_url?: string | null
           internal_code?: string | null
           promotion_code?: string | null
+          stock_quantity?: number | null
+          stock_updated_at?: string | null
           unit?: string | null
           unit_price?: number | null
           updated_at?: string
