@@ -1,8 +1,21 @@
 /** Utilitários puros para normalizar textos e ler números das planilhas. */
 
 const PALAVRAS_GENERICAS = new Set([
-  "kg", "un", "und", "unidade", "pct", "pcte", "cx", "caixa", "fardo", "fd",
-  "bov", "bovina", "bovino", "produto", "mercadoria",
+  "kg",
+  "un",
+  "und",
+  "unidade",
+  "pct",
+  "pcte",
+  "cx",
+  "caixa",
+  "fardo",
+  "fd",
+  "bov",
+  "bovina",
+  "bovino",
+  "produto",
+  "mercadoria",
 ]);
 
 export function normalizarTexto(valor: string): string {
@@ -26,12 +39,19 @@ function pares(valor: string): Map<string, number> {
 }
 
 function tokensUteis(valor: string): string[] {
-  return [...new Set(normalizarTexto(valor).split(" ").filter((t) => t.length >= 2 && !PALAVRAS_GENERICAS.has(t)))];
+  return [
+    ...new Set(
+      normalizarTexto(valor)
+        .split(" ")
+        .filter((t) => t.length >= 2 && !PALAVRAS_GENERICAS.has(t)),
+    ),
+  ];
 }
 
 function similaridadeToken(a: string, b: string): number {
   if (a === b) return 1;
-  if (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a))) return Math.min(a.length, b.length) / Math.max(a.length, b.length);
+  if (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a)))
+    return Math.min(a.length, b.length) / Math.max(a.length, b.length);
   return 0;
 }
 
@@ -70,9 +90,16 @@ export function semelhanca(a: string, b: string): number {
   return porLetras * 0.45 + porPalavras * 0.55;
 }
 
-export interface ItemComparavel { id: string; description: string; }
+export interface ItemComparavel {
+  id: string;
+  description: string;
+}
 
-export function melhorCorrespondencia<T extends ItemComparavel>(nome: string, lista: T[], notaMinima = 0.55): { item: T; score: number } | null {
+export function melhorCorrespondencia<T extends ItemComparavel>(
+  nome: string,
+  lista: T[],
+  notaMinima = 0.55,
+): { item: T; score: number } | null {
   const alvo = normalizarTexto(nome);
   if (!alvo) return null;
   let melhor: { item: T; score: number } | null = null;
@@ -99,7 +126,11 @@ export function lerLimite(valor: unknown): number | null {
 export function lerPreco(valor: unknown): number | null {
   if (valor == null || valor === "") return null;
   if (typeof valor === "number") return Number.isFinite(valor) ? valor : null;
-  const limpo = String(valor).replace(/[^\d,.-]/g, "").replace(/\.(?=\d{3}\b)/g, "").replace(",", ".");
+  const limpo = String(valor)
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\.(?=\d{3}\b)/g, "")
+    .replace(",", ".");
+  if (!/\d/.test(limpo)) return null;
   const numero = Number(limpo);
   return Number.isFinite(numero) ? numero : null;
 }
