@@ -16,7 +16,7 @@ import {
   valorDoCampo,
 } from "../src/modules/planilhas/planilha.ts";
 import { ehPorQuilo } from "../src/modules/ofertas/regras-oferta.ts";
-import type { Produto } from "../src/modules/catalogo/catalogo.ts";
+import { linhaParaProduto, type Produto } from "../src/modules/catalogo/catalogo.ts";
 
 const produto = (id: string, description: string, extra: Partial<Produto> = {}): Produto => ({
   id,
@@ -44,6 +44,35 @@ const catalogo = [
   produto("10", "Banana prata KG", { unit: "KG", ean: null, internal_code: "0012" }),
 ];
 const linha = (PRODUTO: string) => ({ PRODUTO, OFERTA: 5.99, CLUBE: 4.99, LIMITE: "3 unidades" });
+test("importação do catálogo lê Qtd. como estoque e registra a data da carga", () => {
+  const atualizadoEm = "2026-09-08T12:34:56.000Z";
+  const item = linhaParaProduto(
+    {
+      "Cód. Interno": "67506",
+      Código: "7898064990046",
+      Descrição: "CARVAO IVOTI 4KG",
+      "Un.": "UN",
+      "Qtd.": "16",
+      "Custo Merc. Compra": "R$ 16,00",
+    },
+    "CARVAO",
+    atualizadoEm,
+  );
+
+  assert.equal(item?.stock_quantity, 16);
+  assert.equal(item?.stock_updated_at, atualizadoEm);
+});
+test("estoque zero também é importado e recebe data de atualização", () => {
+  const atualizadoEm = "2026-09-08T12:34:56.000Z";
+  const item = linhaParaProduto(
+    { Código: "7898064990084", Descrição: "LENHA IVOTI 10KG", "Un.": "UN", "Qtd.": 0 },
+    "CARVAO",
+    atualizadoEm,
+  );
+
+  assert.equal(item?.stock_quantity, 0);
+  assert.equal(item?.stock_updated_at, atualizadoEm);
+});
 test("fluxo reúne Frisco em uma linha e conserva preços e limite", () => {
   const ofertas = processarLinhasOfertas([linha("Frisco sabores 25g")], catalogo);
   assert.equal(ofertas.length, 1);
