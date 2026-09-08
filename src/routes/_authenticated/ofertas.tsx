@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useRef } from "react";
 import { AlertTriangle, Download, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -123,7 +124,7 @@ function BarraAcao({
             </span>
           )}
           <span className="text-xs text-muted-foreground">
-            Clique em qualquer item para visualizar.
+            Clique para visualizar. Clique duas vezes para selecionar os itens compatíveis.
           </span>
         </div>
       )}
@@ -137,7 +138,10 @@ function TabelaOfertas({
   alterar,
   remover,
   setModalVisualizacao,
+  setSelecaoExpandida,
 }: ReturnType<typeof useOfertas>) {
+  const cliquePendente = useRef<number | null>(null);
+
   return (
     <div className="surface mt-4 overflow-x-auto">
       <Table>
@@ -164,6 +168,18 @@ function TabelaOfertas({
               className={`${!item.codigos.length || item.motivoRevisao || item.nota < notaMinima ? "bg-warn/40" : ""} cursor-pointer hover:bg-muted/60`}
               onClick={(e) => {
                 if ((e.target as HTMLElement).closest("input,button")) return;
+                if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
+                cliquePendente.current = window.setTimeout(() => {
+                  setSelecaoExpandida(false);
+                  setModalVisualizacao(item);
+                  cliquePendente.current = null;
+                }, 220);
+              }}
+              onDoubleClick={(e) => {
+                if ((e.target as HTMLElement).closest("input,button")) return;
+                if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
+                cliquePendente.current = null;
+                setSelecaoExpandida(true);
                 setModalVisualizacao(item);
               }}
             >
@@ -352,6 +368,8 @@ function DialogVisualizacao({
   setModalVisualizacao,
   ofertas,
   alterar,
+  selecaoExpandida,
+  setSelecaoExpandida,
 }: ReturnType<typeof useOfertas>) {
   const indice = modalVisualizacao
     ? ofertas.findIndex((oferta) => oferta === modalVisualizacao)
@@ -359,6 +377,14 @@ function DialogVisualizacao({
   const candidatos = modalVisualizacao
     ? Object.entries(modalVisualizacao.nomesPorCodigo ?? {})
     : [];
+  const nomesSelecionados = modalVisualizacao
+    ? modalVisualizacao.codigos
+        .map((codigo) => modalVisualizacao.nomesPorCodigo?.[codigo])
+        .filter((nome): nome is string => Boolean(nome))
+    : [];
+  const produtoEncontrado = nomesSelecionados.length
+    ? resumirProdutosEncontrados(nomesSelecionados)
+    : modalVisualizacao?.encontrado || "Não encontrado";
 
   function alternarCodigo(codigo: string, marcado: boolean) {
     if (!modalVisualizacao || indice < 0) return;
@@ -389,7 +415,10 @@ function DialogVisualizacao({
     <Dialog
       open={!!modalVisualizacao}
       onOpenChange={(aberto) => {
-        if (!aberto) setModalVisualizacao(null);
+        if (!aberto) {
+          setModalVisualizacao(null);
+          setSelecaoExpandida(false);
+        }
       }}
     >
       <DialogContent className="max-w-2xl">
@@ -416,7 +445,7 @@ function DialogVisualizacao({
                   {modalVisualizacao.motivoRevisao}
                 </div>
               )}
-              {candidatos.length > 1 && (
+              {selecaoExpandida && candidatos.length > 1 && (
                 <div className="sm:col-span-2 rounded-md border p-3">
                   <p className="mb-2 font-medium">Itens compatíveis encontrados</p>
                   <div className="space-y-2">
@@ -439,7 +468,7 @@ function DialogVisualizacao({
               )}
               <Info
                 label="Produto encontrado"
-                value={modalVisualizacao.encontrado || "Não encontrado"}
+                value={produtoEncontrado}
               />
               <Info label="Confiança" value={`${Math.round(modalVisualizacao.nota * 100)}%`} />
               <Info label="Preço" value={modalVisualizacao.preco ?? "—"} />
@@ -468,6 +497,36 @@ function DialogVisualizacao({
       </DialogContent>
     </Dialog>
   );
+}
+
+function resumirProdutosEncontrados(nomes: string[]): string {
+  const unicos = [...new Set(nomes.map((nome) => nome.trim()).filter(Boolean))];
+  if (unicos.length <= 1) return unicos[0] || "Não encontrado";
+
+  const palavras = unicos.map((nome) => nome.split(/\s+/));
+  let prefixo = 0;
+  while (
+    palavras.every(
+      (partes) =>
+        partes[prefixo] &&
+        partes[prefixo]!.localeCompare(palavras[0]![prefixo]!, "pt-BR", {
+          sensitivity: "base",
+        }) === 0,
+    )
+  ) {
+    prefixo++;
+  }
+
+  if (prefixo < 2) return unicos.join(" / ");
+  const variedades = palavras.map((partes, indice) => {
+    const variedade = partes
+      .slice(prefixo)
+      .join(" ")
+      .replace(/\s+(PET|GARRAFA|LATA|LT)$/i, "")
+      .trim();
+    return variedade || unicos[indice]!;
+  });
+  return [...new Set(variedades)].join(" / ");
 }
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
