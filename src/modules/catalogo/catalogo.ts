@@ -24,6 +24,7 @@ export interface Produto {
 export const COLUNAS_PRODUTO_BASE =
   "id, internal_code, promotion_code, ean, description, unit, unit_price, category, image_url";
 export const COLUNAS_PRODUTO = `${COLUNAS_PRODUTO_BASE}, cost, stock_quantity, stock_updated_at`;
+const COLUNAS_PRODUTO_SEM_ESTOQUE = `${COLUNAS_PRODUTO_BASE}, cost`;
 
 /** Identifica erros do PostgREST causados pela ausência da coluna de custo. */
 export function erroDeCustoAusente(
@@ -32,6 +33,18 @@ export function erroDeCustoAusente(
   if (!error) return false;
   const texto = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
   return (error.code === "PGRST204" || error.code === "42703") && /\bcost\b|custo/.test(texto);
+}
+
+/** Identifica instalações que ainda não receberam a migração de estoque. */
+function erroDeEstoqueAusente(
+  error: { code?: string | null; message?: string | null; details?: string | null } | null,
+): boolean {
+  if (!error) return false;
+  const texto = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+  return (
+    (error.code === "PGRST204" || error.code === "42703") &&
+    /stock_quantity|stock_updated_at/.test(texto)
+  );
 }
 
 export function pareceEan(valor: unknown): boolean {
@@ -59,9 +72,14 @@ function normalizarProduto(produto: Produto): Produto {
 export async function carregarTodosProdutos(): Promise<Produto[]> {
   const todos: Produto[] = [];
   let usarCusto = true;
+  let usarEstoque = true;
 
   for (let inicio = 0; ; inicio += 1000) {
-    const colunas = usarCusto ? COLUNAS_PRODUTO : COLUNAS_PRODUTO_BASE;
+    const colunas = usarEstoque
+      ? COLUNAS_PRODUTO
+      : usarCusto
+        ? COLUNAS_PRODUTO_SEM_ESTOQUE
+        : COLUNAS_PRODUTO_BASE;
     let { data, error } = (await supabase
       .from("products")
       .select(colunas as string)
@@ -69,6 +87,17 @@ export async function carregarTodosProdutos(): Promise<Produto[]> {
       data: unknown;
       error: { message?: string; code?: string } | null;
     };
+
+    if (error && usarEstoque && erroDeEstoqueAusente(error)) {
+      usarEstoque = false;
+      ({ data, error } = (await supabase
+        .from("products")
+        .select(usarCusto ? COLUNAS_PRODUTO_SEM_ESTOQUE : COLUNAS_PRODUTO_BASE)
+        .range(inicio, inicio + 999)) as {
+        data: unknown;
+        error: { message?: string; code?: string } | null;
+      });
+    }
 
     if (error && usarCusto && erroDeCustoAusente(error)) {
       usarCusto = false;
@@ -99,6 +128,8 @@ export interface ProdutoImportado {
   unit: string | null;
   unit_price: number | null;
   cost: number | null;
+  stock_quantity: number | null;
+  stock_updated_at: string | null;
   category: string;
   image_url: string | null;
 }
@@ -116,7 +147,11 @@ function primeiroCustoValido(...valores: unknown[]): number | null {
  * Coluna A do CSV é ignorada. A coluna O da origem é o custo.
  * Produtos por Kg usam código interno e deixam EAN vazio; unidades usam EAN.
  */
-export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): ProdutoImportado | null {
+export function linhaParaProduto(
+  linha: LinhaPlanilha,
+  categoria: string,
+  atualizadoEm = new Date().toISOString(),
+): ProdutoImportado | null {
   const descricao = String(
     valorDoCampo(linha, ["Descrição", "Descricao", "Produto", "Nome", "Mercadoria"]) || "",
   ).trim();
@@ -193,6 +228,18 @@ export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): Produ
     custoPorPosicaoCsv,
     custoPorPosicaoXlsx,
   );
+  const estoqueImportado = lerPreco(
+    valorDoCampo(linha, [
+      "Qtd.",
+      "Qtd",
+      "Quantidade em estoque",
+      "Qtd. estoque",
+      "Qtd estoque",
+      "Estoque atual",
+      "Estoque",
+      "Saldo",
+    ]),
+  );
 
   return {
     internal_code: internalCode || null,
@@ -202,6 +249,8 @@ export function linhaParaProduto(linha: LinhaPlanilha, categoria: string): Produ
     unit: unidade || null,
     unit_price: lerPreco(valorDoCampo(linha, ["Preço Un.", "Preco Un", "Preço", "Preco", "Valor"])),
     cost: custoImportado,
+    stock_quantity: estoqueImportado,
+    stock_updated_at: estoqueImportado == null ? null : atualizadoEm,
     category: String(valorDoCampo(linha, ["Categoria"]) || categoria).trim() || categoria,
     image_url:
       String(valorDoCampo(linha, ["URL da imagem", "URL Imagem", "Imagem", "Foto"]) || "").trim() ||

@@ -21,10 +21,19 @@ async function carregarCategorias(): Promise<string[]> {
   return semCategoria ? [SEM_CATEGORIA, ...lista] : lista;
 }
 
-async function atualizarCustos(atualizacoes: Array<{ id: string; cost: number }>) {
+interface AtualizacaoImportacao {
+  id: string;
+  cost?: number;
+  stock_quantity?: number;
+  stock_updated_at?: string;
+}
+
+async function atualizarProdutosImportados(atualizacoes: AtualizacaoImportacao[]) {
   for (let i = 0; i < atualizacoes.length; i += 50) {
     const lote = atualizacoes.slice(i, i + 50);
-    const resultados = await Promise.all(lote.map(({ id, cost }) => supabase.from("products").update({ cost }).eq("id", id)));
+    const resultados = await Promise.all(
+      lote.map(({ id, ...dados }) => supabase.from("products").update(dados).eq("id", id)),
+    );
     const erro = resultados.find((resultado) => resultado.error)?.error;
     if (erro) throw erro;
   }
@@ -140,22 +149,30 @@ export function useCatalogo() {
       const existentesPorChave = new Map(existentes.map((produto) => [chaveDoProduto(produto), produto]));
       const imagemPorEan = new Map(existentes.filter((item) => item.ean && item.image_url).map((item) => [item.ean as string, item.image_url as string]));
       let importados = 0; let repetidos = 0; let semNome = 0;
-      const atualizacoesCusto: Array<{ id: string; cost: number }> = [];
+      const atualizacoes: AtualizacaoImportacao[] = [];
 
       for (const arquivo of Array.from(arquivos)) {
         const linhas = await lerPlanilha(arquivo);
         const categoriaArquivo = categoriaPeloNomeDoArquivo(arquivo.name);
+        const atualizadoEm = new Date().toISOString();
         const paraInserir: Array<Record<string, unknown>> = [];
 
         for (const linha of linhas) {
-          const produto = linhaParaProduto(linha, categoriaArquivo);
+          const produto = linhaParaProduto(linha, categoriaArquivo, atualizadoEm);
           if (!produto) { semNome++; continue; }
           const chave = chaveDoProduto(produto);
           const existente = existentesPorChave.get(chave);
 
           if (existente) {
             repetidos++;
-            if (produto.cost != null && produto.cost !== existente.cost) atualizacoesCusto.push({ id: existente.id, cost: produto.cost });
+            const atualizacao: AtualizacaoImportacao = { id: existente.id };
+            if (produto.cost != null && produto.cost !== existente.cost)
+              atualizacao.cost = produto.cost;
+            if (produto.stock_quantity != null) {
+              atualizacao.stock_quantity = produto.stock_quantity;
+              atualizacao.stock_updated_at = atualizadoEm;
+            }
+            if (Object.keys(atualizacao).length > 1) atualizacoes.push(atualizacao);
             continue;
           }
 
@@ -173,11 +190,11 @@ export function useCatalogo() {
         }
       }
 
-      await atualizarCustos(atualizacoesCusto);
+      await atualizarProdutosImportados(atualizacoes);
 
       const segundos = ((performance.now() - inicio) / 1000).toFixed(1);
-      if (!importados && !atualizacoesCusto.length) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
-      else toast.success(`${importados} produto(s) importado(s) e ${atualizacoesCusto.length} custo(s) atualizado(s) em ${segundos}s. Imagens ficam na fila do Catálogo.`);
+      if (!importados && !atualizacoes.length) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
+      else toast.success(`${importados} produto(s) importado(s) e ${atualizacoes.length} produto(s) atualizado(s) em ${segundos}s. Imagens ficam na fila do Catálogo.`);
       atualizarListas();
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Falha na importação");
