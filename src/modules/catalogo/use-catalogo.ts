@@ -11,6 +11,17 @@ export const TODAS = "__all__";
 export const SEM_CATEGORIA = "__uncategorized__";
 export const FORMULARIO_VAZIO = { description: "", internal_code: "", promotion_code: "", ean: "", unit: "", category: "", unit_price: "", cost: "", image_url: "" };
 export type FormularioProduto = typeof FORMULARIO_VAZIO;
+export interface ResumoImportacao {
+  id: string;
+  file_name: string;
+  category: string;
+  inserted_count: number;
+  updated_count: number;
+  ignored_count: number;
+  error_count: number;
+  created_at: string;
+  undone_at: string | null;
+}
 
 async function carregarCategorias(): Promise<string[]> {
   const produtos = await carregarTodosProdutos();
@@ -56,6 +67,20 @@ export function useCatalogo() {
   const [formulario, setFormulario] = useState<FormularioProduto>(FORMULARIO_VAZIO);
   const [dialogoAberto, setDialogoAberto] = useState(false);
   const [importando, setImportando] = useState(false);
+  const [ultimoResumo, setUltimoResumo] = useState<ResumoImportacao | null>(null);
+
+  const historico = useQuery({
+    queryKey: ["catalog-imports"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("catalog_imports")
+        .select("id,file_name,category,inserted_count,updated_count,ignored_count,error_count,created_at,undone_at")
+        .order("created_at", { ascending: false })
+        .limit(30);
+      if (error) throw error;
+      return data as ResumoImportacao[];
+    },
+  });
 
   function setBusca(valor: string) {
     setBuscaAtual(valor);
@@ -166,6 +191,23 @@ export function useCatalogo() {
         const categoriaArquivo = categoriaPeloNomeDoArquivo(arquivo.name);
         const atualizadoEm = new Date().toISOString();
         const paraInserir: Array<Record<string, unknown>> = [];
+        const inicioAtualizacoes = atualizacoes.length;
+        const importadosAntes = importados;
+        const repetidosAntes = repetidos;
+        const errosAntes = semNome;
+        const snapshot = existentes.filter((produto) => produto.category === categoriaArquivo);
+        const convertidos = linhas
+          .map((linha) => linhaParaProduto(linha, categoriaArquivo, atualizadoEm))
+          .filter((produto): produto is NonNullable<typeof produto> => Boolean(produto));
+        const categoriasDeclaradas = new Set(convertidos.map((produto) => produto.category));
+        if ([...categoriasDeclaradas].some((categoria) => categoria !== categoriaArquivo))
+          throw new Error(`O conteúdo de ${arquivo.name} informa outra categoria. A carga foi bloqueada.`);
+        if (snapshot.length >= 20 && convertidos.length >= 10) {
+          const chavesAnteriores = new Set(snapshot.map(chaveDoProduto));
+          const comuns = convertidos.filter((produto) => chavesAnteriores.has(chaveDoProduto(produto))).length;
+          if (comuns / Math.min(snapshot.length, convertidos.length) < 0.05)
+            throw new Error(`O arquivo ${arquivo.name} quase não corresponde à categoria ${categoriaArquivo}. A carga foi bloqueada para evitar uma substituição incorreta.`);
+        }
 
         for (const linha of linhas) {
           const produto = linhaParaProduto(linha, categoriaArquivo, atualizadoEm);
@@ -198,20 +240,46 @@ export function useCatalogo() {
           const data = await inserirLote(paraInserir.slice(i, i + 500));
           importados += data.length;
         }
+        const atualizacoesArquivo = atualizacoes.slice(inicioAtualizacoes);
+        await atualizarProdutosImportados(atualizacoesArquivo);
+        const resumo = {
+          user_id: sessao.user.id,
+          file_name: arquivo.name,
+          category: categoriaArquivo,
+          inserted_count: importados - importadosAntes,
+          updated_count: atualizacoesArquivo.length,
+          ignored_count: repetidos - repetidosAntes - atualizacoesArquivo.length,
+          error_count: semNome - errosAntes,
+          snapshot,
+        };
+        const { data: carga, error: erroCarga } = await supabase
+          .from("catalog_imports")
+          .insert(resumo as never)
+          .select("id,file_name,category,inserted_count,updated_count,ignored_count,error_count,created_at,undone_at")
+          .single();
+        if (erroCarga) throw erroCarga;
+        setUltimoResumo(carga as ResumoImportacao);
       }
-
-      await atualizarProdutosImportados(atualizacoes);
 
       const segundos = ((performance.now() - inicio) / 1000).toFixed(1);
       if (!importados && !atualizacoes.length) toast.warning(`Nenhum produto novo. ${repetidos} repetido(s) e ${semNome} linha(s) sem descrição.`);
       else toast.success(`${importados} produto(s) importado(s) e ${atualizacoes.length} produto(s) atualizado(s) em ${segundos}s. Imagens ficam na fila do Catálogo.`);
       atualizarListas();
+      queryClient.invalidateQueries({ queryKey: ["catalog-imports"] });
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Falha na importação");
     } finally {
       setImportando(false);
       if (campoArquivo.current) campoArquivo.current.value = "";
     }
+  }
+
+  async function desfazerImportacao(id: string) {
+    const { error } = await supabase.rpc("undo_catalog_import", { p_import_id: id });
+    if (error) throw error;
+    toast.success("Carga desfeita e categoria restaurada.");
+    atualizarListas();
+    queryClient.invalidateQueries({ queryKey: ["catalog-imports"] });
   }
 
   function editar(produto: Produto) {
@@ -238,5 +306,6 @@ export function useCatalogo() {
     importando, categorias: categorias.data ?? [], produtos: produtos.data?.linhas ?? [],
     total: produtos.data?.total ?? 0, paginas: Math.max(1, Math.ceil((produtos.data?.total ?? 0) / POR_PAGINA)),
     salvar, excluir, importar, editar, novoProduto, excluirSelecionadas,
+    ultimoResumo, historico: historico.data ?? [], desfazerImportacao,
   };
 }
