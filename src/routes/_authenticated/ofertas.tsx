@@ -165,7 +165,7 @@ function TabelaOfertas({
           {ofertas.map((item, index) => (
             <TableRow
               key={`${item.nome}-${index}`}
-              className={`${!item.codigos.length || item.motivoRevisao || item.nota < notaMinima ? "bg-warn/40" : ""} cursor-pointer hover:bg-muted/60`}
+              className={`${!item.codigos.length || item.motivoRevisao || item.nota < notaMinima ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
               onClick={(e) => {
                 if ((e.target as HTMLElement).closest("input,button")) return;
                 if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
@@ -197,11 +197,13 @@ function TabelaOfertas({
                   </span>
                 )}
               </TableCell>
-              <TableCell className="max-w-64 font-medium">{item.nome}</TableCell>
+              <TableCell className="max-w-64 font-medium">
+                <span className="line-clamp-2">{item.nome}</span>
+              </TableCell>
               <TableCell className="max-w-72 text-xs text-muted-foreground">
-                {item.encontrado || "Não encontrado"}
+                <span className="line-clamp-2">{resumirProdutoDaOferta(item)}</span>
                 {item.motivoRevisao && (
-                  <p className="mt-1 text-warn-foreground">{item.motivoRevisao}</p>
+                  <p className="mt-1 line-clamp-1 text-warn-foreground">{item.motivoRevisao}</p>
                 )}
               </TableCell>
               <TableCell>{Math.round(item.nota * 100)}%</TableCell>
@@ -426,7 +428,27 @@ function DialogVisualizacao({
           <DialogTitle>{modalVisualizacao?.nome}</DialogTitle>
           <DialogDescription>Conferência completa do item importado.</DialogDescription>
         </DialogHeader>
-        {modalVisualizacao && (
+        {modalVisualizacao && selecaoExpandida ? (
+          <div className="rounded-md border p-3 text-sm">
+            <p className="mb-3 font-medium">Itens compatíveis encontrados</p>
+            <div className="space-y-2">
+              {candidatos.map(([codigo, nome]) => (
+                <label key={codigo} className="flex cursor-pointer items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={modalVisualizacao.codigos.includes(codigo)}
+                    onChange={(evento) => alternarCodigo(codigo, evento.target.checked)}
+                  />
+                  <span>
+                    <span className="block font-medium">{nome}</span>
+                    <span className="text-xs text-muted-foreground">{codigo}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : modalVisualizacao ? (
           <div className="grid gap-5 sm:grid-cols-[180px_1fr]">
             <div className="flex min-h-44 items-center justify-center rounded-xl bg-muted p-3">
               {modalVisualizacao.imagem ? (
@@ -443,27 +465,6 @@ function DialogVisualizacao({
               {modalVisualizacao.motivoRevisao && (
                 <div className="sm:col-span-2 rounded-md bg-warn p-3">
                   {modalVisualizacao.motivoRevisao}
-                </div>
-              )}
-              {selecaoExpandida && candidatos.length > 1 && (
-                <div className="sm:col-span-2 rounded-md border p-3">
-                  <p className="mb-2 font-medium">Itens compatíveis encontrados</p>
-                  <div className="space-y-2">
-                    {candidatos.map(([codigo, nome]) => (
-                      <label key={codigo} className="flex cursor-pointer items-start gap-2">
-                        <input
-                          type="checkbox"
-                          className="mt-1"
-                          checked={modalVisualizacao.codigos.includes(codigo)}
-                          onChange={(evento) => alternarCodigo(codigo, evento.target.checked)}
-                        />
-                        <span>
-                          <span className="block font-medium">{nome}</span>
-                          <span className="text-xs text-muted-foreground">{codigo}</span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
                 </div>
               )}
               <Info
@@ -493,7 +494,7 @@ function DialogVisualizacao({
               )}
             </div>
           </div>
-        )}
+        ) : null}
       </DialogContent>
     </Dialog>
   );
@@ -527,6 +528,17 @@ function resumirProdutosEncontrados(nomes: string[]): string {
     return variedade || unicos[indice]!;
   });
   return [...new Set(variedades)].join(" / ");
+}
+
+function resumirProdutoDaOferta(
+  oferta: ReturnType<typeof useOfertas>["ofertas"][number],
+): string {
+  const nomes = oferta.codigos
+    .map((codigo) => oferta.nomesPorCodigo?.[codigo])
+    .filter((nome): nome is string => Boolean(nome));
+  return nomes.length
+    ? resumirProdutosEncontrados(nomes)
+    : oferta.encontrado || "Não encontrado";
 }
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
