@@ -91,6 +91,7 @@ export function useOfertas() {
   const [notaMinima, setNotaMinima] = useState(rascunho?.notaMinima ?? 0.55);
   const [modalAberto, setModalAberto] = useState(false);
   const [modalVisualizacao, setModalVisualizacao] = useState<Oferta | null>(null);
+  const [selecaoExpandida, setSelecaoExpandida] = useState(false);
   const [carrossel, setCarrossel] = useState(rascunho?.carrossel ?? "");
   const [ativarEm, setAtivarEm] = useState(rascunho?.ativarEm ?? "");
   const [inativarEm, setInativarEm] = useState(rascunho?.inativarEm ?? "");
@@ -247,5 +248,7 @@ export function useOfertas() {
     exportar,
     modalVisualizacao,
     setModalVisualizacao,
+    selecaoExpandida,
+    setSelecaoExpandida,
   };
 }
