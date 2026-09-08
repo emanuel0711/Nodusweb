@@ -38,7 +38,7 @@ interface Rascunho {
 
 function lerRascunho(): Rascunho | null {
   try {
-    const salvo = sessionStorage.getItem(STORAGE_KEY);
+    const salvo = localStorage.getItem(STORAGE_KEY) ?? sessionStorage.getItem(STORAGE_KEY);
     return salvo ? (JSON.parse(salvo) as Rascunho) : null;
   } catch {
     return null;
@@ -98,10 +98,11 @@ export function useOfertas() {
 
   useEffect(() => {
     if (!ofertas.length && !nomeArquivo) {
+      localStorage.removeItem(STORAGE_KEY);
       sessionStorage.removeItem(STORAGE_KEY);
       return;
     }
-    sessionStorage.setItem(
+    localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ ofertas, nomeArquivo, carrossel, ativarEm, inativarEm, notaMinima }),
     );
@@ -235,6 +236,8 @@ export function useOfertas() {
         !item.imagem?.trim() ||
         item.nota < notaMinima ||
         !item.codigos.length ||
+        (item.codigos.some((codigo) => item.estoquePorCodigo?.[codigo] != null) &&
+          item.codigos.every((codigo) => (item.estoquePorCodigo?.[codigo] ?? 1) <= 0)) ||
         Boolean(item.motivoRevisao),
     ).length,
     alterar,
