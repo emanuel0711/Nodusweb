@@ -618,6 +618,20 @@ test("estoque é o último critério para resolver uma família ambígua", () =>
     itens[1]!.ean,
   ]);
 });
+test("seleção explica inclusão e descarte por estoque de cada EAN", () => {
+  const itens = [
+    produto("7890000000001", "Energético Red Horse 473ml tradicional", { stock_quantity: 0 }),
+    produto("7890000000002", "Energético Red Horse 473ml frutas tropicais", { stock_quantity: 5 }),
+  ];
+  const resultado = selecionarCodigosOferta("Energético Red Horse 473ml", itens, false);
+
+  assert.equal(resultado.decisoesPorCodigo?.["7890000000001"]?.status, "descartado");
+  assert.match(
+    resultado.decisoesPorCodigo?.["7890000000001"]?.motivos.join(" ") ?? "",
+    /estoque zerado/,
+  );
+  assert.equal(resultado.decisoesPorCodigo?.["7890000000002"]?.status, "incluido");
+});
 
 test("ambiguidade preserva os candidatos para seleção manual", () => {
   const itens = [
