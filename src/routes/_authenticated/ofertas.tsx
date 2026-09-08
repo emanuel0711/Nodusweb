@@ -489,9 +489,10 @@ function DialogVisualizacao({
             oferta.linhaOrigem === modalVisualizacao.linhaOrigem),
       )
     : -1;
-  const candidatos = modalVisualizacao
-    ? Object.entries(modalVisualizacao.nomesPorCodigo ?? {})
-    : [];
+  const decisoes = modalVisualizacao ? Object.entries(modalVisualizacao.decisoesPorCodigo ?? {}) : [];
+  const candidatos = decisoes.length
+    ? decisoes.map(([codigo, decisao]) => [codigo, decisao.nome] as const)
+    : Object.entries(modalVisualizacao?.nomesPorCodigo ?? {});
   const nomesSelecionados = modalVisualizacao
     ? modalVisualizacao.codigos
         .map((codigo) => modalVisualizacao.nomesPorCodigo?.[codigo])
@@ -523,6 +524,16 @@ function DialogVisualizacao({
       .join(" / ");
     const mudanca = {
       codigos,
+      decisoesPorCodigo: Object.fromEntries(
+        Object.entries(modalVisualizacao.decisoesPorCodigo ?? {}).map(([item, decisao]) => [
+          item,
+          {
+            ...decisao,
+            status: codigos.includes(item) ? ("incluido" as const) : ("descartado" as const),
+            motivos: [...decisao.motivos.filter((motivo) => motivo !== "decisão manual salva"), "decisão manual salva"],
+          },
+        ]),
+      ),
       codigo: codigos.join(";"),
       encontrado: nomes || null,
       nota: codigos.length ? 1 : 0,
@@ -567,6 +578,11 @@ function DialogVisualizacao({
                   <span>
                     <span className="block font-medium">{nome}</span>
                     <span className="text-xs text-muted-foreground">{codigo}</span>
+                    {modalVisualizacao.decisoesPorCodigo?.[codigo] && (
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {modalVisualizacao.decisoesPorCodigo[codigo]!.motivos.join(" · ")}
+                      </span>
+                    )}
                   </span>
                 </label>
               ))}
