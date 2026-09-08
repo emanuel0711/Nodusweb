@@ -367,7 +367,7 @@ function DialogVisualizacao({ produto, onClose }: { produto: Produto | null; onC
                 value={produto.stock_quantity == null ? "Não informado" : produto.stock_quantity}
               />
               <Info
-                label="Estoque atualizado em"
+                label="Arquivo atualizado em"
                 value={produto.stock_updated_at ? new Date(produto.stock_updated_at).toLocaleString("pt-BR") : "—"}
               />
               <Info label="Arquivo / categoria" value={produto.category || "Sem categoria"} />
