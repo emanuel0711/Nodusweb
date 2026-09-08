@@ -165,7 +165,7 @@ function TabelaOfertas({
           {ofertas.map((item, index) => (
             <TableRow
               key={`${item.nome}-${index}`}
-              className={`${!item.codigos.length || item.motivoRevisao || item.nota < notaMinima ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
+              className={`${!item.imagem || !item.codigos.length || item.motivoRevisao || item.nota < notaMinima ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
               onClick={(e) => {
                 if ((e.target as HTMLElement).closest("input,button")) return;
                 if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
@@ -192,8 +192,12 @@ function TabelaOfertas({
                     className="size-10 rounded-md object-contain bg-white"
                   />
                 ) : (
-                  <span className="flex size-10 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <span
+                    className="flex min-h-10 min-w-16 flex-col items-center justify-center rounded-md bg-warn px-1 text-warn-foreground"
+                    title="Imagem ausente"
+                  >
                     <ImageIcon className="size-4" />
+                    <span className="mt-0.5 text-[10px] font-medium">Sem imagem</span>
                   </span>
                 )}
               </TableCell>
