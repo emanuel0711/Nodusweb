@@ -48,14 +48,24 @@ async function inserirLote(lote: Array<Record<string, unknown>>) {
 export function useCatalogo() {
   const queryClient = useQueryClient();
   const campoArquivo = useRef<HTMLInputElement>(null);
-  const [busca, setBusca] = useState("");
-  const [categoria, setCategoria] = useState(TODAS);
+  const [busca, setBuscaAtual] = useState("");
+  const [categoria, setCategoriaAtual] = useState(TODAS);
   const [selecionadas, setSelecionadas] = useState<string[]>([]);
   const [pagina, setPagina] = useState(0);
   const [editando, setEditando] = useState<Produto | null>(null);
   const [formulario, setFormulario] = useState<FormularioProduto>(FORMULARIO_VAZIO);
   const [dialogoAberto, setDialogoAberto] = useState(false);
   const [importando, setImportando] = useState(false);
+
+  function setBusca(valor: string) {
+    setBuscaAtual(valor);
+    setPagina(0);
+  }
+
+  function setCategoria(valor: string) {
+    setCategoriaAtual(valor);
+    setPagina(0);
+  }
 
   const atualizarListas = () => {
     queryClient.invalidateQueries({ queryKey: ["products"] });
