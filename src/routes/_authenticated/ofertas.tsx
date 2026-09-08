@@ -60,7 +60,20 @@ function PaginaOfertas() {
   );
 }
 
-type FiltroPendencia = "todas" | "pendentes" | "sem_imagem" | "sem_codigo" | "com_duvida";
+type FiltroPendencia =
+  | "todas"
+  | "pendentes"
+  | "sem_imagem"
+  | "sem_codigo"
+  | "estoque_zerado"
+  | "com_duvida";
+
+function itemComEstoqueZerado(item: ReturnType<typeof useOfertas>["ofertas"][number]) {
+  const estoques = item.codigos
+    .map((codigo) => item.estoquePorCodigo?.[codigo])
+    .filter((estoque): estoque is number => estoque != null);
+  return estoques.length > 0 && estoques.every((estoque) => estoque <= 0);
+}
 
 function itemPrecisaRevisao(
   item: ReturnType<typeof useOfertas>["ofertas"][number],
@@ -69,6 +82,7 @@ function itemPrecisaRevisao(
   return (
     !item.imagem?.trim() ||
     !item.codigos.length ||
+    itemComEstoqueZerado(item) ||
     Boolean(item.motivoRevisao) ||
     item.nota < notaMinima
   );
@@ -90,6 +104,7 @@ function PainelPendencias({
     ["pendentes", "Com pendência", ofertas.filter((item) => itemPrecisaRevisao(item, notaMinima)).length],
     ["sem_imagem", "Sem imagem", ofertas.filter((item) => !item.imagem?.trim()).length],
     ["sem_codigo", "Sem código", ofertas.filter((item) => !item.codigos.length).length],
+    ["estoque_zerado", "Estoque zerado", ofertas.filter(itemComEstoqueZerado).length],
     [
       "com_duvida",
       "Com dúvida",
@@ -214,6 +229,7 @@ function TabelaOfertas({
     if (filtroPendencia === "pendentes") return itemPrecisaRevisao(item, notaMinima);
     if (filtroPendencia === "sem_imagem") return !item.imagem?.trim();
     if (filtroPendencia === "sem_codigo") return !item.codigos.length;
+    if (filtroPendencia === "estoque_zerado") return itemComEstoqueZerado(item);
     if (filtroPendencia === "com_duvida")
       return Boolean(item.motivoRevisao) || item.nota < notaMinima;
     return true;
@@ -251,7 +267,7 @@ function TabelaOfertas({
             return (
               <TableRow
                 key={`${item.nome}-${index}`}
-                className={`${!item.imagem || !item.codigos.length || item.motivoRevisao || item.nota < notaMinima ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
+              className={`${itemPrecisaRevisao(item, notaMinima) ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
                 onClick={(e) => {
                   if ((e.target as HTMLElement).closest("input,button")) return;
                   if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
@@ -461,11 +477,17 @@ function DialogVisualizacao({
   setModalVisualizacao,
   ofertas,
   alterar,
+  notaMinima,
   selecaoExpandida,
   setSelecaoExpandida,
 }: ReturnType<typeof useOfertas>) {
   const indice = modalVisualizacao
-    ? ofertas.findIndex((oferta) => oferta === modalVisualizacao)
+    ? ofertas.findIndex(
+        (oferta) =>
+          oferta === modalVisualizacao ||
+          (oferta.nome === modalVisualizacao.nome &&
+            oferta.linhaOrigem === modalVisualizacao.linhaOrigem),
+      )
     : -1;
   const candidatos = modalVisualizacao
     ? Object.entries(modalVisualizacao.nomesPorCodigo ?? {})
@@ -478,6 +500,17 @@ function DialogVisualizacao({
   const produtoEncontrado = nomesSelecionados.length
     ? resumirProdutosEncontrados(nomesSelecionados)
     : modalVisualizacao?.encontrado || "Não encontrado";
+  const indicesProblematicas = ofertas
+    .map((item, index) => (itemPrecisaRevisao(item, notaMinima) ? index : -1))
+    .filter((index) => index >= 0);
+  const indiceProblematica = indicesProblematicas.indexOf(indice);
+
+  function abrirProblematica(deslocamento: number) {
+    const proxima = ofertas[indicesProblematicas[indiceProblematica + deslocamento] ?? -1];
+    if (!proxima) return;
+    setModalVisualizacao(proxima);
+    setSelecaoExpandida(false);
+  }
 
   function alternarCodigo(codigo: string, marcado: boolean) {
     if (!modalVisualizacao || indice < 0) return;
@@ -586,6 +619,30 @@ function DialogVisualizacao({
             </div>
           </div>
         ) : null}
+        {modalVisualizacao && indiceProblematica >= 0 && (
+          <DialogFooter className="items-center sm:justify-between">
+            <span className="text-xs text-muted-foreground">
+              Pendência {indiceProblematica + 1} de {indicesProblematicas.length}
+            </span>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={indiceProblematica === 0}
+                onClick={() => abrirProblematica(-1)}
+              >
+                Anterior
+              </Button>
+              <Button
+                type="button"
+                disabled={indiceProblematica === indicesProblematicas.length - 1}
+                onClick={() => abrirProblematica(1)}
+              >
+                Próxima pendência
+              </Button>
+            </div>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );
