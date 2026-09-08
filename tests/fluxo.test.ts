@@ -82,6 +82,20 @@ test("fluxo reúne Frisco em uma linha e conserva preços e limite", () => {
   assert.equal(ofertas[0]!.limite, 3);
   assert.equal(ofertas[0]!.motivoRevisao, null);
 });
+test("oferta usa a imagem disponível em outra variedade da mesma família", () => {
+  const itens = [
+    produto("11", "Energético Red Horse 473ml frutas tropicais", { image_url: null }),
+    produto("12", "Energético Red Horse 473ml tradicional", {
+      image_url: "https://exemplo.com/red-horse.png",
+    }),
+  ];
+  const oferta = processarLinhasOfertas(
+    [linha("Energético Red Horse 473ml")],
+    itens,
+  )[0]!;
+
+  assert.equal(oferta.imagem, "https://exemplo.com/red-horse.png");
+});
 test("oferta combinada de refrigerante vira duas linhas", () => {
   const ofertas = processarLinhasOfertas([linha("Coca Cola tradicional e zero 2L")], catalogo);
   assert.equal(ofertas.length, 2);
