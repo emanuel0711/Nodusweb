@@ -12,6 +12,18 @@ export type Database = {
   }
   public: {
     Tables: {
+      catalog_imports: {
+        Row: { id: string; user_id: string; file_name: string; category: string; inserted_count: number; updated_count: number; ignored_count: number; error_count: number; snapshot: Json; undone_at: string | null; created_at: string }
+        Insert: { id?: string; user_id: string; file_name: string; category: string; inserted_count?: number; updated_count?: number; ignored_count?: number; error_count?: number; snapshot?: Json; undone_at?: string | null; created_at?: string }
+        Update: { undone_at?: string | null }
+        Relationships: []
+      }
+      offer_match_memory: {
+        Row: { id: string; user_id: string; offer_key: string; codes: string[]; updated_at: string }
+        Insert: { id?: string; user_id: string; offer_key: string; codes?: string[]; updated_at?: string }
+        Update: { codes?: string[]; updated_at?: string }
+        Relationships: []
+      }
       image_candidates: {
         Row: {
           background_score: number | null
@@ -155,7 +167,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      undo_catalog_import: { Args: { p_import_id: string }; Returns: undefined }
     }
     Enums: {
       [_ in never]: never
