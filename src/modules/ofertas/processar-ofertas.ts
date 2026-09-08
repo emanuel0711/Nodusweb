@@ -29,6 +29,7 @@ export interface Oferta extends RegraOferta {
   motivoRevisao?: string | null;
   linhaOrigem?: LinhaPlanilha;
   nomesPorCodigo?: Record<string, string>;
+  estoquePorCodigo?: Record<string, number | null>;
 }
 const NOMES = [
   "PRODUTO",
@@ -132,6 +133,12 @@ export function cruzarOferta(
         p.description,
       ]),
     ),
+    estoquePorCodigo: Object.fromEntries(
+      selecao.produtos.map((p) => [
+        porQuilo ? limparCodigo(p.internal_code) : p.ean!,
+        p.stock_quantity,
+      ]),
+    ),
   };
 }
 export function agruparOfertasIrmas(ofertas: Oferta[]): Oferta[] {
@@ -156,6 +163,7 @@ export function agruparOfertasIrmas(ofertas: Oferta[]): Oferta[] {
       codigos,
       codigo: codigos.join(";"),
       nomesPorCodigo: { ...anterior?.nomesPorCodigo, ...oferta.nomesPorCodigo },
+      estoquePorCodigo: { ...anterior?.estoquePorCodigo, ...oferta.estoquePorCodigo },
       nota: Math.min(anterior?.nota ?? 1, oferta.nota),
       motivoRevisao: anterior?.motivoRevisao || oferta.motivoRevisao || null,
     });
