@@ -59,6 +59,25 @@ function aplicarMemoria(ofertas: Oferta[], catalogo: Produto[]): Oferta[] {
   });
 }
 
+async function sincronizarMemoriaDoServidor() {
+  const { data: sessao } = await supabase.auth.getUser();
+  if (!sessao.user) return;
+  const { data, error } = await supabase.from("offer_match_memory").select("offer_key, codes");
+  if (error) return;
+  const memoria = lerMemoria();
+  for (const item of data ?? []) memoria[item.offer_key] = item.codes;
+  localStorage.setItem(MEMORY_KEY, JSON.stringify(memoria));
+}
+
+async function salvarMemoriaNoServidor(chave: string, codigos: string[]) {
+  const { data: sessao } = await supabase.auth.getUser();
+  if (!sessao.user) return;
+  await supabase.from("offer_match_memory").upsert(
+    { user_id: sessao.user.id, offer_key: chave, codes: codigos, updated_at: new Date().toISOString() },
+    { onConflict: "user_id,offer_key" },
+  );
+}
+
 interface Rascunho {
   ofertas: Oferta[];
   nomeArquivo: string;
@@ -167,6 +186,7 @@ export function useOfertas() {
           const memoria = lerMemoria();
           memoria[chaveBaseOferta(oferta.nome)] = alterada.codigos ?? [];
           localStorage.setItem(MEMORY_KEY, JSON.stringify(memoria));
+          void salvarMemoriaNoServidor(chaveBaseOferta(oferta.nome), alterada.codigos ?? []);
         }
         return alterada;
       }),
@@ -179,6 +199,7 @@ export function useOfertas() {
       const [linhas, catalogo] = await Promise.all([
         lerPlanilha(arquivo, { preservarColunaA: true }),
         carregarTodosProdutos(),
+        sincronizarMemoriaDoServidor(),
       ]);
       if (!linhas.length)
         throw new Error("A planilha não possui linhas de produtos reconhecíveis.");
