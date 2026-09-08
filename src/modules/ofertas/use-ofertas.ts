@@ -231,7 +231,11 @@ export function useOfertas() {
     setNotaMinima,
     nomeArquivo,
     precisamRevisao: ofertas.filter(
-      (item) => item.nota < notaMinima || !item.codigos.length || Boolean(item.motivoRevisao),
+      (item) =>
+        !item.imagem?.trim() ||
+        item.nota < notaMinima ||
+        !item.codigos.length ||
+        Boolean(item.motivoRevisao),
     ).length,
     alterar,
     remover,
