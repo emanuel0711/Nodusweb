@@ -96,6 +96,18 @@ test("oferta usa a imagem disponível em outra variedade da mesma família", () 
 
   assert.equal(oferta.imagem, "https://exemplo.com/red-horse.png");
 });
+test("oferta preserva o estoque de cada código compatível", () => {
+  const itens = [
+    produto("11", "Energético Red Horse 473ml frutas tropicais", { stock_quantity: 0 }),
+    produto("12", "Energético Red Horse 473ml tradicional", { stock_quantity: 8 }),
+  ];
+  const oferta = processarLinhasOfertas(
+    [linha("Energético Red Horse 473ml")],
+    itens,
+  )[0]!;
+
+  assert.deepEqual(oferta.estoquePorCodigo, { "11": 0, "12": 8 });
+});
 test("oferta combinada de refrigerante vira duas linhas", () => {
   const ofertas = processarLinhasOfertas([linha("Coca Cola tradicional e zero 2L")], catalogo);
   assert.equal(ofertas.length, 2);
