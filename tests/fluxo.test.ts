@@ -564,6 +564,19 @@ test("estoque é o último critério para resolver uma família ambígua", () =>
   ]);
 });
 
+test("ambiguidade preserva os candidatos para seleção manual", () => {
+  const itens = [
+    produto("141", "MASSA MOSMANN 750G SEMOLA PARAFUSO"),
+    produto("142", "MASSA MOSMANN 750G SEMOLA PENNE"),
+    produto("143", "MASSA MOSMANN 750G SEMOLA TALHARIM N3"),
+    produto("144", "MASSA MOSMANN 750G SEMOLA TUBO"),
+  ];
+  const resultado = selecionarCodigosOferta("MASSA MOSMANN 750G SEMOLA", itens, false);
+  assert.deepEqual(resultado.codigos, []);
+  assert.deepEqual(resultado.produtos, itens);
+  assert.match(resultado.motivo ?? "", /Selecione abaixo/);
+});
+
 test("catálogo continua funcionando quando estoque ainda não foi carregado", () => {
   const item = produto("140", "Produto Exemplo 500g", { stock_quantity: null });
   assert.deepEqual(selecionarCodigosOferta("Produto Exemplo 500g", [item], false).codigos, [
