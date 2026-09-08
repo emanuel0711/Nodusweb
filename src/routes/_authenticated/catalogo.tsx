@@ -183,6 +183,7 @@ function TabelaCatalogo({
             <TableHead>Un.</TableHead>
             <TableHead>Preço</TableHead>
             <TableHead>Custo</TableHead>
+            <TableHead>Estoque</TableHead>
             <TableHead>Arquivo</TableHead>
             <TableHead>Ações</TableHead>
           </TableRow>
@@ -219,6 +220,9 @@ function TabelaCatalogo({
               <TableCell>{produto.unit || "—"}</TableCell>
               <TableCell>{produto.unit_price ?? "—"}</TableCell>
               <TableCell>{produto.cost ?? "—"}</TableCell>
+              <TableCell>
+                {produto.stock_quantity == null ? "Não informado" : produto.stock_quantity}
+              </TableCell>
               <TableCell>{produto.category || "Sem categoria"}</TableCell>
               <TableCell>
                 <div className="flex gap-1">
@@ -358,6 +362,14 @@ function DialogVisualizacao({ produto, onClose }: { produto: Produto | null; onC
               <Info label="Unidade" value={produto.unit || "—"} />
               <Info label="Preço" value={produto.unit_price ?? "—"} />
               <Info label="Custo" value={produto.cost ?? "—"} />
+              <Info
+                label="Estoque"
+                value={produto.stock_quantity == null ? "Não informado" : produto.stock_quantity}
+              />
+              <Info
+                label="Estoque atualizado em"
+                value={produto.stock_updated_at ? new Date(produto.stock_updated_at).toLocaleString("pt-BR") : "—"}
+              />
               <Info label="Arquivo / categoria" value={produto.category || "Sem categoria"} />
               <div className="sm:col-span-2">
                 <span className="text-muted-foreground">URL da imagem</span>

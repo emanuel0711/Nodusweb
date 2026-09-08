@@ -350,7 +350,41 @@ function DialogExportacao({
 function DialogVisualizacao({
   modalVisualizacao,
   setModalVisualizacao,
+  ofertas,
+  alterar,
 }: ReturnType<typeof useOfertas>) {
+  const indice = modalVisualizacao
+    ? ofertas.findIndex((oferta) => oferta === modalVisualizacao)
+    : -1;
+  const candidatos = modalVisualizacao
+    ? Object.entries(modalVisualizacao.nomesPorCodigo ?? {})
+    : [];
+
+  function alternarCodigo(codigo: string, marcado: boolean) {
+    if (!modalVisualizacao || indice < 0) return;
+    const codigos = marcado
+      ? [...new Set([...modalVisualizacao.codigos, codigo])]
+      : modalVisualizacao.codigos.filter((item) => item !== codigo);
+    const nomes = codigos
+      .map((item) => modalVisualizacao.nomesPorCodigo?.[item])
+      .filter(Boolean)
+      .join(" / ");
+    const mudanca = {
+      codigos,
+      codigo: codigos.join(";"),
+      encontrado: nomes || null,
+      nota: codigos.length ? 1 : 0,
+      motivoRevisao: codigos.length
+        ? null
+        : "Selecione pelo menos um item compatível para esta oferta.",
+      ...(modalVisualizacao.porQuilo
+        ? { codigoInterno: codigos[0] || "" }
+        : { ean: codigos[0] || "" }),
+    };
+    alterar(indice, mudanca);
+    setModalVisualizacao({ ...modalVisualizacao, ...mudanca, codigosEditados: true });
+  }
+
   return (
     <Dialog
       open={!!modalVisualizacao}
@@ -380,6 +414,27 @@ function DialogVisualizacao({
               {modalVisualizacao.motivoRevisao && (
                 <div className="sm:col-span-2 rounded-md bg-warn p-3">
                   {modalVisualizacao.motivoRevisao}
+                </div>
+              )}
+              {candidatos.length > 1 && (
+                <div className="sm:col-span-2 rounded-md border p-3">
+                  <p className="mb-2 font-medium">Itens compatíveis encontrados</p>
+                  <div className="space-y-2">
+                    {candidatos.map(([codigo, nome]) => (
+                      <label key={codigo} className="flex cursor-pointer items-start gap-2">
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={modalVisualizacao.codigos.includes(codigo)}
+                          onChange={(evento) => alternarCodigo(codigo, evento.target.checked)}
+                        />
+                        <span>
+                          <span className="block font-medium">{nome}</span>
+                          <span className="text-xs text-muted-foreground">{codigo}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               )}
               <Info
