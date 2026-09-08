@@ -96,7 +96,8 @@ export function cruzarOferta(
       porQuilo = true;
     }
   }
-  const item = selecao.produtos[0];
+  const itemComImagem = selecao.produtos.find((produto) => produto.image_url?.trim());
+  const item = itemComImagem ?? selecao.produtos[0];
   const regras = aplicarRegras(
     nome,
     limiteBruto,
