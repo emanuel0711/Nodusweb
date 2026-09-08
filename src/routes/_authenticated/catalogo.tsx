@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { createFileRoute } from "@tanstack/react-router";
-import { CheckSquare, ImageIcon, Loader2, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, CheckSquare, History, ImageIcon, Loader2, Pencil, Plus, RotateCcw, Search, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { ImagensPendentes } from "@/components/ImagensPendentes";
 import { Button } from "@/components/ui/button";
@@ -44,12 +45,69 @@ function PaginaCatalogo() {
   return (
     <AppShell title="Catálogo de produtos" subtitle="Base usada no cruzamento automático das ofertas.">
       <BarraCatalogo {...catalogo} />
+      <HistoricoImportacoes {...catalogo} />
       <ImagensPendentes categoria={catalogo.categoria} />
       <TabelaCatalogo {...catalogo} onVisualizar={setProdutoVisualizado} />
       <Paginacao {...catalogo} />
       <DialogProduto {...catalogo} />
       <DialogVisualizacao produto={produtoVisualizado} onClose={() => setProdutoVisualizado(null)} />
     </AppShell>
+  );
+}
+
+function HistoricoImportacoes({
+  historico,
+  ultimoResumo,
+  desfazerImportacao,
+}: ReturnType<typeof useCatalogo>) {
+  const mapa = new Map<string, (typeof historico)[number]>();
+  for (const item of historico) if (!mapa.has(item.category)) mapa.set(item.category, item);
+  const ultimasPorCategoria = [...mapa.values()];
+  const agora = Date.now();
+  return (
+    <div className="surface mt-4 space-y-3 p-4">
+      <div className="flex items-center gap-2 font-medium"><History className="size-4" /> Histórico das importações</div>
+      {ultimoResumo && (
+        <div className="rounded-md bg-muted p-3 text-sm">
+          Última carga: <strong>{ultimoResumo.file_name}</strong> — {ultimoResumo.inserted_count} inseridos, {ultimoResumo.updated_count} atualizados, {ultimoResumo.ignored_count} ignorados e {ultimoResumo.error_count} erros.
+        </div>
+      )}
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {ultimasPorCategoria.map((item) => {
+          const antigo = agora - new Date(item.created_at).getTime() > 24 * 60 * 60 * 1000;
+          return (
+            <div key={item.id} className="rounded-md border p-3 text-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-medium">{item.category}</p>
+                  <p className="text-xs text-muted-foreground">{item.file_name}</p>
+                  <p className="mt-1 text-xs">{new Date(item.created_at).toLocaleString("pt-BR")}</p>
+                </div>
+                {antigo && !item.undone_at && (
+                  <span className="flex items-center gap-1 text-xs text-warn-foreground" title="Estoque atualizado há mais de 24 horas">
+                    <AlertTriangle className="size-3.5" /> Estoque antigo
+                  </span>
+                )}
+              </div>
+              <p className="mt-2 text-xs">{item.inserted_count} inseridos · {item.updated_count} atualizados · {item.ignored_count} ignorados · {item.error_count} erros</p>
+              <Button
+                className="mt-2"
+                size="sm"
+                variant="outline"
+                disabled={Boolean(item.undone_at)}
+                onClick={() => {
+                  if (confirm(`Desfazer a carga ${item.file_name} e restaurar a categoria ${item.category}?`))
+                    void desfazerImportacao(item.id).catch((erro) => toast.error(erro instanceof Error ? erro.message : "Não foi possível desfazer"));
+                }}
+              >
+                <RotateCcw className="size-3.5" /> {item.undone_at ? "Carga desfeita" : "Desfazer carga"}
+              </Button>
+            </div>
+          );
+        })}
+        {!ultimasPorCategoria.length && <p className="text-sm text-muted-foreground">O histórico aparecerá após a próxima importação.</p>}
+      </div>
+    </div>
   );
 }
 
