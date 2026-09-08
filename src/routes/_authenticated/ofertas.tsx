@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { AlertTriangle, Download, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -34,16 +34,84 @@ export const Route = createFileRoute("/_authenticated/ofertas")({
 
 function PaginaOfertas() {
   const oferta = useOfertas();
+  const [filtroPendencia, setFiltroPendencia] = useState<FiltroPendencia>("todas");
   return (
     <AppShell
       title="Automação de ofertas"
       subtitle="Envie a planilha da semana, confira o cruzamento com o catálogo e baixe o arquivo aceito pelo Clube."
     >
       <BarraAcao {...oferta} />
-      {oferta.ofertas.length ? <TabelaOfertas {...oferta} /> : <EmptyState />}
+      {oferta.ofertas.length ? (
+        <>
+          <PainelPendencias
+            ofertas={oferta.ofertas}
+            notaMinima={oferta.notaMinima}
+            filtro={filtroPendencia}
+            setFiltro={setFiltroPendencia}
+          />
+          <TabelaOfertas {...oferta} filtroPendencia={filtroPendencia} />
+        </>
+      ) : (
+        <EmptyState />
+      )}
       <DialogExportacao {...oferta} />
       <DialogVisualizacao {...oferta} />
     </AppShell>
+  );
+}
+
+type FiltroPendencia = "todas" | "pendentes" | "sem_imagem" | "sem_codigo" | "com_duvida";
+
+function itemPrecisaRevisao(
+  item: ReturnType<typeof useOfertas>["ofertas"][number],
+  notaMinima: number,
+) {
+  return (
+    !item.imagem?.trim() ||
+    !item.codigos.length ||
+    Boolean(item.motivoRevisao) ||
+    item.nota < notaMinima
+  );
+}
+
+function PainelPendencias({
+  ofertas,
+  notaMinima,
+  filtro,
+  setFiltro,
+}: {
+  ofertas: ReturnType<typeof useOfertas>["ofertas"];
+  notaMinima: number;
+  filtro: FiltroPendencia;
+  setFiltro: (filtro: FiltroPendencia) => void;
+}) {
+  const opcoes: Array<[FiltroPendencia, string, number]> = [
+    ["todas", "Todas", ofertas.length],
+    ["pendentes", "Com pendência", ofertas.filter((item) => itemPrecisaRevisao(item, notaMinima)).length],
+    ["sem_imagem", "Sem imagem", ofertas.filter((item) => !item.imagem?.trim()).length],
+    ["sem_codigo", "Sem código", ofertas.filter((item) => !item.codigos.length).length],
+    [
+      "com_duvida",
+      "Com dúvida",
+      ofertas.filter((item) => Boolean(item.motivoRevisao) || item.nota < notaMinima).length,
+    ],
+  ];
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2">
+      <span className="mr-1 text-sm font-medium">Revisar:</span>
+      {opcoes.map(([valor, rotulo, total]) => (
+        <Button
+          key={valor}
+          type="button"
+          size="sm"
+          variant={filtro === valor ? "default" : "outline"}
+          onClick={() => setFiltro(valor)}
+        >
+          {rotulo} ({total})
+        </Button>
+      ))}
+    </div>
   );
 }
 
@@ -139,8 +207,17 @@ function TabelaOfertas({
   remover,
   setModalVisualizacao,
   setSelecaoExpandida,
-}: ReturnType<typeof useOfertas>) {
+  filtroPendencia,
+}: ReturnType<typeof useOfertas> & { filtroPendencia: FiltroPendencia }) {
   const cliquePendente = useRef<number | null>(null);
+  const ofertasVisiveis = ofertas.filter((item) => {
+    if (filtroPendencia === "pendentes") return itemPrecisaRevisao(item, notaMinima);
+    if (filtroPendencia === "sem_imagem") return !item.imagem?.trim();
+    if (filtroPendencia === "sem_codigo") return !item.codigos.length;
+    if (filtroPendencia === "com_duvida")
+      return Boolean(item.motivoRevisao) || item.nota < notaMinima;
+    return true;
+  });
 
   return (
     <div className="surface mt-4 overflow-x-auto">
@@ -162,27 +239,36 @@ function TabelaOfertas({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {ofertas.map((item, index) => (
-            <TableRow
-              key={`${item.nome}-${index}`}
-              className={`${!item.imagem || !item.codigos.length || item.motivoRevisao || item.nota < notaMinima ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
-              onClick={(e) => {
-                if ((e.target as HTMLElement).closest("input,button")) return;
-                if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
-                cliquePendente.current = window.setTimeout(() => {
-                  setSelecaoExpandida(false);
-                  setModalVisualizacao(item);
+          {!ofertasVisiveis.length && (
+            <TableRow>
+              <TableCell colSpan={12} className="h-24 text-center text-muted-foreground">
+                Nenhuma oferta corresponde a este filtro.
+              </TableCell>
+            </TableRow>
+          )}
+          {ofertasVisiveis.map((item) => {
+            const index = ofertas.indexOf(item);
+            return (
+              <TableRow
+                key={`${item.nome}-${index}`}
+                className={`${!item.imagem || !item.codigos.length || item.motivoRevisao || item.nota < notaMinima ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("input,button")) return;
+                  if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
+                  cliquePendente.current = window.setTimeout(() => {
+                    setSelecaoExpandida(false);
+                    setModalVisualizacao(item);
+                    cliquePendente.current = null;
+                  }, 220);
+                }}
+                onDoubleClick={(e) => {
+                  if ((e.target as HTMLElement).closest("input,button")) return;
+                  if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
                   cliquePendente.current = null;
-                }, 220);
-              }}
-              onDoubleClick={(e) => {
-                if ((e.target as HTMLElement).closest("input,button")) return;
-                if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
-                cliquePendente.current = null;
-                setSelecaoExpandida(true);
-                setModalVisualizacao(item);
-              }}
-            >
+                  setSelecaoExpandida(true);
+                  setModalVisualizacao(item);
+                }}
+              >
               <TableCell>
                 {item.imagem ? (
                   <img
@@ -258,8 +344,9 @@ function TabelaOfertas({
                   <Trash2 className="size-4" />
                 </Button>
               </TableCell>
-            </TableRow>
-          ))}
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>
