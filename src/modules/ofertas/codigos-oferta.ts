@@ -451,9 +451,13 @@ export function selecionarCodigosOferta(
     : extras.filter((item) => item.quantidade === menorQuantidade).map((item) => item.produto);
   const familias = new Set(maisEspecificos.map((p) => chaveFamilia(p, sabores)));
   if (!sabores && familias.size !== 1)
-    return pendente(
-      "Mais de uma família de produtos corresponde à descrição. Revise marca, tamanho e variedade.",
-    );
+    return {
+      codigos: [],
+      produtos: maisEspecificos,
+      nota: 0,
+      motivo:
+        "Mais de uma família de produtos corresponde à descrição. Selecione abaixo quais itens entram na oferta.",
+    };
   const produtos = [...maisEspecificos].sort((a, b) =>
     codigoProduto(a, porQuilo).localeCompare(codigoProduto(b, porQuilo)),
   );
