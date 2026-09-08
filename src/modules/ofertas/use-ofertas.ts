@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { exportarModeloDoClube, lerPlanilha, type OfertaParaExportar } from "@/lib/planilha";
 import { carregarTodosProdutos, limparCodigo, limparEan, type Produto } from "@/lib/catalogo";
-import { normalizarCodigos } from "@/lib/codigos-oferta";
+import { chaveBaseOferta, codigoProduto, normalizarCodigos } from "@/lib/codigos-oferta";
 
 import {
   processarLinhasOfertas,
@@ -26,6 +26,38 @@ export const CARROSSEIS = [
 ] as const;
 
 const STORAGE_KEY = "ofertaflow:rascunho-ofertas";
+const MEMORY_KEY = "ofertaflow:memoria-eans";
+
+type MemoriaEans = Record<string, string[]>;
+
+function lerMemoria(): MemoriaEans {
+  try {
+    return JSON.parse(localStorage.getItem(MEMORY_KEY) ?? "{}") as MemoriaEans;
+  } catch {
+    return {};
+  }
+}
+
+function aplicarMemoria(ofertas: Oferta[], catalogo: Produto[]): Oferta[] {
+  const memoria = lerMemoria();
+  return ofertas.map((oferta) => {
+    const lembrados = memoria[chaveBaseOferta(oferta.nome)] ?? [];
+    const permitidos = new Set(catalogo.map((p) => codigoProduto(p, oferta.porQuilo)).filter(Boolean));
+    const codigos = lembrados.filter((codigo) => permitidos.has(codigo));
+    return codigos.length
+      ? {
+          ...oferta,
+          codigos,
+          codigo: codigos.join(";"),
+          ean: oferta.porQuilo ? "" : codigos[0]!,
+          codigoInterno: oferta.porQuilo ? codigos[0]! : "",
+          codigosEditados: true,
+          nota: 1,
+          motivoRevisao: null,
+        }
+      : oferta;
+  });
+}
 
 interface Rascunho {
   ofertas: Oferta[];
@@ -124,15 +156,20 @@ export function useOfertas() {
 
   function alterar(indice: number, mudanca: Partial<Oferta>) {
     setOfertas((atual) =>
-      atual.map((oferta, i) =>
-        i === indice
-          ? {
+      atual.map((oferta, i) => {
+        if (i !== indice) return oferta;
+        const alterada = {
               ...oferta,
               ...mudanca,
               ...(Object.hasOwn(mudanca, "codigos") ? { codigosEditados: true } : {}),
-            }
-          : oferta,
-      ),
+            };
+        if (Object.hasOwn(mudanca, "codigos")) {
+          const memoria = lerMemoria();
+          memoria[chaveBaseOferta(oferta.nome)] = alterada.codigos ?? [];
+          localStorage.setItem(MEMORY_KEY, JSON.stringify(memoria));
+        }
+        return alterada;
+      }),
     );
   }
 
@@ -148,7 +185,7 @@ export function useOfertas() {
       const cruzadas = processarLinhasOfertas(linhas, catalogo);
       if (!cruzadas.length)
         throw new Error("Não encontrei uma coluna com o nome do produto na planilha.");
-      const finais = cruzadas;
+      const finais = aplicarMemoria(cruzadas, catalogo);
 
       setOfertas(finais);
       setNomeArquivo(arquivo.name);

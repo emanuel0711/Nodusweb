@@ -30,6 +30,10 @@ export interface Oferta extends RegraOferta {
   linhaOrigem?: LinhaPlanilha;
   nomesPorCodigo?: Record<string, string>;
   estoquePorCodigo?: Record<string, number | null>;
+  decisoesPorCodigo?: Record<
+    string,
+    { nome: string; status: "incluido" | "descartado"; motivos: string[] }
+  >;
 }
 const NOMES = [
   "PRODUTO",
@@ -139,6 +143,7 @@ export function cruzarOferta(
         p.stock_quantity,
       ]),
     ),
+    decisoesPorCodigo: selecao.decisoesPorCodigo,
   };
 }
 export function agruparOfertasIrmas(ofertas: Oferta[]): Oferta[] {
@@ -164,6 +169,7 @@ export function agruparOfertasIrmas(ofertas: Oferta[]): Oferta[] {
       codigo: codigos.join(";"),
       nomesPorCodigo: { ...anterior?.nomesPorCodigo, ...oferta.nomesPorCodigo },
       estoquePorCodigo: { ...anterior?.estoquePorCodigo, ...oferta.estoquePorCodigo },
+      decisoesPorCodigo: { ...anterior?.decisoesPorCodigo, ...oferta.decisoesPorCodigo },
       nota: Math.min(anterior?.nota ?? 1, oferta.nota),
       motivoRevisao: anterior?.motivoRevisao || oferta.motivoRevisao || null,
     });

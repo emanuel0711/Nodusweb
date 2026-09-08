@@ -375,6 +375,10 @@ export interface SelecaoCodigos {
   produtos: Produto[];
   nota: number;
   motivo: string | null;
+  decisoesPorCodigo?: Record<
+    string,
+    { nome: string; status: "incluido" | "descartado"; motivos: string[] }
+  >;
 }
 function pendente(motivo: string): SelecaoCodigos {
   return { codigos: [], produtos: [], nota: 0, motivo };
@@ -455,6 +459,20 @@ export function selecionarCodigosOferta(
       codigos: [],
       produtos: maisEspecificos,
       nota: 0,
+      decisoesPorCodigo: Object.fromEntries(
+        maisEspecificos.map((produto) => [
+          codigoProduto(produto, porQuilo),
+          {
+            nome: produto.description,
+            status: "descartado" as const,
+            motivos: [
+              "marca e identidade compatíveis",
+              tamanhos.length ? `quantidade compatível: ${tamanhos.join(", ")}` : "quantidade não exigida",
+              "aguardando escolha manual entre famílias diferentes",
+            ],
+          },
+        ]),
+      ),
       motivo:
         "Mais de uma família de produtos corresponde à descrição. Selecione abaixo quais itens entram na oferta.",
     };
@@ -466,11 +484,30 @@ export function selecionarCodigosOferta(
     Number.isFinite(preco) &&
     preco > 0 &&
     produtos.some((p) => p.cost != null && p.cost > preco * 1.15);
+  const codigosIncluidos = new Set(produtos.map((p) => codigoProduto(p, porQuilo)));
+  const decisoesPorCodigo = Object.fromEntries(
+    candidatosCatalogo.map((produto) => {
+      const codigo = codigoProduto(produto, porQuilo);
+      const incluido = codigosIncluidos.has(codigo);
+      const motivos = [
+        "marca e identidade compatíveis",
+        tamanhos.length ? `quantidade compatível: ${tamanhos.join(", ")}` : "quantidade não exigida",
+        `unidade compatível: ${porQuilo ? "peso" : "unidade"}`,
+        sabores ? "variedade aceita pela regra da família" : "variedade compatível",
+        "tipo de produto compatível",
+      ];
+      if (!incluido && candidatosEmEstoque.length && (produto.stock_quantity ?? 0) <= 0)
+        motivos.push("descartado no último desempate: estoque zerado");
+      else if (!incluido) motivos.push("descartado por pertencer a uma família menos específica");
+      return [codigo, { nome: produto.description, status: incluido ? "incluido" : "descartado", motivos }];
+    }),
+  );
   return {
     produtos,
     codigos: normalizarCodigos(produtos.map((p) => codigoProduto(p, porQuilo))),
     nota: 1,
     motivo: custoAlto ? "O custo cadastrado supera o preço da oferta. Confira o preço." : null,
+    decisoesPorCodigo,
   };
 }
 /** Compatibilidade com os consumidores antigos; sugestão anterior não resolve ambiguidades. */
