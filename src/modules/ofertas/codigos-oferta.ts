@@ -97,14 +97,20 @@ const SABORES = new Set([
   // Variedades de vinho que podem compartilhar uma oferta por marca e volume.
   "tinto",
   "rose",
+  "rosado",
   "seco",
   "suave",
+  "meio",
+  "demi",
   "bordo",
   "cabernet",
   "sauvignon",
   "merlot",
   "moscatel",
   "chardonnay",
+  "malbec",
+  "niagara",
+  "prosecco",
   "capim",
   "neutro",
   "clear",
@@ -139,6 +145,7 @@ const ALIASES: Record<string, string> = {
   ref: "refresco",
   achoc: "achocolatado",
   bisc: "biscoito",
+  rosado: "rose",
 };
 export type Variante =
   | "tradicional"
@@ -207,12 +214,83 @@ function semExcecoes(valor: string): string {
 function medidas(valor: string): string[] {
   return [...new Set(semExcecoes(valor).match(/\b\d+(?:d\d+)?(?:g|ml|un)\b/g) ?? [])].sort();
 }
+const CORES_VINHO = new Set(["tinto", "branco", "rose"]);
+const CASTAS_VINHO = new Set([
+  "bordo",
+  "cabernet",
+  "sauvignon",
+  "merlot",
+  "moscatel",
+  "chardonnay",
+  "malbec",
+  "niagara",
+  "prosecco",
+]);
+const GENERICOS_VINHO = new Set([
+  "vinho",
+  "vinhos",
+  "mesa",
+  "fino",
+  "nacional",
+  "bebida",
+  "tinto",
+  "branco",
+  "rose",
+  "seco",
+  "suave",
+  "meio",
+  "demi",
+  ...CASTAS_VINHO,
+]);
+
+function ehVinho(valor: string): boolean {
+  return /\bvinhos?\b/.test(semExcecoes(valor));
+}
+
+/** A expansão de vinho só é segura quando a oferta identifica uma marca ou linha. */
+function vinhoTemMarcaOuLinha(nome: string): boolean {
+  if (!ehVinho(nome)) return false;
+  return semExcecoes(nome)
+    .split(/\s+/)
+    .some(
+      (token) =>
+        token.length > 1 &&
+        !IGNORADOS.has(token) &&
+        !GENERICOS_VINHO.has(token) &&
+        !/^\d+(?:d\d+)?(?:g|ml|un)$/.test(token),
+    );
+}
+
+function tipoVinho(valor: string): "seco" | "suave" | "meio_seco" | null {
+  const texto = semExcecoes(valor);
+  if (/\b(?:meio|demi) seco\b/.test(texto)) return "meio_seco";
+  if (/\bsuave\b/.test(texto)) return "suave";
+  if (/\bseco\b/.test(texto)) return "seco";
+  return null;
+}
+
+function vinhoCompativel(nome: string, descricao: string): boolean {
+  if (!ehVinho(nome)) return true;
+  const oferta = semExcecoes(nome);
+  const produto = semExcecoes(descricao);
+  const corDesejada = [...CORES_VINHO].find((cor) => oferta.split(" ").includes(cor));
+  const corEncontrada = [...CORES_VINHO].find((cor) => produto.split(" ").includes(cor));
+  if (corDesejada && corDesejada !== corEncontrada) return false;
+  const tipoDesejado = tipoVinho(nome);
+  if (tipoDesejado && tipoDesejado !== tipoVinho(descricao)) return false;
+  const castasDesejadas = [...CASTAS_VINHO].filter((casta) => oferta.split(" ").includes(casta));
+  return castasDesejadas.every((casta) => produto.split(" ").includes(casta));
+}
+
 function saboresSolicitados(nome: string): boolean {
   const texto = semExcecoes(nome);
   if (/\bsabores\b/.test(texto)) return true;
+  // Uma marca/linha explícita pode reunir as variações de vinho, respeitando
+  // cor, tipo e casta quando esses dados aparecem na oferta.
+  if (ehVinho(nome)) return vinhoTemMarcaOuLinha(nome);
   // Regra confirmada nos exemplos: Frisco sem sabor especificado reúne a família.
   const familiaComSabores =
-    /\bfrisco\b|\bred horse\b|\bvinho\b|\bdetergente ype\b|\blava roupas\b.*\bbrilhante\b|\bamaciante\b.*\baquafast\b|\bmassa isabela\b.*\bsemola\b|\bsopao apti\b|\binseticida mat inset\b|\bfralda\b.*\bpom pom\b.*\bjumbo\b/.test(
+    /\bfrisco\b|\bred horse\b|\bdetergente ype\b|\blava roupas\b.*\bbrilhante\b|\bamaciante\b.*\baquafast\b|\bmassa isabela\b.*\bsemola\b|\bsopao apti\b|\binseticida mat inset\b|\bfralda\b.*\bpom pom\b.*\bjumbo\b/.test(
       texto,
     );
   return familiaComSabores && !texto.split(" ").some((t) => SABORES.has(t));
@@ -373,6 +451,8 @@ export function codigoProduto(item: Produto, porQuilo: boolean): string {
 export interface SelecaoCodigos {
   codigos: string[];
   produtos: Produto[];
+  /** Todos os itens considerados, inclusive os descartados pelo desempate. */
+  candidatos?: Produto[];
   nota: number;
   motivo: string | null;
   decisoesPorCodigo?: Record<
@@ -380,8 +460,121 @@ export interface SelecaoCodigos {
     { nome: string; status: "incluido" | "descartado"; motivos: string[] }
   >;
 }
-function pendente(motivo: string): SelecaoCodigos {
-  return { codigos: [], produtos: [], nota: 0, motivo };
+
+function motivoEstoque(produto: Produto): string {
+  if (produto.stock_quantity == null) return "estoque não informado";
+  if (produto.stock_quantity <= 0) return "estoque zerado";
+  return `estoque disponível: ${produto.stock_quantity}`;
+}
+
+function tokensQuaseIguais(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.min(a.length, b.length) < 4 || Math.abs(a.length - b.length) > 1) return false;
+  if (a.length === b.length) {
+    let diferencas = 0;
+    for (let indice = 0; indice < a.length; indice += 1) {
+      if (a[indice] !== b[indice] && ++diferencas > 1) return false;
+    }
+    return true;
+  }
+  const [menor, maior] = a.length < b.length ? [a, b] : [b, a];
+  let i = 0,
+    j = 0,
+    diferencas = 0;
+  while (i < menor.length && j < maior.length) {
+    if (menor[i] === maior[j]) {
+      i += 1;
+      j += 1;
+    } else {
+      diferencas += 1;
+      j += 1;
+      if (diferencas > 1) return false;
+    }
+  }
+  return true;
+}
+
+/** Sugere itens para revisão sem promover uma aproximação a resultado automático. */
+function candidatosAproximados(
+  nome: string,
+  catalogo: Produto[],
+  porQuilo: boolean,
+  excecoes: string[][],
+): Produto[] {
+  const sabores = saboresSolicitados(nome);
+  const procurados = tokensIdentidade(nome, sabores);
+  const tamanhos = medidas(nome);
+  if (!procurados.length) return [];
+  const pontuados = catalogo
+    .filter(
+      (produto) =>
+        codigoProduto(produto, porQuilo) &&
+        !excluido(produto, excecoes) &&
+        variantesCompativeis(nome, produto.description) &&
+        vinhoCompativel(nome, produto.description) &&
+        (!tamanhos.length ||
+          tamanhos.every((tamanho) => medidas(produto.description).includes(tamanho))),
+    )
+    .map((produto) => {
+      const encontrados = tokensIdentidade(produto.description, sabores);
+      const correspondencias = procurados.filter((token) =>
+        encontrados.some((encontrado) => tokensQuaseIguais(token, encontrado)),
+      ).length;
+      const exatas = procurados.filter((token) => encontrados.includes(token)).length;
+      return {
+        produto,
+        correspondencias,
+        exatas,
+        extras: encontrados.filter(
+          (token) => !procurados.some((procurado) => tokensQuaseIguais(procurado, token)),
+        ).length,
+      };
+    })
+    .filter(
+      ({ correspondencias }) => correspondencias >= Math.max(1, Math.ceil(procurados.length * 0.6)),
+    )
+    .sort(
+      (a, b) =>
+        b.correspondencias - a.correspondencias ||
+        b.exatas - a.exatas ||
+        a.extras - b.extras ||
+        codigoProduto(a.produto, porQuilo).localeCompare(codigoProduto(b.produto, porQuilo)),
+    );
+  const melhor = pontuados[0];
+  if (!melhor) return [];
+  return pontuados
+    .filter(
+      (item) => item.correspondencias === melhor.correspondencias && item.exatas === melhor.exatas,
+    )
+    .slice(0, 25)
+    .map((item) => item.produto);
+}
+
+function pendente(motivo: string, candidatos: Produto[] = [], porQuilo = false): SelecaoCodigos {
+  return {
+    codigos: [],
+    produtos: [],
+    ...(candidatos.length ? { candidatos } : {}),
+    nota: 0,
+    motivo,
+    ...(candidatos.length
+      ? {
+          decisoesPorCodigo: Object.fromEntries(
+            candidatos.map((produto) => [
+              codigoProduto(produto, porQuilo),
+              {
+                nome: produto.description,
+                status: "descartado" as const,
+                motivos: [
+                  "correspondência aproximada; aguardando escolha manual",
+                  motivoEstoque(produto),
+                ],
+              },
+            ]),
+          ),
+        }
+      : {}),
+  };
 }
 
 /** Seleção exata por palavras normalizadas. Ambiguidades ficam visíveis para revisão. */
@@ -404,13 +597,20 @@ export function selecionarCodigosOferta(
     if (pendentes.length)
       return pendente(
         `Não encontrei todos os produtos separados por "ou": ${alternativas.join(" / ")}.`,
+        resultados.flatMap((resultado) => resultado.candidatos ?? resultado.produtos),
+        porQuilo,
       );
     const produtos = resultados.flatMap((resultado) => resultado.produtos);
     return {
       produtos,
+      candidatos: resultados.flatMap((resultado) => resultado.candidatos ?? resultado.produtos),
       codigos: normalizarCodigos(resultados.flatMap((resultado) => resultado.codigos)),
       nota: Math.min(...resultados.map((resultado) => resultado.nota)),
       motivo: resultados.find((resultado) => resultado.motivo)?.motivo ?? null,
+      decisoesPorCodigo: Object.assign(
+        {},
+        ...resultados.map((resultado) => resultado.decisoesPorCodigo ?? {}),
+      ),
     };
   }
   const sabores = saboresSolicitados(nome),
@@ -425,7 +625,8 @@ export function selecionarCodigosOferta(
     if (
       !codigoProduto(item, porQuilo) ||
       excluido(item, excecoes) ||
-      !variantesCompativeis(nome, item.description)
+      !variantesCompativeis(nome, item.description) ||
+      !vinhoCompativel(nome, item.description)
     )
       return false;
     const ts = medidas(item.description);
@@ -436,39 +637,72 @@ export function selecionarCodigosOferta(
     const identidade = tokensIdentidade(item.description, sabores);
     return tokens.every((t) => identidade.includes(t));
   });
-  // O estoque é consultado por último. Enquanto não houver carga de estoque,
-  // os valores ficam nulos e a seleção baseada no catálogo é preservada.
-  const candidatosEmEstoque = candidatosCatalogo.filter(
-    (item) => item.stock_quantity != null && item.stock_quantity > 0,
-  );
-  const candidatos = candidatosEmEstoque.length ? candidatosEmEstoque : candidatosCatalogo;
-  if (!candidatos.length) return pendente("Nenhum código compatível encontrado no catálogo.");
-  const extras = candidatos.map((produto) => ({
+  if (!candidatosCatalogo.length) {
+    const aproximados = candidatosAproximados(nome, catalogo, porQuilo, excecoes);
+    return pendente(
+      aproximados.length
+        ? "Não encontrei uma correspondência exata. Selecione abaixo um dos itens aproximados."
+        : "Nenhum código compatível encontrado no catálogo.",
+      aproximados,
+      porQuilo,
+    );
+  }
+  if (ehVinho(nome) && !vinhoTemMarcaOuLinha(nome))
+    return pendente(
+      "Informe a marca ou a linha do vinho antes de selecionar os códigos.",
+      candidatosCatalogo,
+      porQuilo,
+    );
+
+  // Primeiro resolve identidade, quantidade, tipo e variedade. O estoque só
+  // participa depois, caso ainda existam famílias semanticamente empatadas.
+  const extras = candidatosCatalogo.map((produto) => ({
     produto,
     quantidade: tokensIdentidade(produto.description, sabores).filter(
       (token) => !tokens.includes(token),
     ).length,
   }));
   const menorQuantidade = Math.min(...extras.map((item) => item.quantidade));
-  const maisEspecificos = sabores
-    ? candidatos
+  let maisEspecificos = sabores
+    ? candidatosCatalogo
     : extras.filter((item) => item.quantidade === menorQuantidade).map((item) => item.produto);
-  const familias = new Set(maisEspecificos.map((p) => chaveFamilia(p, sabores)));
+  let familias = new Set(maisEspecificos.map((p) => chaveFamilia(p, sabores)));
+  let familiaEscolhidaPorEstoque: string | null = null;
+  let estoqueUsadoNoDesempate = false;
+  if (!sabores && familias.size > 1) {
+    const familiasComEstoque = new Set(
+      maisEspecificos
+        .filter((produto) => produto.stock_quantity != null && produto.stock_quantity > 0)
+        .map((produto) => chaveFamilia(produto, sabores)),
+    );
+    if (familiasComEstoque.size === 1) {
+      familiaEscolhidaPorEstoque = [...familiasComEstoque][0]!;
+      maisEspecificos = maisEspecificos.filter(
+        (produto) => chaveFamilia(produto, sabores) === familiaEscolhidaPorEstoque,
+      );
+      familias = new Set([familiaEscolhidaPorEstoque]);
+      estoqueUsadoNoDesempate = true;
+    }
+  }
   if (!sabores && familias.size !== 1)
     return {
       codigos: [],
-      produtos: maisEspecificos,
+      produtos: [],
+      candidatos: candidatosCatalogo,
       nota: 0,
       decisoesPorCodigo: Object.fromEntries(
-        maisEspecificos.map((produto) => [
+        candidatosCatalogo.map((produto) => [
           codigoProduto(produto, porQuilo),
           {
             nome: produto.description,
             status: "descartado" as const,
             motivos: [
               "marca e identidade compatíveis",
-              tamanhos.length ? `quantidade compatível: ${tamanhos.join(", ")}` : "quantidade não exigida",
+              tamanhos.length
+                ? `quantidade compatível: ${tamanhos.join(", ")}`
+                : "quantidade não exigida",
               "aguardando escolha manual entre famílias diferentes",
+              motivoEstoque(produto),
             ],
           },
         ]),
@@ -485,25 +719,37 @@ export function selecionarCodigosOferta(
     preco > 0 &&
     produtos.some((p) => p.cost != null && p.cost > preco * 1.15);
   const codigosIncluidos = new Set(produtos.map((p) => codigoProduto(p, porQuilo)));
-  const decisoesPorCodigo = Object.fromEntries(
+  const decisoesPorCodigo: NonNullable<SelecaoCodigos["decisoesPorCodigo"]> = Object.fromEntries(
     candidatosCatalogo.map((produto) => {
       const codigo = codigoProduto(produto, porQuilo);
       const incluido = codigosIncluidos.has(codigo);
       const motivos = [
         "marca e identidade compatíveis",
-        tamanhos.length ? `quantidade compatível: ${tamanhos.join(", ")}` : "quantidade não exigida",
+        tamanhos.length
+          ? `quantidade compatível: ${tamanhos.join(", ")}`
+          : "quantidade não exigida",
         `unidade compatível: ${porQuilo ? "peso" : "unidade"}`,
         sabores ? "variedade aceita pela regra da família" : "variedade compatível",
         "tipo de produto compatível",
+        motivoEstoque(produto),
       ];
-      if (!incluido && candidatosEmEstoque.length && (produto.stock_quantity ?? 0) <= 0)
+      if (
+        !incluido &&
+        estoqueUsadoNoDesempate &&
+        produto.stock_quantity != null &&
+        produto.stock_quantity <= 0
+      )
         motivos.push("descartado no último desempate: estoque zerado");
+      else if (!incluido && estoqueUsadoNoDesempate && produto.stock_quantity == null)
+        motivos.push("descartado no último desempate: estoque não informado");
       else if (!incluido) motivos.push("descartado por pertencer a uma família menos específica");
-      return [codigo, { nome: produto.description, status: incluido ? "incluido" : "descartado", motivos }];
+      const status: "incluido" | "descartado" = incluido ? "incluido" : "descartado";
+      return [codigo, { nome: produto.description, status, motivos }];
     }),
   );
   return {
     produtos,
+    candidatos: candidatosCatalogo,
     codigos: normalizarCodigos(produtos.map((p) => codigoProduto(p, porQuilo))),
     nota: 1,
     motivo: custoAlto ? "O custo cadastrado supera o preço da oferta. Confira o preço." : null,

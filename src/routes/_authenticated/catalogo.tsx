@@ -1,7 +1,19 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { createFileRoute } from "@tanstack/react-router";
-import { AlertTriangle, CheckSquare, History, ImageIcon, Loader2, Pencil, Plus, RotateCcw, Search, Trash2, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckSquare,
+  History,
+  ImageIcon,
+  Loader2,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Search,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { ImagensPendentes } from "@/components/ImagensPendentes";
 import { Button } from "@/components/ui/button";
@@ -15,8 +27,21 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { Produto } from "@/lib/catalogo";
 import { SEM_CATEGORIA, TODAS, useCatalogo } from "@/modules/catalogo/use-catalogo";
 
@@ -26,7 +51,8 @@ export const Route = createFileRoute("/_authenticated/catalogo")({
       { title: "Catálogo de produtos — Nódus" },
       {
         name: "description",
-        content: "Cadastre, importe e organize os produtos usados no cruzamento automático das ofertas.",
+        content:
+          "Cadastre, importe e organize os produtos usados no cruzamento automático das ofertas.",
       },
       { property: "og:title", content: "Catálogo de produtos — Nódus" },
       {
@@ -43,14 +69,20 @@ function PaginaCatalogo() {
   const [produtoVisualizado, setProdutoVisualizado] = useState<Produto | null>(null);
 
   return (
-    <AppShell title="Catálogo de produtos" subtitle="Base usada no cruzamento automático das ofertas.">
+    <AppShell
+      title="Catálogo de produtos"
+      subtitle="Base usada no cruzamento automático das ofertas."
+    >
       <BarraCatalogo {...catalogo} />
       <HistoricoImportacoes {...catalogo} />
       <ImagensPendentes categoria={catalogo.categoria} />
       <TabelaCatalogo {...catalogo} onVisualizar={setProdutoVisualizado} />
       <Paginacao {...catalogo} />
       <DialogProduto {...catalogo} />
-      <DialogVisualizacao produto={produtoVisualizado} onClose={() => setProdutoVisualizado(null)} />
+      <DialogVisualizacao
+        produto={produtoVisualizado}
+        onClose={() => setProdutoVisualizado(null)}
+      />
     </AppShell>
   );
 }
@@ -60,53 +92,158 @@ function HistoricoImportacoes({
   ultimoResumo,
   desfazerImportacao,
 }: ReturnType<typeof useCatalogo>) {
-  const mapa = new Map<string, (typeof historico)[number]>();
-  for (const item of historico) if (!mapa.has(item.category)) mapa.set(item.category, item);
-  const ultimasPorCategoria = [...mapa.values()];
+  const ativaPorCategoria = new Map<string, (typeof historico)[number]>();
+  for (const item of historico) {
+    if (!item.undone_at && !ativaPorCategoria.has(item.category))
+      ativaPorCategoria.set(item.category, item);
+  }
+  const ultimasPorCategoria = [...ativaPorCategoria.values()];
   const agora = Date.now();
   return (
     <div className="surface mt-4 space-y-3 p-4">
-      <div className="flex items-center gap-2 font-medium"><History className="size-4" /> Histórico das importações</div>
+      <div className="flex items-center gap-2 font-medium">
+        <History className="size-4" /> Histórico das importações
+      </div>
       {ultimoResumo && (
         <div className="rounded-md bg-muted p-3 text-sm">
-          Última carga: <strong>{ultimoResumo.file_name}</strong> — {ultimoResumo.inserted_count} inseridos, {ultimoResumo.updated_count} atualizados, {ultimoResumo.ignored_count} ignorados e {ultimoResumo.error_count} erros.
+          Última carga: <strong>{ultimoResumo.file_name}</strong> — {ultimoResumo.inserted_count}{" "}
+          inseridos, {ultimoResumo.updated_count} atualizados, {ultimoResumo.ignored_count}{" "}
+          ignorados e {ultimoResumo.error_count} erros.
+          {ultimoResumo.product_count > 0 && (
+            <>
+              {" "}
+              Estoque informado em {ultimoResumo.stock_covered_count} de{" "}
+              {ultimoResumo.product_count} produtos da categoria.
+            </>
+          )}
         </div>
       )}
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {ultimasPorCategoria.map((item) => {
-          const antigo = agora - new Date(item.created_at).getTime() > 24 * 60 * 60 * 1000;
+          const estoqueAtualizadoEm = item.stock_updated_at;
+          const antigo =
+            !estoqueAtualizadoEm ||
+            agora - new Date(estoqueAtualizadoEm).getTime() > 24 * 60 * 60 * 1000;
           return (
             <div key={item.id} className="rounded-md border p-3 text-sm">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="font-medium">{item.category}</p>
                   <p className="text-xs text-muted-foreground">{item.file_name}</p>
-                  <p className="mt-1 text-xs">{new Date(item.created_at).toLocaleString("pt-BR")}</p>
+                  <p className="mt-1 text-xs">
+                    {new Date(item.created_at).toLocaleString("pt-BR")}
+                  </p>
                 </div>
-                {antigo && !item.undone_at && (
-                  <span className="flex items-center gap-1 text-xs text-warn-foreground" title="Estoque atualizado há mais de 24 horas">
-                    <AlertTriangle className="size-3.5" /> Estoque antigo
+                {antigo && (
+                  <span
+                    className="flex items-center gap-1 text-xs text-warn-foreground"
+                    title="O estoque não foi informado ou foi atualizado há mais de 24 horas"
+                  >
+                    <AlertTriangle className="size-3.5" />{" "}
+                    {estoqueAtualizadoEm ? "Estoque antigo" : "Sem data de estoque"}
                   </span>
                 )}
               </div>
-              <p className="mt-2 text-xs">{item.inserted_count} inseridos · {item.updated_count} atualizados · {item.ignored_count} ignorados · {item.error_count} erros</p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Estoque:{" "}
+                {estoqueAtualizadoEm
+                  ? new Date(estoqueAtualizadoEm).toLocaleString("pt-BR")
+                  : "não informado"}
+                {item.product_count > 0
+                  ? ` · cobertura ${item.stock_covered_count}/${item.product_count}`
+                  : ""}
+              </p>
+              <p className="mt-2 text-xs">
+                {item.inserted_count} inseridos · {item.updated_count} atualizados ·{" "}
+                {item.ignored_count} ignorados · {item.error_count} erros
+              </p>
               <Button
                 className="mt-2"
                 size="sm"
                 variant="outline"
                 disabled={Boolean(item.undone_at)}
                 onClick={() => {
-                  if (confirm(`Desfazer a carga ${item.file_name} e restaurar a categoria ${item.category}?`))
-                    void desfazerImportacao(item.id).catch((erro) => toast.error(erro instanceof Error ? erro.message : "Não foi possível desfazer"));
+                  if (
+                    confirm(
+                      `Desfazer a carga ${item.file_name} e restaurar a categoria ${item.category}?`,
+                    )
+                  )
+                    void desfazerImportacao(item.id).catch((erro) =>
+                      toast.error(
+                        erro instanceof Error ? erro.message : "Não foi possível desfazer",
+                      ),
+                    );
                 }}
               >
-                <RotateCcw className="size-3.5" /> {item.undone_at ? "Carga desfeita" : "Desfazer carga"}
+                <RotateCcw className="size-3.5" />{" "}
+                {item.undone_at ? "Carga desfeita" : "Desfazer carga"}
               </Button>
             </div>
           );
         })}
-        {!ultimasPorCategoria.length && <p className="text-sm text-muted-foreground">O histórico aparecerá após a próxima importação.</p>}
+        {!ultimasPorCategoria.length && (
+          <p className="text-sm text-muted-foreground">
+            O histórico aparecerá após a próxima importação.
+          </p>
+        )}
       </div>
+      {historico.length > 0 && (
+        <details className="rounded-md border p-3 text-sm">
+          <summary className="cursor-pointer font-medium">
+            Histórico recente ({historico.length}, até 200 cargas)
+          </summary>
+          <div className="mt-3 space-y-2">
+            {historico.map((item) => {
+              const podeDesfazer = ativaPorCategoria.get(item.category)?.id === item.id;
+              return (
+                <div
+                  key={item.id}
+                  className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 first:border-0 first:pt-0"
+                >
+                  <div>
+                    <strong>{item.file_name}</strong> ·{" "}
+                    {new Date(item.created_at).toLocaleString("pt-BR")}
+                    <p className="text-xs text-muted-foreground">
+                      {item.inserted_count} inseridos · {item.updated_count} atualizados ·{" "}
+                      {item.ignored_count} ignorados · {item.error_count} erros
+                      {item.product_count > 0
+                        ? ` · estoque ${item.stock_covered_count}/${item.product_count}`
+                        : ""}
+                      {item.undone_at
+                        ? ` · desfeita em ${new Date(item.undone_at).toLocaleString("pt-BR")}`
+                        : ""}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!podeDesfazer}
+                    onClick={() => {
+                      if (
+                        confirm(
+                          `Desfazer a carga ${item.file_name} e restaurar a categoria ${item.category}?`,
+                        )
+                      )
+                        void desfazerImportacao(item.id).catch((erro) =>
+                          toast.error(
+                            erro instanceof Error ? erro.message : "Não foi possível desfazer",
+                          ),
+                        );
+                    }}
+                  >
+                    <RotateCcw className="size-3.5" />{" "}
+                    {item.undone_at
+                      ? "Carga desfeita"
+                      : podeDesfazer
+                        ? "Desfazer carga"
+                        : "Desfaça a mais recente primeiro"}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -162,7 +299,11 @@ function BarraCatalogo({
           onChange={(e) => void importar(e.target.files)}
         />
 
-        <Button variant="outline" disabled={importando} onClick={() => campoArquivo.current?.click()}>
+        <Button
+          variant="outline"
+          disabled={importando}
+          onClick={() => campoArquivo.current?.click()}
+        >
           {importando ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
           Importar CSV/Excel
         </Button>
@@ -203,9 +344,13 @@ function BarraCatalogo({
             variant="outline"
             size="sm"
             disabled={!categorias.length}
-            onClick={() => setSelecionadas(selecionadas.length === categorias.length ? [] : categorias)}
+            onClick={() =>
+              setSelecionadas(selecionadas.length === categorias.length ? [] : categorias)
+            }
           >
-            {selecionadas.length === categorias.length && categorias.length ? "Limpar seleção" : "Selecionar tudo"}
+            {selecionadas.length === categorias.length && categorias.length
+              ? "Limpar seleção"
+              : "Selecionar tudo"}
           </Button>
 
           <Button
@@ -327,7 +472,11 @@ function Paginacao({ total, pagina, paginas, setPagina }: ReturnType<typeof useC
         <span>
           Página {pagina + 1} de {paginas}
         </span>
-        <Button variant="outline" disabled={pagina + 1 >= paginas} onClick={() => setPagina((p) => p + 1)}>
+        <Button
+          variant="outline"
+          disabled={pagina + 1 >= paginas}
+          onClick={() => setPagina((p) => p + 1)}
+        >
           Próxima
         </Button>
       </div>
@@ -390,13 +539,21 @@ function DialogProduto({
   );
 }
 
-function DialogVisualizacao({ produto, onClose }: { produto: Produto | null; onClose: () => void }) {
+function DialogVisualizacao({
+  produto,
+  onClose,
+}: {
+  produto: Produto | null;
+  onClose: () => void;
+}) {
   return (
     <Dialog open={Boolean(produto)} onOpenChange={(aberto) => !aberto && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{produto?.description}</DialogTitle>
-          <DialogDescription>Conferência completa do produto cadastrado no catálogo.</DialogDescription>
+          <DialogDescription>
+            Conferência completa do produto cadastrado no catálogo.
+          </DialogDescription>
         </DialogHeader>
 
         {produto ? (
@@ -426,7 +583,11 @@ function DialogVisualizacao({ produto, onClose }: { produto: Produto | null; onC
               />
               <Info
                 label="Arquivo atualizado em"
-                value={produto.stock_updated_at ? new Date(produto.stock_updated_at).toLocaleString("pt-BR") : "—"}
+                value={
+                  produto.stock_updated_at
+                    ? new Date(produto.stock_updated_at).toLocaleString("pt-BR")
+                    : "—"
+                }
               />
               <Info label="Arquivo / categoria" value={produto.category || "Sem categoria"} />
               <div className="sm:col-span-2">

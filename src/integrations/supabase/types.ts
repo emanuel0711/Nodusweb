@@ -1,225 +1,295 @@
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[]
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type Database = {
   __InternalSupabase: {
-    PostgrestVersion: "14.15"
-  }
+    PostgrestVersion: "14.15";
+  };
   public: {
     Tables: {
       catalog_imports: {
-        Row: { id: string; user_id: string; file_name: string; category: string; inserted_count: number; updated_count: number; ignored_count: number; error_count: number; snapshot: Json; undone_at: string | null; created_at: string }
-        Insert: { id?: string; user_id: string; file_name: string; category: string; inserted_count?: number; updated_count?: number; ignored_count?: number; error_count?: number; snapshot?: Json; undone_at?: string | null; created_at?: string }
-        Update: { undone_at?: string | null }
-        Relationships: []
-      }
+        Row: {
+          id: string;
+          user_id: string;
+          file_name: string;
+          category: string;
+          inserted_count: number;
+          updated_count: number;
+          ignored_count: number;
+          error_count: number;
+          snapshot: Json;
+          stock_updated_at: string | null;
+          stock_covered_count: number;
+          product_count: number;
+          undone_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          file_name: string;
+          category: string;
+          inserted_count?: number;
+          updated_count?: number;
+          ignored_count?: number;
+          error_count?: number;
+          snapshot?: Json;
+          stock_updated_at?: string | null;
+          stock_covered_count?: number;
+          product_count?: number;
+          undone_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          stock_updated_at?: string | null;
+          stock_covered_count?: number;
+          product_count?: number;
+          undone_at?: string | null;
+        };
+        Relationships: [];
+      };
       offer_match_memory: {
-        Row: { id: string; user_id: string; offer_key: string; codes: string[]; updated_at: string }
-        Insert: { id?: string; user_id: string; offer_key: string; codes?: string[]; updated_at?: string }
-        Update: { codes?: string[]; updated_at?: string }
-        Relationships: []
-      }
+        Row: {
+          id: string;
+          user_id: string;
+          offer_key: string;
+          codes: string[];
+          candidate_codes: string[];
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          offer_key: string;
+          codes?: string[];
+          candidate_codes?: string[];
+          updated_at?: string;
+        };
+        Update: { codes?: string[]; candidate_codes?: string[]; updated_at?: string };
+        Relationships: [];
+      };
       image_candidates: {
         Row: {
-          background_score: number | null
-          created_at: string
-          height: number | null
-          id: string
-          product_id: string
-          reviewed_at: string | null
-          score: number
-          score_details: Json
-          source: string
-          status: string
-          url: string
-          user_id: string
-          width: number | null
-        }
+          background_score: number | null;
+          created_at: string;
+          height: number | null;
+          id: string;
+          product_id: string;
+          reviewed_at: string | null;
+          score: number;
+          score_details: Json;
+          source: string;
+          status: string;
+          url: string;
+          user_id: string;
+          width: number | null;
+        };
         Insert: {
-          background_score?: number | null
-          created_at?: string
-          height?: number | null
-          id?: string
-          product_id: string
-          reviewed_at?: string | null
-          score?: number
-          score_details?: Json
-          source: string
-          status?: string
-          url: string
-          user_id: string
-          width?: number | null
-        }
+          background_score?: number | null;
+          created_at?: string;
+          height?: number | null;
+          id?: string;
+          product_id: string;
+          reviewed_at?: string | null;
+          score?: number;
+          score_details?: Json;
+          source: string;
+          status?: string;
+          url: string;
+          user_id: string;
+          width?: number | null;
+        };
         Update: {
-          background_score?: number | null
-          created_at?: string
-          height?: number | null
-          id?: string
-          product_id?: string
-          reviewed_at?: string | null
-          score?: number
-          score_details?: Json
-          source?: string
-          status?: string
-          url?: string
-          user_id?: string
-          width?: number | null
-        }
-        Relationships: []
-      }
+          background_score?: number | null;
+          created_at?: string;
+          height?: number | null;
+          id?: string;
+          product_id?: string;
+          reviewed_at?: string | null;
+          score?: number;
+          score_details?: Json;
+          source?: string;
+          status?: string;
+          url?: string;
+          user_id?: string;
+          width?: number | null;
+        };
+        Relationships: [];
+      };
       offer_runs: {
         Row: {
-          created_at: string
-          file_name: string
-          id: string
-          matched_items: number
-          total_items: number
-          user_id: string
-        }
+          created_at: string;
+          file_name: string;
+          id: string;
+          matched_items: number;
+          total_items: number;
+          user_id: string;
+        };
         Insert: {
-          created_at?: string
-          file_name: string
-          id?: string
-          matched_items?: number
-          total_items?: number
-          user_id: string
-        }
+          created_at?: string;
+          file_name: string;
+          id?: string;
+          matched_items?: number;
+          total_items?: number;
+          user_id: string;
+        };
         Update: {
-          created_at?: string
-          file_name?: string
-          id?: string
-          matched_items?: number
-          total_items?: number
-          user_id?: string
-        }
-        Relationships: []
-      }
+          created_at?: string;
+          file_name?: string;
+          id?: string;
+          matched_items?: number;
+          total_items?: number;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       products: {
         Row: {
-          category: string | null
-          cost: number | null
-          created_at: string
-          description: string
-          ean: string | null
-          id: string
-          image_last_checked_at: string | null
-          image_search_version: number
-          image_status: string
-          image_url: string | null
-          internal_code: string | null
-          promotion_code: string | null
-          stock_quantity: number | null
-          stock_updated_at: string | null
-          unit: string | null
-          unit_price: number | null
-          updated_at: string
-          user_id: string
-        }
+          category: string | null;
+          cost: number | null;
+          created_at: string;
+          description: string;
+          ean: string | null;
+          id: string;
+          image_last_checked_at: string | null;
+          image_search_version: number;
+          image_status: string;
+          image_url: string | null;
+          internal_code: string | null;
+          promotion_code: string | null;
+          stock_quantity: number | null;
+          stock_updated_at: string | null;
+          unit: string | null;
+          unit_price: number | null;
+          updated_at: string;
+          user_id: string;
+        };
         Insert: {
-          category?: string | null
-          cost?: number | null
-          created_at?: string
-          description: string
-          ean?: string | null
-          id?: string
-          image_last_checked_at?: string | null
-          image_search_version?: number
-          image_status?: string
-          image_url?: string | null
-          internal_code?: string | null
-          promotion_code?: string | null
-          stock_quantity?: number | null
-          stock_updated_at?: string | null
-          unit?: string | null
-          unit_price?: number | null
-          updated_at?: string
-          user_id: string
-        }
+          category?: string | null;
+          cost?: number | null;
+          created_at?: string;
+          description: string;
+          ean?: string | null;
+          id?: string;
+          image_last_checked_at?: string | null;
+          image_search_version?: number;
+          image_status?: string;
+          image_url?: string | null;
+          internal_code?: string | null;
+          promotion_code?: string | null;
+          stock_quantity?: number | null;
+          stock_updated_at?: string | null;
+          unit?: string | null;
+          unit_price?: number | null;
+          updated_at?: string;
+          user_id: string;
+        };
         Update: {
-          category?: string | null
-          cost?: number | null
-          created_at?: string
-          description?: string
-          ean?: string | null
-          id?: string
-          image_last_checked_at?: string | null
-          image_search_version?: number
-          image_status?: string
-          image_url?: string | null
-          internal_code?: string | null
-          promotion_code?: string | null
-          stock_quantity?: number | null
-          stock_updated_at?: string | null
-          unit?: string | null
-          unit_price?: number | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-    }
+          category?: string | null;
+          cost?: number | null;
+          created_at?: string;
+          description?: string;
+          ean?: string | null;
+          id?: string;
+          image_last_checked_at?: string | null;
+          image_search_version?: number;
+          image_status?: string;
+          image_url?: string | null;
+          internal_code?: string | null;
+          promotion_code?: string | null;
+          stock_quantity?: number | null;
+          stock_updated_at?: string | null;
+          unit?: string | null;
+          unit_price?: number | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+    };
     Views: {
-      [_ in never]: never
-    }
+      [_ in never]: never;
+    };
     Functions: {
-      undo_catalog_import: { Args: { p_import_id: string }; Returns: undefined }
-    }
+      catalog_product_match_key: {
+        Args: {
+          p_description: string | null;
+          p_ean: string | null;
+          p_internal_code: string | null;
+          p_promotion_code: string | null;
+        };
+        Returns: string;
+      };
+      import_catalog: {
+        Args: {
+          p_category: string;
+          p_error_count?: number;
+          p_file_name: string;
+          p_ignored_count?: number;
+          p_products: Json;
+        };
+        Returns: Json;
+      };
+      save_offer_match_memory: {
+        Args: {
+          p_candidate_codes: string[];
+          p_codes: string[];
+          p_offer_key: string;
+          p_updated_at: string | null;
+        };
+        Returns: string | null;
+      };
+      undo_catalog_import: { Args: { p_import_id: string }; Returns: undefined };
+    };
     Enums: {
-      [_ in never]: never
-    }
+      [_ in never]: never;
+    };
     CompositeTypes: {
-      [_ in never]: never
-    }
-  }
-}
+      [_ in never]: never;
+    };
+  };
+};
 
-type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">;
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">];
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+  schema: keyof DatabaseWithoutInternals;
 }
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
       DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
-      Row: infer R
+      Row: infer R;
     }
     ? R
     : never
   : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     ? (DefaultSchema["Tables"] & DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R
+        Row: infer R;
       }
       ? R
       : never
-    : never
+    : never;
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Insert: infer I
+      Insert: infer I;
     }
     ? I
     : never
@@ -227,20 +297,19 @@ export type TablesInsert<
     ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends { Insert: infer I }
       ? I
       : never
-    : never
+    : never;
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U
+      Update: infer U;
     }
     ? U
     : never
@@ -248,36 +317,38 @@ export type TablesUpdate<
     ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends { Update: infer U }
       ? U
       : never
-    : never
+    : never;
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+    keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
     ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
+    : never;
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+    keyof DefaultSchema["CompositeTypes"] | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals;
+  }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
+    : never;
 
 export const Constants = {
   public: {
     Enums: {},
   },
-} as const
+} as const;

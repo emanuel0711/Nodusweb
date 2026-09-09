@@ -83,6 +83,7 @@ export async function carregarTodosProdutos(): Promise<Produto[]> {
     let { data, error } = (await supabase
       .from("products")
       .select(colunas as string)
+      .order("id", { ascending: true })
       .range(inicio, inicio + 999)) as {
       data: unknown;
       error: { message?: string; code?: string } | null;
@@ -93,6 +94,7 @@ export async function carregarTodosProdutos(): Promise<Produto[]> {
       ({ data, error } = (await supabase
         .from("products")
         .select(usarCusto ? COLUNAS_PRODUTO_SEM_ESTOQUE : COLUNAS_PRODUTO_BASE)
+        .order("id", { ascending: true })
         .range(inicio, inicio + 999)) as {
         data: unknown;
         error: { message?: string; code?: string } | null;
@@ -104,6 +106,7 @@ export async function carregarTodosProdutos(): Promise<Produto[]> {
       ({ data, error } = (await supabase
         .from("products")
         .select(COLUNAS_PRODUTO_BASE)
+        .order("id", { ascending: true })
         .range(inicio, inicio + 999)) as {
         data: unknown;
         error: { message?: string; code?: string } | null;
@@ -132,6 +135,72 @@ export interface ProdutoImportado {
   stock_updated_at: string | null;
   category: string;
   image_url: string | null;
+}
+
+export interface ItemImportacaoCatalogo extends ProdutoImportado {
+  match_key: string;
+  existing_id: string | null;
+}
+
+function identificadoresDoProduto(produto: {
+  internal_code: string | null;
+  promotion_code: string | null;
+  ean: string | null;
+  description: string;
+}): string[] {
+  return [
+    produto.promotion_code ? `promocao:${produto.promotion_code}` : "",
+    produto.ean ? `ean:${produto.ean}` : "",
+    produto.internal_code ? `interno:${produto.internal_code}` : "",
+    `descricao:${normalizarTexto(produto.description)}`,
+  ].filter(Boolean);
+}
+
+/**
+ * Remove repetições do próprio arquivo e informa ao banco qual registro a
+ * leitura atual reconheceu. A RPC confirma esse vínculo novamente depois de
+ * obter o bloqueio transacional da categoria.
+ */
+export function prepararItensImportacao(
+  produtos: ProdutoImportado[],
+  existentes: Produto[],
+): { itens: ItemImportacaoCatalogo[]; duplicados: number } {
+  const existentesPorCategoriaEChave = new Map<string, Produto | null>();
+  for (const produto of existentes) {
+    for (const identificador of identificadoresDoProduto(produto)) {
+      const chave = `${produto.category ?? ""}\u0000${identificador}`;
+      const anterior = existentesPorCategoriaEChave.get(chave);
+      existentesPorCategoriaEChave.set(
+        chave,
+        anterior === undefined ? produto : anterior?.id === produto.id ? produto : null,
+      );
+    }
+  }
+  const chavesVistas = new Set<string>();
+  const itens: ItemImportacaoCatalogo[] = [];
+  let duplicados = 0;
+
+  for (const produto of produtos) {
+    const matchKey = chaveDoProduto(produto);
+    const chaveComCategoria = `${produto.category}\u0000${matchKey}`;
+    if (chavesVistas.has(chaveComCategoria)) {
+      duplicados++;
+      continue;
+    }
+    chavesVistas.add(chaveComCategoria);
+    const existente = identificadoresDoProduto(produto)
+      .map((identificador) =>
+        existentesPorCategoriaEChave.get(`${produto.category}\u0000${identificador}`),
+      )
+      .find((item): item is Produto => Boolean(item));
+    itens.push({
+      ...produto,
+      match_key: matchKey,
+      existing_id: existente?.id ?? null,
+    });
+  }
+
+  return { itens, duplicados };
 }
 
 function primeiroCustoValido(...valores: unknown[]): number | null {
@@ -264,10 +333,55 @@ export function chaveDoProduto(produto: {
   ean: string | null;
   description: string;
 }): string {
-  return (
-    produto.ean ||
-    produto.internal_code ||
-    produto.promotion_code ||
-    normalizarTexto(produto.description)
-  );
+  return identificadoresDoProduto(produto)[0] ?? "";
+}
+
+/**
+ * Confere se o conteúdo parece pertencer à categoria obtida do nome do arquivo.
+ * Retorna uma mensagem somente quando há evidência suficiente para bloquear a carga.
+ */
+export function erroCategoriaDaImportacao(
+  categoriaArquivo: string,
+  produtos: ProdutoImportado[],
+  existentes: Produto[],
+): string | null {
+  if (!produtos.length) return "O arquivo não contém nenhum produto válido.";
+
+  if (produtos.some((produto) => produto.category !== categoriaArquivo))
+    return `O conteúdo informa outra categoria. A carga foi bloqueada.`;
+  const atuais = existentes.filter((produto) => produto.category === categoriaArquivo);
+  const chavesNovas = new Set(produtos.flatMap(identificadoresDoProduto));
+  const chavesAtuais = new Set(atuais.flatMap(identificadoresDoProduto));
+  const comuns = [...chavesNovas].filter((chave) => chavesAtuais.has(chave)).length;
+  const produtosCorrespondentesAtuais = produtos.filter((produto) =>
+    identificadoresDoProduto(produto).some((chave) => chavesAtuais.has(chave)),
+  ).length;
+
+  if (atuais.length >= 20 && produtos.length >= 10) {
+    if (comuns / Math.min(chavesAtuais.size, chavesNovas.size) < 0.05)
+      return `O conteúdo quase não corresponde à categoria ${categoriaArquivo}.`;
+  }
+
+  if (existentes.length) {
+    const contagemPorCategoria = new Map<string, number>();
+    for (const produto of existentes) {
+      if (!produto.category || produto.category === categoriaArquivo) continue;
+      const corresponde = identificadoresDoProduto(produto).some((chave) => chavesNovas.has(chave));
+      if (corresponde)
+        contagemPorCategoria.set(
+          produto.category,
+          (contagemPorCategoria.get(produto.category) ?? 0) + 1,
+        );
+    }
+    const melhor = [...contagemPorCategoria.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (
+      melhor &&
+      melhor[1] >= 3 &&
+      melhor[1] / produtos.length >= 0.5 &&
+      melhor[1] > produtosCorrespondentesAtuais
+    )
+      return `O conteúdo corresponde à categoria ${melhor[0]}, mas o nome do arquivo criaria ${categoriaArquivo}.`;
+  }
+
+  return null;
 }

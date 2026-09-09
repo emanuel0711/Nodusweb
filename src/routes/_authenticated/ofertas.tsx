@@ -20,7 +20,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CARROSSEIS, separarCodigos, useOfertas } from "@/modules/ofertas/use-ofertas";
+import {
+  CARROSSEIS,
+  itemComEstoqueZerado,
+  separarCodigos,
+  useOfertas,
+} from "@/modules/ofertas/use-ofertas";
 
 export const Route = createFileRoute("/_authenticated/ofertas")({
   head: () => ({
@@ -61,19 +66,7 @@ function PaginaOfertas() {
 }
 
 type FiltroPendencia =
-  | "todas"
-  | "pendentes"
-  | "sem_imagem"
-  | "sem_codigo"
-  | "estoque_zerado"
-  | "com_duvida";
-
-function itemComEstoqueZerado(item: ReturnType<typeof useOfertas>["ofertas"][number]) {
-  const estoques = item.codigos
-    .map((codigo) => item.estoquePorCodigo?.[codigo])
-    .filter((estoque): estoque is number => estoque != null);
-  return estoques.length > 0 && estoques.every((estoque) => estoque <= 0);
-}
+  "todas" | "pendentes" | "sem_imagem" | "sem_codigo" | "estoque_zerado" | "com_duvida";
 
 function itemPrecisaRevisao(
   item: ReturnType<typeof useOfertas>["ofertas"][number],
@@ -101,7 +94,11 @@ function PainelPendencias({
 }) {
   const opcoes: Array<[FiltroPendencia, string, number]> = [
     ["todas", "Todas", ofertas.length],
-    ["pendentes", "Com pendência", ofertas.filter((item) => itemPrecisaRevisao(item, notaMinima)).length],
+    [
+      "pendentes",
+      "Com pendência",
+      ofertas.filter((item) => itemPrecisaRevisao(item, notaMinima)).length,
+    ],
     ["sem_imagem", "Sem imagem", ofertas.filter((item) => !item.imagem?.trim()).length],
     ["sem_codigo", "Sem código", ofertas.filter((item) => !item.codigos.length).length],
     ["estoque_zerado", "Estoque zerado", ofertas.filter(itemComEstoqueZerado).length],
@@ -267,7 +264,7 @@ function TabelaOfertas({
             return (
               <TableRow
                 key={`${item.nome}-${index}`}
-              className={`${itemPrecisaRevisao(item, notaMinima) ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
+                className={`${itemPrecisaRevisao(item, notaMinima) ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
                 onClick={(e) => {
                   if ((e.target as HTMLElement).closest("input,button")) return;
                   if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
@@ -285,81 +282,85 @@ function TabelaOfertas({
                   setModalVisualizacao(item);
                 }}
               >
-              <TableCell>
-                {item.imagem ? (
-                  <img
-                    src={item.imagem}
-                    alt={item.nome}
-                    loading="lazy"
-                    className="size-10 rounded-md object-contain bg-white"
+                <TableCell>
+                  {item.imagem ? (
+                    <img
+                      src={item.imagem}
+                      alt={item.nome}
+                      loading="lazy"
+                      className="size-10 rounded-md object-contain bg-white"
+                    />
+                  ) : (
+                    <span
+                      className="flex min-h-10 min-w-16 flex-col items-center justify-center rounded-md bg-warn px-1 text-warn-foreground"
+                      title="Imagem ausente"
+                    >
+                      <ImageIcon className="size-4" />
+                      <span className="mt-0.5 text-[10px] font-medium">Sem imagem</span>
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className="max-w-64 font-medium">
+                  <span className="line-clamp-2">{item.nome}</span>
+                </TableCell>
+                <TableCell className="max-w-72 text-xs text-muted-foreground">
+                  <span className="line-clamp-2">{resumirProdutoDaOferta(item)}</span>
+                  {item.motivoRevisao && (
+                    <p className="mt-1 line-clamp-1 text-warn-foreground">{item.motivoRevisao}</p>
+                  )}
+                </TableCell>
+                <TableCell>{Math.round(item.nota * 100)}%</TableCell>
+                <TableCell>{item.preco ?? "—"}</TableCell>
+                <TableCell>{item.precoClube ?? "—"}</TableCell>
+                <TableCell>{item.limite ?? "—"}</TableCell>
+                <TableCell>{item.unidade}</TableCell>
+                <TableCell>
+                  {!item.porQuilo && (
+                    <CodigoInput
+                      value={item.codigos.join(";")}
+                      onChange={(value) => {
+                        const codigos = separarCodigos(value, true);
+                        alterar(index, {
+                          codigos,
+                          ean: codigos[0] || "",
+                          codigo: codigos.join(";"),
+                        });
+                      }}
+                    />
+                  )}
+                </TableCell>
+                <TableCell>
+                  {item.porQuilo && (
+                    <CodigoInput
+                      value={item.codigos.join(";")}
+                      onChange={(value) => {
+                        const codigos = separarCodigos(value);
+                        alterar(index, { codigos, codigo: codigos.join(";") });
+                      }}
+                    />
+                  )}
+                </TableCell>
+                <TableCell>
+                  <CodigoInput
+                    value={item.imagem}
+                    maxLength={1000}
+                    onChange={(imagem) => alterar(index, { imagem })}
                   />
-                ) : (
-                  <span
-                    className="flex min-h-10 min-w-16 flex-col items-center justify-center rounded-md bg-warn px-1 text-warn-foreground"
-                    title="Imagem ausente"
+                </TableCell>
+                <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Remover item"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      remover(index);
+                    }}
                   >
-                    <ImageIcon className="size-4" />
-                    <span className="mt-0.5 text-[10px] font-medium">Sem imagem</span>
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="max-w-64 font-medium">
-                <span className="line-clamp-2">{item.nome}</span>
-              </TableCell>
-              <TableCell className="max-w-72 text-xs text-muted-foreground">
-                <span className="line-clamp-2">{resumirProdutoDaOferta(item)}</span>
-                {item.motivoRevisao && (
-                  <p className="mt-1 line-clamp-1 text-warn-foreground">{item.motivoRevisao}</p>
-                )}
-              </TableCell>
-              <TableCell>{Math.round(item.nota * 100)}%</TableCell>
-              <TableCell>{item.preco ?? "—"}</TableCell>
-              <TableCell>{item.precoClube ?? "—"}</TableCell>
-              <TableCell>{item.limite ?? "—"}</TableCell>
-              <TableCell>{item.unidade}</TableCell>
-              <TableCell>
-                {!item.porQuilo && (
-                  <CodigoInput
-                    value={item.codigos.join(";")}
-                    onChange={(value) => {
-                      const codigos = separarCodigos(value, true);
-                      alterar(index, { codigos, ean: codigos[0] || "", codigo: codigos.join(";") });
-                    }}
-                  />
-                )}
-              </TableCell>
-              <TableCell>
-                {item.porQuilo && (
-                  <CodigoInput
-                    value={item.codigos.join(";")}
-                    onChange={(value) => {
-                      const codigos = separarCodigos(value);
-                      alterar(index, { codigos, codigo: codigos.join(";") });
-                    }}
-                  />
-                )}
-              </TableCell>
-              <TableCell>
-                <CodigoInput
-                  value={item.imagem}
-                  maxLength={1000}
-                  onChange={(imagem) => alterar(index, { imagem })}
-                />
-              </TableCell>
-              <TableCell>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Remover item"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    remover(index);
-                  }}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </TableCell>
+                    <Trash2 className="size-4" />
+                  </Button>
+                </TableCell>
               </TableRow>
             );
           })}
@@ -489,7 +490,9 @@ function DialogVisualizacao({
             oferta.linhaOrigem === modalVisualizacao.linhaOrigem),
       )
     : -1;
-  const decisoes = modalVisualizacao ? Object.entries(modalVisualizacao.decisoesPorCodigo ?? {}) : [];
+  const decisoes = modalVisualizacao
+    ? Object.entries(modalVisualizacao.decisoesPorCodigo ?? {})
+    : [];
   const candidatos = decisoes.length
     ? decisoes.map(([codigo, decisao]) => [codigo, decisao.nome] as const)
     : Object.entries(modalVisualizacao?.nomesPorCodigo ?? {});
@@ -505,9 +508,17 @@ function DialogVisualizacao({
     .map((item, index) => (itemPrecisaRevisao(item, notaMinima) ? index : -1))
     .filter((index) => index >= 0);
   const indiceProblematica = indicesProblematicas.indexOf(indice);
+  const indiceAnterior =
+    indiceProblematica >= 0
+      ? indicesProblematicas[indiceProblematica - 1]
+      : [...indicesProblematicas].reverse().find((item) => item < indice);
+  const indiceProxima =
+    indiceProblematica >= 0
+      ? indicesProblematicas[indiceProblematica + 1]
+      : (indicesProblematicas.find((item) => item > indice) ?? indicesProblematicas[0]);
 
-  function abrirProblematica(deslocamento: number) {
-    const proxima = ofertas[indicesProblematicas[indiceProblematica + deslocamento] ?? -1];
+  function abrirProblematica(indiceDestino: number | undefined) {
+    const proxima = ofertas[indiceDestino ?? -1];
     if (!proxima) return;
     setModalVisualizacao(proxima);
     setSelecaoExpandida(false);
@@ -522,6 +533,15 @@ function DialogVisualizacao({
       .map((item) => modalVisualizacao.nomesPorCodigo?.[item])
       .filter(Boolean)
       .join(" / ");
+    const imagensConhecidas = new Set(
+      Object.values(modalVisualizacao.imagemPorCodigo ?? {}).filter(Boolean),
+    );
+    const imagemSelecionada = codigos
+      .map((item) => modalVisualizacao.imagemPorCodigo?.[item])
+      .find((imagem): imagem is string => Boolean(imagem?.trim()));
+    const imagem =
+      imagemSelecionada ??
+      (imagensConhecidas.has(modalVisualizacao.imagem) ? "" : modalVisualizacao.imagem);
     const mudanca = {
       codigos,
       decisoesPorCodigo: Object.fromEntries(
@@ -530,12 +550,16 @@ function DialogVisualizacao({
           {
             ...decisao,
             status: codigos.includes(item) ? ("incluido" as const) : ("descartado" as const),
-            motivos: [...decisao.motivos.filter((motivo) => motivo !== "decisão manual salva"), "decisão manual salva"],
+            motivos: [
+              ...decisao.motivos.filter((motivo) => motivo !== "decisão manual salva"),
+              "decisão manual salva",
+            ],
           },
         ]),
       ),
       codigo: codigos.join(";"),
       encontrado: nomes || null,
+      imagem,
       nota: codigos.length ? 1 : 0,
       motivoRevisao: codigos.length
         ? null
@@ -607,10 +631,7 @@ function DialogVisualizacao({
                   {modalVisualizacao.motivoRevisao}
                 </div>
               )}
-              <Info
-                label="Produto encontrado"
-                value={produtoEncontrado}
-              />
+              <Info label="Produto encontrado" value={produtoEncontrado} />
               <Info label="Confiança" value={`${Math.round(modalVisualizacao.nota * 100)}%`} />
               <Info label="Preço" value={modalVisualizacao.preco ?? "—"} />
               <Info label="Preço clube" value={modalVisualizacao.precoClube ?? "—"} />
@@ -635,24 +656,26 @@ function DialogVisualizacao({
             </div>
           </div>
         ) : null}
-        {modalVisualizacao && indiceProblematica >= 0 && (
+        {modalVisualizacao && indicesProblematicas.length > 0 && (
           <DialogFooter className="items-center sm:justify-between">
             <span className="text-xs text-muted-foreground">
-              Pendência {indiceProblematica + 1} de {indicesProblematicas.length}
+              {indiceProblematica >= 0
+                ? `Pendência ${indiceProblematica + 1} de ${indicesProblematicas.length}`
+                : `${indicesProblematicas.length} pendência(s) restante(s)`}
             </span>
             <div className="flex gap-2">
               <Button
                 type="button"
                 variant="outline"
-                disabled={indiceProblematica === 0}
-                onClick={() => abrirProblematica(-1)}
+                disabled={indiceAnterior == null}
+                onClick={() => abrirProblematica(indiceAnterior)}
               >
                 Anterior
               </Button>
               <Button
                 type="button"
-                disabled={indiceProblematica === indicesProblematicas.length - 1}
-                onClick={() => abrirProblematica(1)}
+                disabled={indiceProxima == null}
+                onClick={() => abrirProblematica(indiceProxima)}
               >
                 Próxima pendência
               </Button>
@@ -694,15 +717,11 @@ function resumirProdutosEncontrados(nomes: string[]): string {
   return [...new Set(variedades)].join(" / ");
 }
 
-function resumirProdutoDaOferta(
-  oferta: ReturnType<typeof useOfertas>["ofertas"][number],
-): string {
+function resumirProdutoDaOferta(oferta: ReturnType<typeof useOfertas>["ofertas"][number]): string {
   const nomes = oferta.codigos
     .map((codigo) => oferta.nomesPorCodigo?.[codigo])
     .filter((nome): nome is string => Boolean(nome));
-  return nomes.length
-    ? resumirProdutosEncontrados(nomes)
-    : oferta.encontrado || "Não encontrado";
+  return nomes.length ? resumirProdutosEncontrados(nomes) : oferta.encontrado || "Não encontrado";
 }
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {

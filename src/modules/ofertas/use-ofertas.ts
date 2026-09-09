@@ -9,11 +9,12 @@ import { chaveBaseOferta, codigoProduto, normalizarCodigos } from "@/lib/codigos
 import {
   processarLinhasOfertas,
   cruzarOferta,
+  itemComEstoqueZerado,
   validarCodigosNoCatalogo,
   type Oferta,
 } from "./processar-ofertas";
 export type { Oferta } from "./processar-ofertas";
-export { agruparOfertasIrmas } from "./processar-ofertas";
+export { agruparOfertasIrmas, itemComEstoqueZerado } from "./processar-ofertas";
 
 export const CARROSSEIS = [
   "6431 - Promoções",
@@ -28,54 +29,207 @@ export const CARROSSEIS = [
 const STORAGE_KEY = "ofertaflow:rascunho-ofertas";
 const MEMORY_KEY = "ofertaflow:memoria-eans";
 
-type MemoriaEans = Record<string, string[]>;
+export interface ItemMemoriaEans {
+  codigos: string[];
+  candidatos: string[];
+  /** Última versão confirmada pelo relógio do servidor. */
+  atualizadoEm: string;
+  pendente: boolean;
+  conflito: boolean;
+}
+
+type MemoriaEans = Record<string, ItemMemoriaEans>;
+
+function normalizarItemMemoria(valor: unknown): ItemMemoriaEans | null {
+  if (Array.isArray(valor)) {
+    const codigos = valor.map(String).filter(Boolean);
+    return { codigos, candidatos: [], atualizadoEm: "", pendente: true, conflito: false };
+  }
+  if (!valor || typeof valor !== "object") return null;
+  const item = valor as Partial<ItemMemoriaEans>;
+  if (!Array.isArray(item.codigos)) return null;
+  return {
+    codigos: item.codigos.map(String).filter(Boolean),
+    candidatos: Array.isArray(item.candidatos) ? item.candidatos.map(String).filter(Boolean) : [],
+    atualizadoEm: typeof item.atualizadoEm === "string" ? item.atualizadoEm : "",
+    // Registros anteriores não informavam se a última tentativa chegou ao servidor.
+    // Reenviá-los uma vez evita perder escolhas que ficaram somente neste navegador.
+    pendente: typeof item.pendente === "boolean" ? item.pendente : true,
+    conflito: typeof item.conflito === "boolean" ? item.conflito : false,
+  };
+}
 
 function lerMemoria(): MemoriaEans {
   try {
-    return JSON.parse(localStorage.getItem(MEMORY_KEY) ?? "{}") as MemoriaEans;
+    const salva = JSON.parse(localStorage.getItem(MEMORY_KEY) ?? "{}") as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(salva)
+        .map(([chave, valor]) => [chave, normalizarItemMemoria(valor)] as const)
+        .filter((item): item is [string, ItemMemoriaEans] => Boolean(item[1])),
+    );
   } catch {
     return {};
   }
 }
 
+function mesmosCodigos(a: string[], b: string[]): boolean {
+  const esquerda = [...new Set(a)].sort();
+  const direita = [...new Set(b)].sort();
+  return esquerda.length === direita.length && esquerda.every((codigo, i) => codigo === direita[i]);
+}
+
 function aplicarMemoria(ofertas: Oferta[], catalogo: Produto[]): Oferta[] {
   const memoria = lerMemoria();
   return ofertas.map((oferta) => {
-    const lembrados = memoria[chaveBaseOferta(oferta.nome)] ?? [];
-    const permitidos = new Set(catalogo.map((p) => codigoProduto(p, oferta.porQuilo)).filter(Boolean));
-    const codigos = lembrados.filter((codigo) => permitidos.has(codigo));
-    return codigos.length
-      ? {
-          ...oferta,
-          codigos,
-          codigo: codigos.join(";"),
-          ean: oferta.porQuilo ? "" : codigos[0]!,
-          codigoInterno: oferta.porQuilo ? codigos[0]! : "",
-          codigosEditados: true,
-          nota: 1,
-          motivoRevisao: null,
-        }
-      : oferta;
+    const lembranca = memoria[chaveBaseOferta(oferta.nome)];
+    if (!lembranca) return oferta;
+    const permitidos = new Set(
+      catalogo.map((p) => codigoProduto(p, oferta.porQuilo)).filter(Boolean),
+    );
+    const codigos = lembranca.codigos.filter((codigo) => permitidos.has(codigo));
+    const candidatosAtuais = Object.keys(
+      oferta.decisoesPorCodigo ?? oferta.nomesPorCodigo ?? {},
+    ).filter((codigo) => permitidos.has(codigo));
+    const catalogoMudou = lembranca.candidatos.length
+      ? !mesmosCodigos(lembranca.candidatos, candidatosAtuais)
+      : candidatosAtuais.some((codigo) => !lembranca.codigos.includes(codigo));
+    if (!codigos.length) {
+      return {
+        ...oferta,
+        motivoRevisao:
+          "Os códigos lembrados não existem mais no catálogo. Revise os itens compatíveis.",
+      };
+    }
+    const imagem = codigos
+      .map((codigo) => oferta.imagemPorCodigo?.[codigo])
+      .find((url): url is string => Boolean(url?.trim()));
+    return {
+      ...oferta,
+      codigos,
+      codigo: codigos.join(";"),
+      ean: oferta.porQuilo ? "" : codigos[0]!,
+      codigoInterno: oferta.porQuilo ? codigos[0]! : "",
+      codigosEditados: true,
+      imagem: imagem ?? oferta.imagem,
+      nota: catalogoMudou || lembranca.conflito ? Math.min(oferta.nota, 0.99) : 1,
+      motivoRevisao: lembranca.conflito
+        ? "Existe uma correção mais recente em outro computador. Confira e escolha novamente."
+        : catalogoMudou
+          ? "O catálogo mudou desde a última escolha. Confira os itens compatíveis."
+          : null,
+    };
   });
 }
 
 async function sincronizarMemoriaDoServidor() {
   const { data: sessao } = await supabase.auth.getUser();
   if (!sessao.user) return;
-  const { data, error } = await supabase.from("offer_match_memory").select("offer_key, codes");
+  const { data, error } = await supabase
+    .from("offer_match_memory")
+    .select("offer_key, codes, candidate_codes, updated_at");
   if (error) return;
+  const remotos = new Map((data ?? []).map((item) => [item.offer_key, item]));
   const memoria = lerMemoria();
-  for (const item of data ?? []) memoria[item.offer_key] = item.codes;
+  let encontrouConflito = false;
+
+  // Primeiro compara a versão conhecida por este navegador com o servidor.
+  // Assim uma aba antiga nunca publica sua cópia por cima de uma correção nova.
+  for (const [chave, item] of Object.entries(memoria)) {
+    if (!item.pendente) continue;
+    const remoto = remotos.get(chave);
+    if (remoto && item.atualizadoEm !== remoto.updated_at) {
+      memoria[chave] = {
+        ...item,
+        atualizadoEm: remoto.updated_at,
+        pendente: false,
+        conflito: true,
+      };
+      encontrouConflito = true;
+      continue;
+    }
+    try {
+      const atualizadoEm = await salvarMemoriaNoServidor(
+        chave,
+        item.codigos,
+        item.candidatos,
+        item.atualizadoEm || null,
+      );
+      if (!atualizadoEm) continue;
+      memoria[chave] = {
+        ...item,
+        atualizadoEm,
+        pendente: false,
+        conflito: false,
+      };
+      remotos.set(chave, {
+        offer_key: chave,
+        codes: item.codigos,
+        candidate_codes: item.candidatos,
+        updated_at: atualizadoEm,
+      });
+    } catch {
+      // A escolha continua marcada como pendente para a próxima sincronização.
+    }
+  }
+
+  for (const item of remotos.values()) {
+    const local = memoria[item.offer_key];
+    if (local?.pendente || local?.conflito) continue;
+    memoria[item.offer_key] = {
+      codigos: item.codes,
+      candidatos: item.candidate_codes ?? [],
+      atualizadoEm: item.updated_at,
+      pendente: false,
+      conflito: false,
+    };
+  }
+  localStorage.setItem(MEMORY_KEY, JSON.stringify(memoria));
+  if (encontrouConflito)
+    toast.warning(
+      "Há uma correção mais recente em outro computador. O item foi marcado para revisão.",
+    );
+}
+
+function confirmarMemoriaSincronizada(
+  chave: string,
+  codigosEnviados: string[],
+  candidatosEnviados: string[],
+  atualizadoEm: string,
+) {
+  const memoria = lerMemoria();
+  const atual = memoria[chave];
+  if (!atual) return;
+
+  if (!mesmosCodigos(atual.codigos, codigosEnviados)) {
+    memoria[chave] = { ...atual, pendente: true };
+  } else {
+    const candidatosAindaSaoOsMesmos = mesmosCodigos(atual.candidatos, candidatosEnviados);
+    memoria[chave] = {
+      ...atual,
+      atualizadoEm,
+      pendente: !candidatosAindaSaoOsMesmos,
+      conflito: false,
+    };
+  }
   localStorage.setItem(MEMORY_KEY, JSON.stringify(memoria));
 }
 
-async function salvarMemoriaNoServidor(chave: string, codigos: string[]) {
+async function salvarMemoriaNoServidor(
+  chave: string,
+  codigos: string[],
+  candidatos: string[],
+  atualizadoEm: string | null,
+): Promise<string | null> {
   const { data: sessao } = await supabase.auth.getUser();
-  if (!sessao.user) return;
-  await supabase.from("offer_match_memory").upsert(
-    { user_id: sessao.user.id, offer_key: chave, codes: codigos, updated_at: new Date().toISOString() },
-    { onConflict: "user_id,offer_key" },
-  );
+  if (!sessao.user) throw new Error("Sessão expirada");
+  const { data, error } = await supabase.rpc("save_offer_match_memory", {
+    p_offer_key: chave,
+    p_codes: codigos,
+    p_candidate_codes: candidatos,
+    p_updated_at: atualizadoEm,
+  });
+  if (error) throw error;
+  return typeof data === "string" && data ? data : null;
 }
 
 interface Rascunho {
@@ -115,7 +269,6 @@ function dataParaClube(valor: string): string {
 }
 
 function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
-  if (oferta.codigosEditados) return oferta;
   const atualizada = cruzarOferta(
     {
       ...oferta.linhaOrigem,
@@ -128,7 +281,9 @@ function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
     oferta.nome,
     oferta.excecoes,
   );
-  return atualizada ? { ...atualizada, imagem: oferta.imagem || atualizada.imagem } : oferta;
+  if (!atualizada) return oferta;
+  const conferida = { ...atualizada, imagem: oferta.imagem || atualizada.imagem };
+  return oferta.codigosEditados ? aplicarMemoria([conferida], catalogo)[0]! : conferida;
 }
 
 export function useOfertas() {
@@ -146,6 +301,10 @@ export function useOfertas() {
   const [carrossel, setCarrossel] = useState(rascunho?.carrossel ?? "");
   const [ativarEm, setAtivarEm] = useState(rascunho?.ativarEm ?? "");
   const [inativarEm, setInativarEm] = useState(rascunho?.inativarEm ?? "");
+
+  useEffect(() => {
+    void sincronizarMemoriaDoServidor().catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!ofertas.length && !nomeArquivo) {
@@ -174,20 +333,40 @@ export function useOfertas() {
   }, []);
 
   function alterar(indice: number, mudanca: Partial<Oferta>) {
+    const atual = ofertas[indice];
+    if (atual && Object.hasOwn(mudanca, "codigos")) {
+      const memoria = lerMemoria();
+      const codigos = mudanca.codigos ?? [];
+      const candidatos = Object.keys(atual.decisoesPorCodigo ?? atual.nomesPorCodigo ?? {});
+      const chave = chaveBaseOferta(atual.nome);
+      const atualizadoEm = memoria[chave]?.atualizadoEm ?? "";
+      memoria[chave] = {
+        codigos,
+        candidatos,
+        atualizadoEm,
+        pendente: true,
+        conflito: false,
+      };
+      localStorage.setItem(MEMORY_KEY, JSON.stringify(memoria));
+      void salvarMemoriaNoServidor(chave, codigos, candidatos, atualizadoEm || null)
+        .then((confirmadoEm) => {
+          if (confirmadoEm) confirmarMemoriaSincronizada(chave, codigos, candidatos, confirmadoEm);
+          else void sincronizarMemoriaDoServidor();
+        })
+        .catch(() =>
+          toast.warning(
+            "A escolha ficou salva neste navegador, mas não foi sincronizada. Tente novamente depois.",
+          ),
+        );
+    }
     setOfertas((atual) =>
       atual.map((oferta, i) => {
         if (i !== indice) return oferta;
         const alterada = {
-              ...oferta,
-              ...mudanca,
-              ...(Object.hasOwn(mudanca, "codigos") ? { codigosEditados: true } : {}),
-            };
-        if (Object.hasOwn(mudanca, "codigos")) {
-          const memoria = lerMemoria();
-          memoria[chaveBaseOferta(oferta.nome)] = alterada.codigos ?? [];
-          localStorage.setItem(MEMORY_KEY, JSON.stringify(memoria));
-          void salvarMemoriaNoServidor(chaveBaseOferta(oferta.nome), alterada.codigos ?? []);
-        }
+          ...oferta,
+          ...mudanca,
+          ...(Object.hasOwn(mudanca, "codigos") ? { codigosEditados: true } : {}),
+        };
         return alterada;
       }),
     );
@@ -294,8 +473,7 @@ export function useOfertas() {
         !item.imagem?.trim() ||
         item.nota < notaMinima ||
         !item.codigos.length ||
-        (item.codigos.some((codigo) => item.estoquePorCodigo?.[codigo] != null) &&
-          item.codigos.every((codigo) => (item.estoquePorCodigo?.[codigo] ?? 1) <= 0)) ||
+        itemComEstoqueZerado(item) ||
         Boolean(item.motivoRevisao),
     ).length,
     alterar,

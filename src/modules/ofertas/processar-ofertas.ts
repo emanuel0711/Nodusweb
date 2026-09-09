@@ -29,11 +29,22 @@ export interface Oferta extends RegraOferta {
   motivoRevisao?: string | null;
   linhaOrigem?: LinhaPlanilha;
   nomesPorCodigo?: Record<string, string>;
+  imagemPorCodigo?: Record<string, string>;
   estoquePorCodigo?: Record<string, number | null>;
   decisoesPorCodigo?: Record<
     string,
     { nome: string; status: "incluido" | "descartado"; motivos: string[] }
   >;
+}
+
+export function itemComEstoqueZerado(item: Oferta): boolean {
+  return (
+    item.codigos.length > 0 &&
+    item.codigos.every((codigo) => {
+      const estoque = item.estoquePorCodigo?.[codigo];
+      return estoque != null && estoque <= 0;
+    })
+  );
 }
 const NOMES = [
   "PRODUTO",
@@ -103,6 +114,7 @@ export function cruzarOferta(
   }
   const itemComImagem = selecao.produtos.find((produto) => produto.image_url?.trim());
   const item = itemComImagem ?? selecao.produtos[0];
+  const candidatos = selecao.candidatos ?? selecao.produtos;
   const regras = aplicarRegras(
     nome,
     limiteBruto,
@@ -132,18 +144,21 @@ export function cruzarOferta(
     motivoRevisao: selecao.motivo,
     linhaOrigem: linha,
     nomesPorCodigo: Object.fromEntries(
-      selecao.produtos.map((p) => [
-        porQuilo ? limparCodigo(p.internal_code) : p.ean!,
-        p.description,
-      ]),
+      candidatos
+        .map((p) => [porQuilo ? limparCodigo(p.internal_code) : p.ean!, p.description])
+        .filter(([codigo]) => Boolean(codigo)),
+    ),
+    imagemPorCodigo: Object.fromEntries(
+      candidatos
+        .map((p) => [porQuilo ? limparCodigo(p.internal_code) : p.ean!, p.image_url?.trim() ?? ""])
+        .filter(([codigo]) => Boolean(codigo)),
     ),
     estoquePorCodigo: Object.fromEntries(
-      selecao.produtos.map((p) => [
-        porQuilo ? limparCodigo(p.internal_code) : p.ean!,
-        p.stock_quantity,
-      ]),
+      candidatos
+        .map((p) => [porQuilo ? limparCodigo(p.internal_code) : p.ean!, p.stock_quantity ?? null])
+        .filter(([codigo]) => Boolean(codigo)),
     ),
-    decisoesPorCodigo: selecao.decisoesPorCodigo,
+    ...(selecao.decisoesPorCodigo ? { decisoesPorCodigo: selecao.decisoesPorCodigo } : {}),
   };
 }
 export function agruparOfertasIrmas(ofertas: Oferta[]): Oferta[] {
@@ -168,6 +183,7 @@ export function agruparOfertasIrmas(ofertas: Oferta[]): Oferta[] {
       codigos,
       codigo: codigos.join(";"),
       nomesPorCodigo: { ...anterior?.nomesPorCodigo, ...oferta.nomesPorCodigo },
+      imagemPorCodigo: { ...anterior?.imagemPorCodigo, ...oferta.imagemPorCodigo },
       estoquePorCodigo: { ...anterior?.estoquePorCodigo, ...oferta.estoquePorCodigo },
       decisoesPorCodigo: { ...anterior?.decisoesPorCodigo, ...oferta.decisoesPorCodigo },
       nota: Math.min(anterior?.nota ?? 1, oferta.nota),

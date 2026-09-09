@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as XLSX from "xlsx";
 import {
+  itemComEstoqueZerado,
   processarLinhasOfertas,
   validarCodigosNoCatalogo,
 } from "../src/modules/ofertas/processar-ofertas.ts";
@@ -16,7 +17,12 @@ import {
   valorDoCampo,
 } from "../src/modules/planilhas/planilha.ts";
 import { ehPorQuilo } from "../src/modules/ofertas/regras-oferta.ts";
-import { linhaParaProduto, type Produto } from "../src/modules/catalogo/catalogo.ts";
+import {
+  erroCategoriaDaImportacao,
+  linhaParaProduto,
+  prepararItensImportacao,
+  type Produto,
+} from "../src/modules/catalogo/catalogo.ts";
 
 const produto = (id: string, description: string, extra: Partial<Produto> = {}): Produto => ({
   id,
@@ -44,6 +50,14 @@ const catalogo = [
   produto("10", "Banana prata KG", { unit: "KG", ean: null, internal_code: "0012" }),
 ];
 const linha = (PRODUTO: string) => ({ PRODUTO, OFERTA: 5.99, CLUBE: 4.99, LIMITE: "3 unidades" });
+test("estoque zerado exige que todos os códigos tenham saldo conhecido e não positivo", () => {
+  const base = {
+    ...processarLinhasOfertas([linha("Frisco sabores 25g")], catalogo)[0]!,
+    codigos: ["a", "b"],
+  };
+  assert.equal(itemComEstoqueZerado({ ...base, estoquePorCodigo: { a: 0, b: null } }), false);
+  assert.equal(itemComEstoqueZerado({ ...base, estoquePorCodigo: { a: 0, b: -2 } }), true);
+});
 test("importação do catálogo lê Qtd. como estoque e registra a data da carga", () => {
   const atualizadoEm = "2026-09-08T12:34:56.000Z";
   const item = linhaParaProduto(
@@ -73,6 +87,121 @@ test("estoque zero também é importado e recebe data de atualização", () => {
   assert.equal(item?.stock_quantity, 0);
   assert.equal(item?.stock_updated_at, atualizadoEm);
 });
+test("categoria declarada diferente do arquivo bloqueia a carga", () => {
+  const item = linhaParaProduto(
+    { Código: "7898064990046", Descrição: "CARVAO IVOTI 4KG", Categoria: "BAZAR" },
+    "CARVAO",
+  )!;
+  assert.match(erroCategoriaDaImportacao("CARVAO", [item], []) ?? "", /outra categoria/);
+});
+test("arquivo sem nenhum produto válido é bloqueado", () => {
+  assert.match(erroCategoriaDaImportacao("CARVAO", [], []) ?? "", /nenhum produto válido/);
+});
+test("preparação da carga remove duplicata e vincula somente na mesma categoria", () => {
+  const importado = linhaParaProduto(
+    {
+      Código: "7898064990046",
+      Descrição: "CARVAO IVOTI 4KG ATUALIZADO",
+      "Un.": "FD",
+      Preço: "25,90",
+      "Qtd.": "14",
+      Custo: "17,20",
+    },
+    "CARVAO",
+  )!;
+  const existente = produto("201", "CARVAO IVOTI 4KG", {
+    ean: "7898064990046",
+    category: "CARVAO",
+    image_url: "https://exemplo.com/carvao.png",
+  });
+  const mesmaChaveOutraCategoria = {
+    ...existente,
+    id: "202",
+    category: "BAZAR",
+  };
+
+  const preparados = prepararItensImportacao(
+    [importado, { ...importado, description: "LINHA REPETIDA" }],
+    [mesmaChaveOutraCategoria, existente],
+  );
+
+  assert.equal(preparados.duplicados, 1);
+  assert.equal(preparados.itens.length, 1);
+  assert.equal(preparados.itens[0]!.existing_id, existente.id);
+  assert.equal(preparados.itens[0]!.description, "CARVAO IVOTI 4KG ATUALIZADO");
+  assert.equal(preparados.itens[0]!.unit, "FD");
+  assert.equal(preparados.itens[0]!.unit_price, 25.9);
+  assert.equal(preparados.itens[0]!.cost, 17.2);
+  assert.equal(preparados.itens[0]!.stock_quantity, 14);
+  assert.equal("image_status" in preparados.itens[0]!, false);
+});
+test("preparação reconhece correção de EAN pela descrição ou código promocional", () => {
+  const existente = produto("205", "PRODUTO TESTE 500G", {
+    ean: "7890000000205",
+    promotion_code: "PROMO-205",
+    category: "TESTE",
+  });
+  const base = linhaParaProduto(
+    { Código: "7890000000999", Descrição: "PRODUTO TESTE 500G", "Un.": "UN" },
+    "TESTE",
+  )!;
+  const porDescricao = prepararItensImportacao([base], [existente]);
+  const porPromocao = prepararItensImportacao(
+    [{ ...base, description: "PRODUTO TESTE CORRIGIDO 500G", promotion_code: "PROMO-205" }],
+    [existente],
+  );
+
+  assert.equal(porDescricao.itens[0]!.existing_id, existente.id);
+  assert.equal(porPromocao.itens[0]!.existing_id, existente.id);
+});
+test("arquivo renomeado que corresponde a outra categoria é bloqueado", () => {
+  const existentes = Array.from({ length: 6 }, (_, indice) =>
+    produto(String(300 + indice), `Bebida teste ${indice} 1L`, { category: "BEBIDAS" }),
+  );
+  const importados = existentes.map((item) => ({
+    internal_code: item.internal_code,
+    promotion_code: item.promotion_code,
+    ean: item.ean,
+    description: item.description,
+    unit: item.unit,
+    unit_price: item.unit_price,
+    cost: item.cost,
+    stock_quantity: null,
+    stock_updated_at: null,
+    category: "ARQUIVO ERRADO",
+    image_url: item.image_url,
+  }));
+  assert.match(
+    erroCategoriaDaImportacao("ARQUIVO ERRADO", importados, existentes) ?? "",
+    /corresponde à categoria BEBIDAS/,
+  );
+});
+test("arquivo errado também é bloqueado quando a categoria de destino já é pequena", () => {
+  const bebidas = Array.from({ length: 3 }, (_, indice) =>
+    produto(String(350 + indice), `Bebida curta ${indice} 1L`, { category: "BEBIDAS" }),
+  );
+  const bazar = Array.from({ length: 3 }, (_, indice) =>
+    produto(String(360 + indice), `Bazar curto ${indice}`, { category: "BAZAR" }),
+  );
+  const importados = bebidas.map((item) => ({
+    internal_code: item.internal_code,
+    promotion_code: item.promotion_code,
+    ean: item.ean,
+    description: item.description,
+    unit: item.unit,
+    unit_price: item.unit_price,
+    cost: item.cost,
+    stock_quantity: null,
+    stock_updated_at: null,
+    category: "BAZAR",
+    image_url: null,
+  }));
+
+  assert.match(
+    erroCategoriaDaImportacao("BAZAR", importados, [...bebidas, ...bazar]) ?? "",
+    /corresponde à categoria BEBIDAS/,
+  );
+});
 test("fluxo reúne Frisco em uma linha e conserva preços e limite", () => {
   const ofertas = processarLinhasOfertas([linha("Frisco sabores 25g")], catalogo);
   assert.equal(ofertas.length, 1);
@@ -89,10 +218,7 @@ test("oferta usa a imagem disponível em outra variedade da mesma família", () 
       image_url: "https://exemplo.com/red-horse.png",
     }),
   ];
-  const oferta = processarLinhasOfertas(
-    [linha("Energético Red Horse 473ml")],
-    itens,
-  )[0]!;
+  const oferta = processarLinhasOfertas([linha("Energético Red Horse 473ml")], itens)[0]!;
 
   assert.equal(oferta.imagem, "https://exemplo.com/red-horse.png");
 });
@@ -101,12 +227,12 @@ test("oferta preserva o estoque de cada código compatível", () => {
     produto("11", "Energético Red Horse 473ml frutas tropicais", { stock_quantity: 0 }),
     produto("12", "Energético Red Horse 473ml tradicional", { stock_quantity: 8 }),
   ];
-  const oferta = processarLinhasOfertas(
-    [linha("Energético Red Horse 473ml")],
-    itens,
-  )[0]!;
+  const oferta = processarLinhasOfertas([linha("Energético Red Horse 473ml")], itens)[0]!;
 
-  assert.deepEqual(oferta.estoquePorCodigo, { "11": 0, "12": 8 });
+  assert.deepEqual(oferta.estoquePorCodigo, {
+    [itens[0]!.ean!]: 0,
+    [itens[1]!.ean!]: 8,
+  });
 });
 test("oferta combinada de refrigerante vira duas linhas", () => {
   const ofertas = processarLinhasOfertas([linha("Coca Cola tradicional e zero 2L")], catalogo);
@@ -610,27 +736,28 @@ test("repolho genérico usa o PLU confirmado do verde", () => {
 
 test("estoque é o último critério para resolver uma família ambígua", () => {
   const itens = [
-    produto("137", "Aipim Marca A 1kg congelado", { stock_quantity: 0 }),
-    produto("138", "Aipim Marca B 1kg congelado", { stock_quantity: 8 }),
-    produto("139", "Aipim Marca C 1kg congelado", { stock_quantity: null }),
+    produto("137", "Aipim Alfa 1kg congelado", { stock_quantity: 0 }),
+    produto("138", "Aipim Beta 1kg congelado", { stock_quantity: 8 }),
+    produto("139", "Aipim Gama 1kg congelado", { stock_quantity: null }),
   ];
   assert.deepEqual(selecionarCodigosOferta("Aipim congelado 1kg", itens, false).codigos, [
     itens[1]!.ean,
   ]);
 });
-test("seleção explica inclusão e descarte por estoque de cada EAN", () => {
+test("família confirmada mantém todos os EANs e explica o estoque de cada um", () => {
   const itens = [
-    produto("7890000000001", "Energético Red Horse 473ml tradicional", { stock_quantity: 0 }),
-    produto("7890000000002", "Energético Red Horse 473ml frutas tropicais", { stock_quantity: 5 }),
+    produto("201", "Energético Red Horse 473ml tradicional", { stock_quantity: 0 }),
+    produto("202", "Energético Red Horse 473ml frutas tropicais", { stock_quantity: 5 }),
   ];
   const resultado = selecionarCodigosOferta("Energético Red Horse 473ml", itens, false);
 
-  assert.equal(resultado.decisoesPorCodigo?.["7890000000001"]?.status, "descartado");
+  assert.deepEqual(resultado.codigos, [itens[0]!.ean, itens[1]!.ean]);
+  assert.equal(resultado.decisoesPorCodigo?.[itens[0]!.ean!]?.status, "incluido");
   assert.match(
-    resultado.decisoesPorCodigo?.["7890000000001"]?.motivos.join(" ") ?? "",
+    resultado.decisoesPorCodigo?.[itens[0]!.ean!]?.motivos.join(" ") ?? "",
     /estoque zerado/,
   );
-  assert.equal(resultado.decisoesPorCodigo?.["7890000000002"]?.status, "incluido");
+  assert.equal(resultado.decisoesPorCodigo?.[itens[1]!.ean!]?.status, "incluido");
 });
 
 test("ambiguidade preserva os candidatos para seleção manual", () => {
@@ -642,7 +769,7 @@ test("ambiguidade preserva os candidatos para seleção manual", () => {
   ];
   const resultado = selecionarCodigosOferta("MASSA MOSMANN 750G SEMOLA", itens, false);
   assert.deepEqual(resultado.codigos, []);
-  assert.deepEqual(resultado.produtos, itens);
+  assert.deepEqual(resultado.candidatos, itens);
   assert.match(resultado.motivo ?? "", /Selecione abaixo/);
 });
 
@@ -651,4 +778,88 @@ test("catálogo continua funcionando quando estoque ainda não foi carregado", (
   assert.deepEqual(selecionarCodigosOferta("Produto Exemplo 500g", [item], false).codigos, [
     item.ean,
   ]);
+});
+
+test("correspondência exata zerada vence item menos específico com estoque", () => {
+  const exato = produto("210", "MASSA MOSMANN 750G SEMOLA", { stock_quantity: 0 });
+  const talharim = produto("211", "MASSA MOSMANN 750G SEMOLA TALHARIM N3", {
+    stock_quantity: 12,
+  });
+  const resultado = selecionarCodigosOferta("MASSA MOSMANN 750G SEMOLA", [exato, talharim], false);
+
+  assert.deepEqual(resultado.codigos, [exato.ean]);
+  assert.deepEqual(resultado.candidatos, [exato, talharim]);
+  assert.match(
+    resultado.decisoesPorCodigo?.[talharim.ean!]?.motivos.join(" ") ?? "",
+    /menos específica/,
+  );
+});
+
+test("estoque desconhecido não é descrito como estoque zerado", () => {
+  const desconhecido = produto("212", "Aipim Alfa 1kg congelado", {
+    stock_quantity: null,
+  });
+  const disponivel = produto("213", "Aipim Beta 1kg congelado", { stock_quantity: 7 });
+  const resultado = selecionarCodigosOferta(
+    "Aipim congelado 1kg",
+    [desconhecido, disponivel],
+    false,
+  );
+  const motivos = resultado.decisoesPorCodigo?.[desconhecido.ean!]?.motivos.join(" ") ?? "";
+
+  assert.deepEqual(resultado.codigos, [disponivel.ean]);
+  assert.match(motivos, /estoque não informado/);
+  assert.doesNotMatch(motivos, /estoque zerado/);
+});
+
+test("vinho com marca respeita cor e tipo informados", () => {
+  const itens = [
+    produto("214", "Vinho Canção 750ml branco seco"),
+    produto("215", "Vinho Canção 750ml branco suave"),
+    produto("216", "Vinho Canção 750ml tinto seco"),
+    produto("217", "Vinho Canção 750ml tinto suave"),
+    produto("218", "Vinho Canção 750ml rosado suave"),
+    produto("219", "Vinho Country Wine 750ml branco seco"),
+  ];
+
+  assert.deepEqual(selecionarCodigosOferta("Vinho Canção 750ml branco", itens, false).codigos, [
+    itens[0]!.ean,
+    itens[1]!.ean,
+  ]);
+  assert.deepEqual(selecionarCodigosOferta("Vinho Canção 750ml tinto seco", itens, false).codigos, [
+    itens[2]!.ean,
+  ]);
+  assert.deepEqual(selecionarCodigosOferta("Vinho Canção 750ml rosé suave", itens, false).codigos, [
+    itens[4]!.ean,
+  ]);
+});
+
+test("vinho sem marca fica para escolha manual", () => {
+  const itens = [
+    produto("220", "Vinho Canção 750ml tinto seco"),
+    produto("221", "Vinho Country Wine 750ml tinto seco"),
+  ];
+  const resultado = selecionarCodigosOferta("Vinho tinto seco 750ml", itens, false);
+
+  assert.deepEqual(resultado.codigos, []);
+  assert.deepEqual(resultado.candidatos, itens);
+  assert.match(resultado.motivo ?? "", /marca ou a linha/);
+});
+
+test("erro curto no nome mantém candidatos aproximados disponíveis", () => {
+  const itens = [
+    produto("222", "MASSA MOSMANN 750G SEMOLA PARAFUSO", {
+      image_url: "https://exemplo.com/parafuso.png",
+    }),
+    produto("223", "MASSA MOSMANN 750G SEMOLA PENNE"),
+    produto("224", "MASSA MOSMANN 750G SEMOLA TALHARIM N3"),
+  ];
+  const resultado = selecionarCodigosOferta("MASSA MOSMAN 750G SEMOLA", itens, false);
+  const oferta = processarLinhasOfertas([linha("MASSA MOSMAN 750G SEMOLA")], itens)[0]!;
+
+  assert.deepEqual(resultado.codigos, []);
+  assert.deepEqual(resultado.candidatos, itens);
+  assert.match(resultado.motivo ?? "", /aproximados/);
+  assert.equal(oferta.imagemPorCodigo?.[itens[0]!.ean!], "https://exemplo.com/parafuso.png");
+  assert.equal(oferta.imagemPorCodigo?.[itens[1]!.ean!], "");
 });
