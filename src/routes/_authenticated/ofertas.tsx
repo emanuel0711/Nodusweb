@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Download, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Check, Download, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -263,7 +263,7 @@ function TabelaOfertas({
             return (
               <TableRow
                 key={`${item.nome}-${index}`}
-                className={`${itemPrecisaRevisao(item, notaMinima) ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
+                className={`${itemPrecisaRevisao(item, notaMinima) && !item.revisadoManualmente ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
                 onClick={(e) => {
                   if ((e.target as HTMLElement).closest("input,button")) return;
                   if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
@@ -566,6 +566,13 @@ function DialogVisualizacao({
     setModalVisualizacao({ ...modalVisualizacao, ...mudanca, codigosEditados: true });
   }
 
+  function confirmarRevisao() {
+    if (!modalVisualizacao || indice < 0) return;
+    const mudanca = { revisadoManualmente: true };
+    alterar(indice, mudanca);
+    setModalVisualizacao({ ...modalVisualizacao, ...mudanca });
+  }
+
   return (
     <Dialog
       open={!!modalVisualizacao}
@@ -658,6 +665,16 @@ function DialogVisualizacao({
                 : `${indicesProblematicas.length} pendência(s) restante(s)`}
             </span>
             <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="text-success"
+                disabled={modalVisualizacao.revisadoManualmente}
+                onClick={confirmarRevisao}
+              >
+                <Check className="size-4" />
+                {modalVisualizacao.revisadoManualmente ? "Revisado" : "Confirmar revisão"}
+              </Button>
               <Button
                 type="button"
                 variant="outline"

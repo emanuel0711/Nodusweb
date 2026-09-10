@@ -863,3 +863,27 @@ test("erro curto no nome mantém candidatos aproximados disponíveis", () => {
   assert.equal(oferta.imagemPorCodigo?.[itens[0]!.ean!], "https://exemplo.com/parafuso.png");
   assert.equal(oferta.imagemPorCodigo?.[itens[1]!.ean!], "");
 });
+
+test("sinônimos comerciais de couve encontram o cadastro equivalente", () => {
+  const item = produto("225", "COUVE MANTEIGA UND");
+  const resultado = selecionarCodigosOferta("COUVE VERDE MOLHO UND", [item], false);
+
+  assert.deepEqual(resultado.candidatos, [item]);
+});
+
+test("descritor mini ausente no catálogo ainda oferece candidato para revisão", () => {
+  const item = produto("226", "HAMBURGUER SEARA 300G CHURRASCO");
+  const resultado = selecionarCodigosOferta("MINI HAMBURGUER SEARA 300G CHURRASCO", [item], false);
+
+  assert.deepEqual(resultado.codigos, []);
+  assert.deepEqual(resultado.candidatos, [item]);
+  assert.match(resultado.motivo ?? "", /aproximados/);
+});
+
+test("aproximação não troca uma marca de massa por outra", () => {
+  const item = produto("227", "MASSA DATIA 3KG SEMOLA BENGALA");
+  const resultado = selecionarCodigosOferta("MASSA MOSMANN 3KG SEMOLA", [item], false);
+
+  assert.deepEqual(resultado.codigos, []);
+  assert.deepEqual(resultado.candidatos, undefined);
+});

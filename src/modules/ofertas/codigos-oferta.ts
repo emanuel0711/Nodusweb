@@ -146,7 +146,9 @@ const ALIASES: Record<string, string> = {
   achoc: "achocolatado",
   bisc: "biscoito",
   rosado: "rose",
+  hamburger: "hamburguer",
 };
+const DESCRITORES_OPCIONAIS_NA_APROXIMACAO = new Set(["mini", "molho", "maco"]);
 export type Variante =
   | "tradicional"
   | "zero"
@@ -196,6 +198,7 @@ function textoCanonico(valor: string): string {
     (_, numero: string) => ` ${Number(numero)}un `,
   );
   return normalizarTexto(quantidades)
+    .replace(/\bcouve\s+verde\b/g, "couve manteiga")
     .split(" ")
     .map((t) => ALIASES[t] ?? t)
     .join(" ")
@@ -206,6 +209,7 @@ function textoCanonico(valor: string): string {
     .replace(/\bcom e sem gas\b/g, "com gas e sem gas")
     .replace(/\bcom e sem alcool\b/g, "com alcool e sem alcool");
 }
+
 function semExcecoes(valor: string): string {
   return textoCanonico(valor)
     .split(/\bexceto\b/)[0]!
@@ -520,10 +524,16 @@ function candidatosAproximados(
       const correspondencias = procurados.filter((token) =>
         encontrados.some((encontrado) => tokensQuaseIguais(token, encontrado)),
       ).length;
+      const naoCorrespondidos = procurados.filter(
+        (token) =>
+          !encontrados.some((encontrado) => tokensQuaseIguais(token, encontrado)) &&
+          !DESCRITORES_OPCIONAIS_NA_APROXIMACAO.has(token),
+      );
       const exatas = procurados.filter((token) => encontrados.includes(token)).length;
       return {
         produto,
         correspondencias,
+        naoCorrespondidos,
         exatas,
         extras: encontrados.filter(
           (token) => !procurados.some((procurado) => tokensQuaseIguais(procurado, token)),
@@ -531,7 +541,9 @@ function candidatosAproximados(
       };
     })
     .filter(
-      ({ correspondencias }) => correspondencias >= Math.max(1, Math.ceil(procurados.length * 0.6)),
+      ({ correspondencias, naoCorrespondidos }) =>
+        !naoCorrespondidos.length &&
+        correspondencias >= Math.max(1, Math.ceil(procurados.length * 0.6)),
     )
     .sort(
       (a, b) =>

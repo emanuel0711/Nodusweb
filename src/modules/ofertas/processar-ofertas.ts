@@ -22,6 +22,7 @@ export interface Oferta extends RegraOferta {
   codigoInterno: string;
   codigos: string[];
   codigosEditados?: boolean;
+  revisadoManualmente?: boolean;
   excecoes: string[][];
   imagem: string;
   encontrado: string | null;
