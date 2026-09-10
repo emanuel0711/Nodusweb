@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Download, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -233,8 +233,8 @@ function TabelaOfertas({
   });
 
   return (
-    <div className="surface mt-4 overflow-x-auto">
-      <Table>
+    <div className="surface mt-4 overflow-hidden">
+      <Table className="w-full table-fixed text-xs [&_td]:px-2 [&_th]:px-2">
         <TableHeader>
           <TableRow>
             <TableHead>Img</TableHead>
@@ -245,8 +245,7 @@ function TabelaOfertas({
             <TableHead>Preço clube</TableHead>
             <TableHead>Limite</TableHead>
             <TableHead>Tipo de produto</TableHead>
-            <TableHead>EAN</TableHead>
-            <TableHead>Código</TableHead>
+            <TableHead>Códigos</TableHead>
             <TableHead>URL da imagem</TableHead>
             <TableHead />
           </TableRow>
@@ -254,7 +253,7 @@ function TabelaOfertas({
         <TableBody>
           {!ofertasVisiveis.length && (
             <TableRow>
-              <TableCell colSpan={12} className="h-24 text-center text-muted-foreground">
+              <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
                 Nenhuma oferta corresponde a este filtro.
               </TableCell>
             </TableRow>
@@ -300,11 +299,11 @@ function TabelaOfertas({
                     </span>
                   )}
                 </TableCell>
-                <TableCell className="max-w-64 font-medium">
-                  <span className="line-clamp-2">{item.nome}</span>
+                <TableCell className="w-[15%] max-w-52 break-words font-medium">
+                  <span className="line-clamp-2" title={item.nome}>{item.nome}</span>
                 </TableCell>
-                <TableCell className="max-w-72 text-xs text-muted-foreground">
-                  <span className="line-clamp-2">{resumirProdutoDaOferta(item)}</span>
+                <TableCell className="w-[17%] max-w-56 break-words text-xs text-muted-foreground">
+                  <span className="line-clamp-2" title={resumirProdutoDaOferta(item)}>{resumirProdutoDaOferta(item)}</span>
                   {item.motivoRevisao && (
                     <p className="mt-1 line-clamp-1 text-warn-foreground">{item.motivoRevisao}</p>
                   )}
@@ -315,30 +314,18 @@ function TabelaOfertas({
                 <TableCell>{item.limite ?? "—"}</TableCell>
                 <TableCell>{item.unidade}</TableCell>
                 <TableCell>
-                  {!item.porQuilo && (
-                    <CodigoInput
-                      value={item.codigos.join(";")}
-                      onChange={(value) => {
-                        const codigos = separarCodigos(value, true);
-                        alterar(index, {
-                          codigos,
-                          ean: codigos[0] || "",
-                          codigo: codigos.join(";"),
-                        });
-                      }}
-                    />
-                  )}
-                </TableCell>
-                <TableCell>
-                  {item.porQuilo && (
-                    <CodigoInput
-                      value={item.codigos.join(";")}
-                      onChange={(value) => {
-                        const codigos = separarCodigos(value);
-                        alterar(index, { codigos, codigo: codigos.join(";") });
-                      }}
-                    />
-                  )}
+                  <CodigoInput
+                    value={item.codigos.join(";")}
+                    onChange={(value) => {
+                      const codigos = separarCodigos(value, !item.porQuilo);
+                      alterar(index, {
+                        codigos,
+                        ...(item.porQuilo
+                          ? { codigo: codigos.join(";") }
+                          : { ean: codigos[0] || "", codigo: codigos.join(";") }),
+                      });
+                    }}
+                  />
                 </TableCell>
                 <TableCell>
                   <CodigoInput
@@ -379,14 +366,21 @@ function CodigoInput({
   onChange: (value: string) => void;
   maxLength?: number;
 }) {
+  const [rascunho, setRascunho] = useState(value);
+
+  useEffect(() => {
+    setRascunho(value);
+  }, [value]);
+
   return (
     <Input
-      className="w-64"
-      value={value}
+      className="w-full min-w-0"
+      value={rascunho}
       maxLength={maxLength}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(e) => setRascunho(e.target.value)}
+      onBlur={() => onChange(rascunho)}
     />
   );
 }

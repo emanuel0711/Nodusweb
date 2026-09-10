@@ -28,6 +28,7 @@ export const CARROSSEIS = [
 
 const STORAGE_KEY = "ofertaflow:rascunho-ofertas";
 const MEMORY_KEY = "ofertaflow:memoria-eans";
+const MEMORY_IMAGES_KEY = "ofertaflow:memoria-imagens";
 
 export interface ItemMemoriaEans {
   codigos: string[];
@@ -39,6 +40,29 @@ export interface ItemMemoriaEans {
 }
 
 type MemoriaEans = Record<string, ItemMemoriaEans>;
+type MemoriaImagens = Record<string, string>;
+
+function lerMemoriaImagens(): MemoriaImagens {
+  try {
+    const salva = JSON.parse(localStorage.getItem(MEMORY_IMAGES_KEY) ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    return Object.fromEntries(
+      Object.entries(salva).filter(([, url]) => typeof url === "string" && Boolean(url.trim())),
+    ) as MemoriaImagens;
+  } catch {
+    return {};
+  }
+}
+
+function aplicarMemoriaImagens(ofertas: Oferta[]): Oferta[] {
+  const memoria = lerMemoriaImagens();
+  return ofertas.map((oferta) => {
+    const imagem = memoria[chaveBaseOferta(oferta.nome)];
+    return imagem && !oferta.imagem?.trim() ? { ...oferta, imagem } : oferta;
+  });
+}
 
 function normalizarItemMemoria(valor: unknown): ItemMemoriaEans | null {
   if (Array.isArray(valor)) {
@@ -293,7 +317,7 @@ export function useOfertas() {
   const tinhaRascunho = useRef(Boolean(rascunho?.ofertas.length));
   const [processando, setProcessando] = useState(false);
   const [nomeArquivo, setNomeArquivo] = useState(rascunho?.nomeArquivo ?? "");
-  const [ofertas, setOfertas] = useState<Oferta[]>(rascunho?.ofertas ?? []);
+  const [ofertas, setOfertas] = useState<Oferta[]>(aplicarMemoriaImagens(rascunho?.ofertas ?? []));
   const [notaMinima, setNotaMinima] = useState(rascunho?.notaMinima ?? 0.55);
   const [modalAberto, setModalAberto] = useState(false);
   const [modalVisualizacao, setModalVisualizacao] = useState<Oferta | null>(null);
@@ -359,6 +383,14 @@ export function useOfertas() {
           ),
         );
     }
+    if (atual && Object.hasOwn(mudanca, "imagem")) {
+      const imagens = lerMemoriaImagens();
+      const chave = chaveBaseOferta(atual.nome);
+      const imagem = String(mudanca.imagem ?? "").trim();
+      if (imagem) imagens[chave] = imagem;
+      else delete imagens[chave];
+      localStorage.setItem(MEMORY_IMAGES_KEY, JSON.stringify(imagens));
+    }
     setOfertas((atual) =>
       atual.map((oferta, i) => {
         if (i !== indice) return oferta;
@@ -385,7 +417,7 @@ export function useOfertas() {
       const cruzadas = processarLinhasOfertas(linhas, catalogo);
       if (!cruzadas.length)
         throw new Error("Não encontrei uma coluna com o nome do produto na planilha.");
-      const finais = aplicarMemoria(cruzadas, catalogo);
+      const finais = aplicarMemoriaImagens(aplicarMemoria(cruzadas, catalogo));
 
       setOfertas(finais);
       setNomeArquivo(arquivo.name);
