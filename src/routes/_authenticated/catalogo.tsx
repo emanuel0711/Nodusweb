@@ -381,7 +381,6 @@ function TabelaCatalogo({
             <TableHead>Imagem</TableHead>
             <TableHead>Descrição</TableHead>
             <TableHead>EAN</TableHead>
-            <TableHead>Cód. promoção</TableHead>
             <TableHead>Cód. interno</TableHead>
             <TableHead>Un.</TableHead>
             <TableHead>Preço</TableHead>
@@ -418,7 +417,6 @@ function TabelaCatalogo({
               </TableCell>
               <TableCell className="font-medium">{produto.description}</TableCell>
               <TableCell>{produto.ean || "—"}</TableCell>
-              <TableCell>{produto.promotion_code || "—"}</TableCell>
               <TableCell>{produto.internal_code || "—"}</TableCell>
               <TableCell>{produto.unit || "—"}</TableCell>
               <TableCell>{produto.unit_price ?? "—"}</TableCell>
@@ -494,7 +492,6 @@ function DialogProduto({
 }: ReturnType<typeof useCatalogo>) {
   const campos = [
     ["description", "Descrição"],
-    ["promotion_code", "Código da promoção/caixa"],
     ["internal_code", "Código interno"],
     ["ean", "EAN"],
     ["unit", "Unidade"],
@@ -572,7 +569,6 @@ function DialogVisualizacao({
 
             <div className="grid gap-3 text-sm sm:grid-cols-2">
               <Info label="EAN" value={produto.ean || "—"} />
-              <Info label="Código da promoção/caixa" value={produto.promotion_code || "—"} />
               <Info label="Código interno" value={produto.internal_code || "—"} />
               <Info label="Unidade" value={produto.unit || "—"} />
               <Info label="Preço" value={produto.unit_price ?? "—"} />
