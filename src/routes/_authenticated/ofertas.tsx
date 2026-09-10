@@ -32,7 +32,6 @@ import {
 } from "@/components/ui/table";
 import {
   CARROSSEIS,
-  itemComEstoqueZerado,
   separarCodigos,
   useOfertas,
 } from "@/modules/ofertas/use-ofertas";
@@ -76,16 +75,16 @@ function PaginaOfertas() {
 }
 
 type FiltroPendencia =
-  "todas" | "pendentes" | "sem_imagem" | "sem_codigo" | "estoque_zerado" | "com_duvida";
+  "todas" | "pendentes" | "sem_imagem" | "sem_codigo" | "com_duvida";
 
 function itemPrecisaRevisao(
   item: ReturnType<typeof useOfertas>["ofertas"][number],
   notaMinima: number,
 ) {
+  if (item.revisadoManualmente) return false;
   const codigoPendente =
     !item.codigoRevisadoManualmente &&
     (!item.codigos.length ||
-      itemComEstoqueZerado(item) ||
       Boolean(item.motivoRevisao) ||
       item.nota < notaMinima);
   const imagemPendente = !item.imagemRevisadaManualmente && !item.imagem?.trim();
@@ -112,13 +111,33 @@ function PainelPendencias({
       "Com pendência",
       ofertas.filter((item) => itemPrecisaRevisao(item, notaMinima)).length,
     ],
-    ["sem_imagem", "Sem imagem", ofertas.filter((item) => !item.imagem?.trim()).length],
-    ["sem_codigo", "Sem código", ofertas.filter((item) => !item.codigos.length).length],
-    ["estoque_zerado", "Estoque zerado", ofertas.filter(itemComEstoqueZerado).length],
+    [
+      "sem_imagem",
+      "Sem imagem",
+      ofertas.filter(
+        (item) =>
+          !item.revisadoManualmente &&
+          !item.imagemRevisadaManualmente &&
+          !item.imagem?.trim(),
+      ).length,
+    ],
+    [
+      "sem_codigo",
+      "Sem código",
+      ofertas.filter(
+        (item) =>
+          !item.revisadoManualmente && !item.codigoRevisadoManualmente && !item.codigos.length,
+      ).length,
+    ],
     [
       "com_duvida",
       "Com dúvida",
-      ofertas.filter((item) => Boolean(item.motivoRevisao) || item.nota < notaMinima).length,
+      ofertas.filter(
+        (item) =>
+          !item.revisadoManualmente &&
+          !item.codigoRevisadoManualmente &&
+          (Boolean(item.motivoRevisao) || item.nota < notaMinima),
+      ).length,
     ],
   ];
 
@@ -237,9 +256,18 @@ function TabelaOfertas({
   const cliquePendente = useRef<number | null>(null);
   const ofertasVisiveis = ofertas.filter((item) => {
     if (filtroPendencia === "pendentes") return itemPrecisaRevisao(item, notaMinima);
-    if (filtroPendencia === "sem_imagem") return !item.imagem?.trim();
-    if (filtroPendencia === "sem_codigo") return !item.codigos.length;
-    if (filtroPendencia === "estoque_zerado") return itemComEstoqueZerado(item);
+    if (filtroPendencia === "sem_imagem")
+      return (
+        !item.revisadoManualmente &&
+        !item.imagemRevisadaManualmente &&
+        !item.imagem?.trim()
+      );
+    if (filtroPendencia === "sem_codigo")
+      return (
+        !item.revisadoManualmente &&
+        !item.codigoRevisadoManualmente &&
+        !item.codigos.length
+      );
     if (filtroPendencia === "com_duvida")
       return (
         !item.codigoRevisadoManualmente &&
@@ -496,9 +524,25 @@ function DialogVisualizacao({
   const decisoes = modalVisualizacao
     ? Object.entries(modalVisualizacao.decisoesPorCodigo ?? {})
     : [];
-  const candidatos = decisoes.length
+  const candidatosEncontrados = decisoes.length
     ? decisoes.map(([codigo, decisao]) => [codigo, decisao.nome] as const)
     : Object.entries(modalVisualizacao?.nomesPorCodigo ?? {});
+  const candidatos = modalVisualizacao
+    ? [
+        ...new Map(
+          [
+            ...candidatosEncontrados,
+            ...modalVisualizacao.codigos.map(
+              (codigo) =>
+                [
+                  codigo,
+                  modalVisualizacao.nomesPorCodigo?.[codigo] ?? `Código ${codigo}`,
+                ] as const,
+            ),
+          ].map((item) => [item[0], item]),
+        ).values(),
+      ]
+    : candidatosEncontrados;
   const nomesSelecionados = modalVisualizacao
     ? modalVisualizacao.codigos
         .map((codigo) => modalVisualizacao.nomesPorCodigo?.[codigo])
@@ -583,7 +627,10 @@ function DialogVisualizacao({
           codigos: [...modalVisualizacao.codigos],
         }
       : {
+          revisadoManualmente: true,
+          codigoRevisadoManualmente: true,
           imagemRevisadaManualmente: true,
+          codigos: [...modalVisualizacao.codigos],
           imagem: modalVisualizacao.imagem,
         };
     alterar(indice, mudanca);
@@ -642,7 +689,9 @@ function DialogVisualizacao({
                     <span className="text-xs text-muted-foreground">{codigo}</span>
                     {modalVisualizacao.decisoesPorCodigo?.[codigo] && (
                       <span className="mt-1 block text-xs text-muted-foreground">
-                        {modalVisualizacao.decisoesPorCodigo[codigo]!.motivos.join(" · ")}
+                        {modalVisualizacao.decisoesPorCodigo[codigo]!.motivos
+                          .filter((motivo) => !motivo.toLowerCase().includes("estoque"))
+                          .join(" · ")}
                       </span>
                     )}
                   </span>
@@ -710,8 +759,7 @@ function DialogVisualizacao({
                   selecaoExpandida
                     ? modalVisualizacao.codigoRevisadoManualmente ||
                       !modalVisualizacao.codigos.length
-                    : modalVisualizacao.imagemRevisadaManualmente ||
-                      !modalVisualizacao.imagem?.trim()
+                    : modalVisualizacao.revisadoManualmente
                 }
                 onClick={confirmarRevisao}
               >
@@ -720,9 +768,9 @@ function DialogVisualizacao({
                   ? modalVisualizacao.codigoRevisadoManualmente
                     ? "Códigos confirmados"
                     : "Confirmar códigos"
-                  : modalVisualizacao.imagemRevisadaManualmente
-                    ? "Imagem confirmada"
-                    : "Confirmar imagem"}
+                  : modalVisualizacao.revisadoManualmente
+                    ? "Revisão confirmada"
+                    : "Confirmar revisão"}
               </Button>
               <Button
                 type="button"

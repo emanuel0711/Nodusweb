@@ -9,7 +9,6 @@ import { chaveBaseOferta, codigoProduto, normalizarCodigos } from "@/lib/codigos
 import {
   processarLinhasOfertas,
   cruzarOferta,
-  itemComEstoqueZerado,
   validarCodigosNoCatalogo,
   type Oferta,
 } from "./processar-ofertas";
@@ -29,6 +28,7 @@ export const CARROSSEIS = [
 const STORAGE_KEY = "ofertaflow:rascunho-ofertas";
 const MEMORY_KEY = "ofertaflow:memoria-eans";
 const MEMORY_IMAGES_KEY = "ofertaflow:memoria-imagens";
+const MEMORY_REVIEWS_KEY = "ofertaflow:memoria-revisoes";
 
 export interface ItemMemoriaEans {
   codigos: string[];
@@ -41,6 +41,22 @@ export interface ItemMemoriaEans {
 
 type MemoriaEans = Record<string, ItemMemoriaEans>;
 type MemoriaImagens = Record<string, string>;
+
+function lerMemoriaRevisoes(): Set<string> {
+  try {
+    const salva = JSON.parse(localStorage.getItem(MEMORY_REVIEWS_KEY) ?? "[]") as unknown;
+    return new Set(Array.isArray(salva) ? salva.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function aplicarMemoriaRevisoes(ofertas: Oferta[]): Oferta[] {
+  const memoria = lerMemoriaRevisoes();
+  return ofertas.map((oferta) =>
+    memoria.has(chaveBaseOferta(oferta.nome)) ? { ...oferta, revisadoManualmente: true } : oferta,
+  );
+}
 
 function lerMemoriaImagens(): MemoriaImagens {
   try {
@@ -117,6 +133,11 @@ function aplicarMemoria(ofertas: Oferta[], catalogo: Produto[]): Oferta[] {
       catalogo.map((p) => codigoProduto(p, oferta.porQuilo)).filter(Boolean),
     );
     const codigos = lembranca.codigos.filter((codigo) => permitidos.has(codigo));
+    const produtosPorCodigo = new Map(
+      catalogo
+        .map((produto) => [codigoProduto(produto, oferta.porQuilo), produto] as const)
+        .filter(([codigo]) => Boolean(codigo)),
+    );
     const candidatosAtuais = Object.keys(
       oferta.decisoesPorCodigo ?? oferta.nomesPorCodigo ?? {},
     ).filter((codigo) => permitidos.has(codigo));
@@ -131,8 +152,31 @@ function aplicarMemoria(ofertas: Oferta[], catalogo: Produto[]): Oferta[] {
       };
     }
     const imagem = codigos
-      .map((codigo) => oferta.imagemPorCodigo?.[codigo])
+      .map(
+        (codigo) =>
+          oferta.imagemPorCodigo?.[codigo] ?? produtosPorCodigo.get(codigo)?.image_url ?? "",
+      )
       .find((url): url is string => Boolean(url?.trim()));
+    const nomesPorCodigo = {
+      ...oferta.nomesPorCodigo,
+      ...Object.fromEntries(
+        codigos.map((codigo) => [
+          codigo,
+          produtosPorCodigo.get(codigo)?.description ??
+            oferta.nomesPorCodigo?.[codigo] ??
+            `Código ${codigo}`,
+        ]),
+      ),
+    };
+    const imagemPorCodigo = {
+      ...oferta.imagemPorCodigo,
+      ...Object.fromEntries(
+        codigos.map((codigo) => [
+          codigo,
+          oferta.imagemPorCodigo?.[codigo] ?? produtosPorCodigo.get(codigo)?.image_url ?? "",
+        ]),
+      ),
+    };
     return {
       ...oferta,
       codigos,
@@ -141,6 +185,9 @@ function aplicarMemoria(ofertas: Oferta[], catalogo: Produto[]): Oferta[] {
       codigoInterno: oferta.porQuilo ? codigos[0]! : "",
       codigosEditados: true,
       codigoRevisadoManualmente: true,
+      nomesPorCodigo,
+      imagemPorCodigo,
+      encontrado: codigos.map((codigo) => nomesPorCodigo[codigo]).join(" / ") || oferta.encontrado,
       imagem: imagem ?? oferta.imagem,
       nota: catalogoMudou || lembranca.conflito ? Math.min(oferta.nota, 0.99) : 1,
       motivoRevisao: lembranca.conflito
@@ -324,7 +371,9 @@ export function useOfertas() {
   const tinhaRascunho = useRef(Boolean(rascunho?.ofertas.length));
   const [processando, setProcessando] = useState(false);
   const [nomeArquivo, setNomeArquivo] = useState(rascunho?.nomeArquivo ?? "");
-  const [ofertas, setOfertas] = useState<Oferta[]>(aplicarMemoriaImagens(rascunho?.ofertas ?? []));
+  const [ofertas, setOfertas] = useState<Oferta[]>(
+    aplicarMemoriaRevisoes(aplicarMemoriaImagens(rascunho?.ofertas ?? [])),
+  );
   const [notaMinima, setNotaMinima] = useState(rascunho?.notaMinima ?? 0.55);
   const [modalAberto, setModalAberto] = useState(false);
   const [modalVisualizacao, setModalVisualizacao] = useState<Oferta | null>(null);
@@ -398,6 +447,13 @@ export function useOfertas() {
       else delete imagens[chave];
       localStorage.setItem(MEMORY_IMAGES_KEY, JSON.stringify(imagens));
     }
+    if (atual && Object.hasOwn(mudanca, "revisadoManualmente")) {
+      const revisoes = lerMemoriaRevisoes();
+      const chave = chaveBaseOferta(atual.nome);
+      if (mudanca.revisadoManualmente) revisoes.add(chave);
+      else revisoes.delete(chave);
+      localStorage.setItem(MEMORY_REVIEWS_KEY, JSON.stringify([...revisoes]));
+    }
     setOfertas((atual) =>
       atual.map((oferta, i) => {
         if (i !== indice) return oferta;
@@ -424,7 +480,9 @@ export function useOfertas() {
       const cruzadas = processarLinhasOfertas(linhas, catalogo);
       if (!cruzadas.length)
         throw new Error("Não encontrei uma coluna com o nome do produto na planilha.");
-      const finais = aplicarMemoriaImagens(aplicarMemoria(cruzadas, catalogo));
+      const finais = aplicarMemoriaRevisoes(
+        aplicarMemoriaImagens(aplicarMemoria(cruzadas, catalogo)),
+      );
 
       setOfertas(finais);
       setNomeArquivo(arquivo.name);
@@ -509,12 +567,10 @@ export function useOfertas() {
     nomeArquivo,
     precisamRevisao: ofertas.filter(
       (item) =>
-        (!item.imagemRevisadaManualmente && !item.imagem?.trim()) ||
-        (!item.codigoRevisadoManualmente &&
-          (item.nota < notaMinima ||
-            !item.codigos.length ||
-            itemComEstoqueZerado(item) ||
-            Boolean(item.motivoRevisao))),
+        !item.revisadoManualmente &&
+        ((!item.imagemRevisadaManualmente && !item.imagem?.trim()) ||
+          (!item.codigoRevisadoManualmente &&
+            (item.nota < notaMinima || !item.codigos.length || Boolean(item.motivoRevisao)))),
     ).length,
     alterar,
     remover,
