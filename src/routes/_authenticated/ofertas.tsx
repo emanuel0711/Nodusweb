@@ -1,6 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Download, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ImageIcon,
+  Loader2,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -72,12 +82,15 @@ function itemPrecisaRevisao(
   item: ReturnType<typeof useOfertas>["ofertas"][number],
   notaMinima: number,
 ) {
+  const codigoPendente =
+    !item.codigoRevisadoManualmente &&
+    (!item.codigos.length ||
+      itemComEstoqueZerado(item) ||
+      Boolean(item.motivoRevisao) ||
+      item.nota < notaMinima);
+  const imagemPendente = !item.imagemRevisadaManualmente && !item.imagem?.trim();
   return (
-    !item.imagem?.trim() ||
-    !item.codigos.length ||
-    itemComEstoqueZerado(item) ||
-    Boolean(item.motivoRevisao) ||
-    item.nota < notaMinima
+    codigoPendente || imagemPendente
   );
 }
 
@@ -204,7 +217,7 @@ function BarraAcao({
             </span>
           )}
           <span className="text-xs text-muted-foreground">
-            Clique para visualizar. Clique duas vezes para selecionar os itens compatíveis.
+            Clique para visualizar e use a seta para conferir os códigos compatíveis.
           </span>
         </div>
       )}
@@ -228,7 +241,10 @@ function TabelaOfertas({
     if (filtroPendencia === "sem_codigo") return !item.codigos.length;
     if (filtroPendencia === "estoque_zerado") return itemComEstoqueZerado(item);
     if (filtroPendencia === "com_duvida")
-      return Boolean(item.motivoRevisao) || item.nota < notaMinima;
+      return (
+        !item.codigoRevisadoManualmente &&
+        (Boolean(item.motivoRevisao) || item.nota < notaMinima)
+      );
     return true;
   });
 
@@ -263,7 +279,7 @@ function TabelaOfertas({
             return (
               <TableRow
                 key={`${item.nome}-${index}`}
-                className={`${itemPrecisaRevisao(item, notaMinima) && !item.revisadoManualmente ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
+                className={`${itemPrecisaRevisao(item, notaMinima) ? "bg-warn/40" : ""} h-20 cursor-pointer hover:bg-muted/60`}
                 onClick={(e) => {
                   if ((e.target as HTMLElement).closest("input,button")) return;
                   if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
@@ -272,13 +288,6 @@ function TabelaOfertas({
                     setModalVisualizacao(item);
                     cliquePendente.current = null;
                   }, 220);
-                }}
-                onDoubleClick={(e) => {
-                  if ((e.target as HTMLElement).closest("input,button")) return;
-                  if (cliquePendente.current) window.clearTimeout(cliquePendente.current);
-                  cliquePendente.current = null;
-                  setSelecaoExpandida(true);
-                  setModalVisualizacao(item);
                 }}
               >
                 <TableCell>
@@ -568,7 +577,15 @@ function DialogVisualizacao({
 
   function confirmarRevisao() {
     if (!modalVisualizacao || indice < 0) return;
-    const mudanca = { revisadoManualmente: true };
+    const mudanca = selecaoExpandida
+      ? {
+          codigoRevisadoManualmente: true,
+          codigos: [...modalVisualizacao.codigos],
+        }
+      : {
+          imagemRevisadaManualmente: true,
+          imagem: modalVisualizacao.imagem,
+        };
     alterar(indice, mudanca);
     setModalVisualizacao({ ...modalVisualizacao, ...mudanca });
   }
@@ -585,8 +602,28 @@ function DialogVisualizacao({
     >
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{modalVisualizacao?.nome}</DialogTitle>
-          <DialogDescription>Conferência completa do item importado.</DialogDescription>
+          <div className="flex items-start justify-between gap-3 pr-8">
+            <div>
+              <DialogTitle>{modalVisualizacao?.nome}</DialogTitle>
+              <DialogDescription>Conferência completa do item importado.</DialogDescription>
+            </div>
+            {modalVisualizacao && (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label={selecaoExpandida ? "Voltar às informações" : "Ver códigos compatíveis"}
+                title={selecaoExpandida ? "Voltar às informações" : "Ver códigos compatíveis"}
+                onClick={() => setSelecaoExpandida(!selecaoExpandida)}
+              >
+                {selecaoExpandida ? (
+                  <ChevronLeft className="size-4" />
+                ) : (
+                  <ChevronRight className="size-4" />
+                )}
+              </Button>
+            )}
+          </div>
         </DialogHeader>
         {modalVisualizacao && selecaoExpandida ? (
           <div className="rounded-md border p-3 text-sm">
@@ -669,11 +706,23 @@ function DialogVisualizacao({
                 type="button"
                 variant="outline"
                 className="text-success"
-                disabled={modalVisualizacao.revisadoManualmente}
+                disabled={
+                  selecaoExpandida
+                    ? modalVisualizacao.codigoRevisadoManualmente ||
+                      !modalVisualizacao.codigos.length
+                    : modalVisualizacao.imagemRevisadaManualmente ||
+                      !modalVisualizacao.imagem?.trim()
+                }
                 onClick={confirmarRevisao}
               >
                 <Check className="size-4" />
-                {modalVisualizacao.revisadoManualmente ? "Revisado" : "Confirmar revisão"}
+                {selecaoExpandida
+                  ? modalVisualizacao.codigoRevisadoManualmente
+                    ? "Códigos confirmados"
+                    : "Confirmar códigos"
+                  : modalVisualizacao.imagemRevisadaManualmente
+                    ? "Imagem confirmada"
+                    : "Confirmar imagem"}
               </Button>
               <Button
                 type="button"

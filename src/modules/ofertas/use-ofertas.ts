@@ -60,7 +60,13 @@ function aplicarMemoriaImagens(ofertas: Oferta[]): Oferta[] {
   const memoria = lerMemoriaImagens();
   return ofertas.map((oferta) => {
     const imagem = memoria[chaveBaseOferta(oferta.nome)];
-    return imagem && !oferta.imagem?.trim() ? { ...oferta, imagem } : oferta;
+    return imagem
+      ? {
+          ...oferta,
+          imagem: oferta.imagem?.trim() ? oferta.imagem : imagem,
+          imagemRevisadaManualmente: true,
+        }
+      : oferta;
   });
 }
 
@@ -134,6 +140,7 @@ function aplicarMemoria(ofertas: Oferta[], catalogo: Produto[]): Oferta[] {
       ean: oferta.porQuilo ? "" : codigos[0]!,
       codigoInterno: oferta.porQuilo ? codigos[0]! : "",
       codigosEditados: true,
+      codigoRevisadoManualmente: true,
       imagem: imagem ?? oferta.imagem,
       nota: catalogoMudou || lembranca.conflito ? Math.min(oferta.nota, 0.99) : 1,
       motivoRevisao: lembranca.conflito
@@ -502,11 +509,12 @@ export function useOfertas() {
     nomeArquivo,
     precisamRevisao: ofertas.filter(
       (item) =>
-        !item.imagem?.trim() ||
-        item.nota < notaMinima ||
-        !item.codigos.length ||
-        itemComEstoqueZerado(item) ||
-        Boolean(item.motivoRevisao),
+        (!item.imagemRevisadaManualmente && !item.imagem?.trim()) ||
+        (!item.codigoRevisadoManualmente &&
+          (item.nota < notaMinima ||
+            !item.codigos.length ||
+            itemComEstoqueZerado(item) ||
+            Boolean(item.motivoRevisao))),
     ).length,
     alterar,
     remover,

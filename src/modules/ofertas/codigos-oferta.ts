@@ -143,6 +143,8 @@ const ALIASES: Record<string, string> = {
   sab: "sabao",
   amac: "amaciante",
   ref: "refresco",
+  beb: "bebida",
+  hamb: "hamburguer",
   achoc: "achocolatado",
   bisc: "biscoito",
   rosado: "rose",
@@ -473,6 +475,13 @@ function motivoEstoque(produto: Produto): string {
 
 function tokensQuaseIguais(a: string, b: string): boolean {
   if (a === b) return true;
+  const [menorPrefixo, maiorPrefixo] = a.length < b.length ? [a, b] : [b, a];
+  if (
+    menorPrefixo.length >= 3 &&
+    maiorPrefixo.startsWith(menorPrefixo) &&
+    maiorPrefixo.length - menorPrefixo.length <= 5
+  )
+    return true;
   if (Math.min(a.length, b.length) < 4 || Math.abs(a.length - b.length) > 1) return false;
   if (a.length === b.length) {
     let diferencas = 0;

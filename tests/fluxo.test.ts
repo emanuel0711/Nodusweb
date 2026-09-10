@@ -887,3 +887,10 @@ test("aproximação não troca uma marca de massa por outra", () => {
   assert.deepEqual(resultado.codigos, []);
   assert.deepEqual(resultado.candidatos, undefined);
 });
+
+test("abreviação de bebida encontra a mesma identidade e medida", () => {
+  const item = produto("228", "BEBIDA LACTEA TIROL 480G");
+  const resultado = selecionarCodigosOferta("BEB LACTEA TIROL 480G BANDEJA", [item], false);
+
+  assert.deepEqual(resultado.codigos, [item.ean]);
+});
