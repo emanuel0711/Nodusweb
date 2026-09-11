@@ -30,11 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  CARROSSEIS,
-  separarCodigos,
-  useOfertas,
-} from "@/modules/ofertas/use-ofertas";
+import { CARROSSEIS, separarCodigos, useOfertas } from "@/modules/ofertas/use-ofertas";
 
 export const Route = createFileRoute("/_authenticated/ofertas")({
   head: () => ({
@@ -74,8 +70,7 @@ function PaginaOfertas() {
   );
 }
 
-type FiltroPendencia =
-  "todas" | "pendentes" | "sem_imagem" | "sem_codigo" | "com_duvida";
+type FiltroPendencia = "todas" | "pendentes" | "sem_imagem" | "sem_codigo" | "com_duvida";
 
 function itemPrecisaRevisao(
   item: ReturnType<typeof useOfertas>["ofertas"][number],
@@ -84,13 +79,9 @@ function itemPrecisaRevisao(
   if (item.revisadoManualmente) return false;
   const codigoPendente =
     !item.codigoRevisadoManualmente &&
-    (!item.codigos.length ||
-      Boolean(item.motivoRevisao) ||
-      item.nota < notaMinima);
+    (!item.codigos.length || Boolean(item.motivoRevisao) || item.nota < notaMinima);
   const imagemPendente = !item.imagemRevisadaManualmente && !item.imagem?.trim();
-  return (
-    codigoPendente || imagemPendente
-  );
+  return codigoPendente || imagemPendente;
 }
 
 function PainelPendencias({
@@ -116,9 +107,7 @@ function PainelPendencias({
       "Sem imagem",
       ofertas.filter(
         (item) =>
-          !item.revisadoManualmente &&
-          !item.imagemRevisadaManualmente &&
-          !item.imagem?.trim(),
+          !item.revisadoManualmente && !item.imagemRevisadaManualmente && !item.imagem?.trim(),
       ).length,
     ],
     [
@@ -257,21 +246,12 @@ function TabelaOfertas({
   const ofertasVisiveis = ofertas.filter((item) => {
     if (filtroPendencia === "pendentes") return itemPrecisaRevisao(item, notaMinima);
     if (filtroPendencia === "sem_imagem")
-      return (
-        !item.revisadoManualmente &&
-        !item.imagemRevisadaManualmente &&
-        !item.imagem?.trim()
-      );
+      return !item.revisadoManualmente && !item.imagemRevisadaManualmente && !item.imagem?.trim();
     if (filtroPendencia === "sem_codigo")
-      return (
-        !item.revisadoManualmente &&
-        !item.codigoRevisadoManualmente &&
-        !item.codigos.length
-      );
+      return !item.revisadoManualmente && !item.codigoRevisadoManualmente && !item.codigos.length;
     if (filtroPendencia === "com_duvida")
       return (
-        !item.codigoRevisadoManualmente &&
-        (Boolean(item.motivoRevisao) || item.nota < notaMinima)
+        !item.codigoRevisadoManualmente && (Boolean(item.motivoRevisao) || item.nota < notaMinima)
       );
     return true;
   });
@@ -337,10 +317,14 @@ function TabelaOfertas({
                   )}
                 </TableCell>
                 <TableCell className="w-[15%] max-w-52 break-words font-medium">
-                  <span className="line-clamp-2" title={item.nome}>{item.nome}</span>
+                  <span className="line-clamp-2" title={item.nome}>
+                    {item.nome}
+                  </span>
                 </TableCell>
                 <TableCell className="w-[17%] max-w-56 break-words text-xs text-muted-foreground">
-                  <span className="line-clamp-2" title={resumirProdutoDaOferta(item)}>{resumirProdutoDaOferta(item)}</span>
+                  <span className="line-clamp-2" title={resumirProdutoDaOferta(item)}>
+                    {resumirProdutoDaOferta(item)}
+                  </span>
                   {item.motivoRevisao && (
                     <p className="mt-1 line-clamp-1 text-warn-foreground">{item.motivoRevisao}</p>
                   )}
@@ -417,7 +401,9 @@ function CodigoInput({
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       onChange={(e) => setRascunho(e.target.value)}
-      onBlur={() => onChange(rascunho)}
+      onBlur={() => {
+        if (rascunho !== value) onChange(rascunho);
+      }}
     />
   );
 }
@@ -534,10 +520,7 @@ function DialogVisualizacao({
             ...candidatosEncontrados,
             ...modalVisualizacao.codigos.map(
               (codigo) =>
-                [
-                  codigo,
-                  modalVisualizacao.nomesPorCodigo?.[codigo] ?? `Código ${codigo}`,
-                ] as const,
+                [codigo, modalVisualizacao.nomesPorCodigo?.[codigo] ?? `Código ${codigo}`] as const,
             ),
           ].map((item) => [item[0], item]),
         ).values(),
@@ -689,9 +672,9 @@ function DialogVisualizacao({
                     <span className="text-xs text-muted-foreground">{codigo}</span>
                     {modalVisualizacao.decisoesPorCodigo?.[codigo] && (
                       <span className="mt-1 block text-xs text-muted-foreground">
-                        {modalVisualizacao.decisoesPorCodigo[codigo]!.motivos
-                          .filter((motivo) => !motivo.toLowerCase().includes("estoque"))
-                          .join(" · ")}
+                        {modalVisualizacao.decisoesPorCodigo[codigo]!.motivos.filter(
+                          (motivo) => !motivo.toLowerCase().includes("estoque"),
+                        ).join(" · ")}
                       </span>
                     )}
                   </span>

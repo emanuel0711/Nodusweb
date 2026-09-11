@@ -118,6 +118,8 @@ const SABORES = new Set([
   "antibac",
 ]);
 const ALIASES: Record<string, string> = {
+  sh: "shampoo",
+  alm: "almofada",
   refrig: "refrigerante",
   refri: "refrigerante",
   cerv: "cerveja",
@@ -184,9 +186,23 @@ const PADROES: Record<Variante, RegExp> = {
 
 /** Converte antes de remover pontuação, preservando 1,5 L e 0.8 kg. */
 function textoCanonico(valor: string): string {
-  const medidas = valor
-    .toLowerCase()
-    .replace(/(\d+(?:[.,]\d+)?)\s*(kg|ml|g|l)\b/g, (_, numero: string, unidade: string) => {
+  let unidadesCompletas = valor.toLowerCase();
+  // Em listas como "15L, 30L, 50 e 100L", reaproveita a unidade anterior.
+  // O laço cobre várias medidas consecutivas sem confundir a vírgula decimal.
+  const unidadeOmitida =
+    /(\d+(?:[.,]\d+)?)\s*(kg|ml|g|l)(\s*(?:[,;/]|\be\b)\s*)(\d+(?:[.,]\d+)?)(?!\d|\s*(?:kg|ml|g|l)\b)(?=\s*(?:[,;/]|\be\b|$))/gi;
+  let anterior = "";
+  while (unidadesCompletas !== anterior) {
+    anterior = unidadesCompletas;
+    unidadesCompletas = unidadesCompletas.replace(
+      unidadeOmitida,
+      (_trecho, numero: string, unidade: string, separador: string, proximo: string) =>
+        `${numero}${unidade}${separador}${proximo}${unidade}`,
+    );
+  }
+  const medidas = unidadesCompletas.replace(
+    /(\d+(?:[.,]\d+)?)\s*(kg|ml|g|l)\b/g,
+    (_, numero: string, unidade: string) => {
       const n = Number(numero.replace(",", ".")) * (unidade === "kg" || unidade === "l" ? 1000 : 1);
       return (
         " " +
@@ -194,7 +210,8 @@ function textoCanonico(valor: string): string {
         (unidade === "kg" || unidade === "g" ? "g" : "ml") +
         " "
       );
-    });
+    },
+  );
   const quantidades = medidas.replace(
     /(\d+)\s*(?:un|und|unid|unidade|unidades)\b/gi,
     (_, numero: string) => ` ${Number(numero)}un `,
@@ -219,6 +236,19 @@ function semExcecoes(valor: string): string {
 }
 function medidas(valor: string): string[] {
   return [...new Set(semExcecoes(valor).match(/\b\d+(?:d\d+)?(?:g|ml|un)\b/g) ?? [])].sort();
+}
+
+/**
+ * Compara a medida como critério próprio. Uma lista de medidas na oferta
+ * representa alternativas (15 L, 30 L, 50 L e 100 L), enquanto cada produto
+ * do catálogo precisa conter apenas uma delas.
+ */
+function medidasCompativeis(tamanhos: string[], descricao: string): boolean {
+  if (!tamanhos.length) return true;
+  const encontradas = medidas(descricao);
+  return tamanhos.length > 1
+    ? tamanhos.some((tamanho) => encontradas.includes(tamanho))
+    : tamanhos.every((tamanho) => encontradas.includes(tamanho));
 }
 const CORES_VINHO = new Set(["tinto", "branco", "rose"]);
 const CASTAS_VINHO = new Set([
@@ -395,6 +425,26 @@ function chaveFamilia(produto: Produto, sabores: boolean): string {
       : "un",
   ]);
 }
+
+/** Agrupa a mesma família quando a própria oferta pede vários tamanhos. */
+function chaveFamiliaSemMedidas(produto: Produto, sabores: boolean): string {
+  const variantes = [...variantesDoTexto(produto.description)]
+    .filter((v) => v !== "tradicional")
+    .sort();
+  return JSON.stringify([
+    tokensIdentidade(produto.description, sabores).sort(),
+    variantes,
+    ehPorQuilo(
+      produto.description,
+      "",
+      produto.internal_code ?? "",
+      produto.ean ?? "",
+      produto.unit ?? "",
+    )
+      ? "kg"
+      : "un",
+  ]);
+}
 export function chaveBaseOferta(nome: string): string {
   return JSON.stringify([
     tokensFamilia(nome).sort(),
@@ -525,8 +575,7 @@ function candidatosAproximados(
         !excluido(produto, excecoes) &&
         variantesCompativeis(nome, produto.description) &&
         vinhoCompativel(nome, produto.description) &&
-        (!tamanhos.length ||
-          tamanhos.every((tamanho) => medidas(produto.description).includes(tamanho))),
+        medidasCompativeis(tamanhos, produto.description),
     )
     .map((produto) => {
       const encontrados = tokensIdentidade(produto.description, sabores);
@@ -651,10 +700,8 @@ export function selecionarCodigosOferta(
     )
       return false;
     const ts = medidas(item.description);
-    if (tamanhos.length) {
-      const contemTamanhos = tamanhos.every((t) => ts.includes(t));
-      if (!contemTamanhos || (!sabores && tamanhos.length !== ts.length)) return false;
-    }
+    if (!medidasCompativeis(tamanhos, item.description)) return false;
+    if (tamanhos.length === 1 && !sabores && tamanhos.length !== ts.length) return false;
     const identidade = tokensIdentidade(item.description, sabores);
     return tokens.every((t) => identidade.includes(t));
   });
@@ -687,19 +734,20 @@ export function selecionarCodigosOferta(
   let maisEspecificos = sabores
     ? candidatosCatalogo
     : extras.filter((item) => item.quantidade === menorQuantidade).map((item) => item.produto);
-  let familias = new Set(maisEspecificos.map((p) => chaveFamilia(p, sabores)));
+  const chaveDaFamilia = tamanhos.length > 1 ? chaveFamiliaSemMedidas : chaveFamilia;
+  let familias = new Set(maisEspecificos.map((p) => chaveDaFamilia(p, sabores)));
   let familiaEscolhidaPorEstoque: string | null = null;
   let estoqueUsadoNoDesempate = false;
   if (!sabores && familias.size > 1) {
     const familiasComEstoque = new Set(
       maisEspecificos
         .filter((produto) => produto.stock_quantity != null && produto.stock_quantity > 0)
-        .map((produto) => chaveFamilia(produto, sabores)),
+        .map((produto) => chaveDaFamilia(produto, sabores)),
     );
     if (familiasComEstoque.size === 1) {
       familiaEscolhidaPorEstoque = [...familiasComEstoque][0]!;
       maisEspecificos = maisEspecificos.filter(
-        (produto) => chaveFamilia(produto, sabores) === familiaEscolhidaPorEstoque,
+        (produto) => chaveDaFamilia(produto, sabores) === familiaEscolhidaPorEstoque,
       );
       familias = new Set([familiaEscolhidaPorEstoque]);
       estoqueUsadoNoDesempate = true;

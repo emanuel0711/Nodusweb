@@ -126,18 +126,28 @@ function mesmosCodigos(a: string[], b: string[]): boolean {
 
 function aplicarMemoria(ofertas: Oferta[], catalogo: Produto[]): Oferta[] {
   const memoria = lerMemoria();
+  const indices = new Map<
+    boolean,
+    { permitidos: Set<string>; produtosPorCodigo: Map<string, Produto> }
+  >();
+  const obterIndice = (porQuilo: boolean) => {
+    const existente = indices.get(porQuilo);
+    if (existente) return existente;
+    const produtosPorCodigo = new Map<string, Produto>();
+    for (const produto of catalogo) {
+      const codigo = codigoProduto(produto, porQuilo);
+      if (codigo) produtosPorCodigo.set(codigo, produto);
+    }
+    const criado = { permitidos: new Set(produtosPorCodigo.keys()), produtosPorCodigo };
+    indices.set(porQuilo, criado);
+    return criado;
+  };
+
   return ofertas.map((oferta) => {
     const lembranca = memoria[chaveBaseOferta(oferta.nome)];
     if (!lembranca) return oferta;
-    const permitidos = new Set(
-      catalogo.map((p) => codigoProduto(p, oferta.porQuilo)).filter(Boolean),
-    );
+    const { permitidos, produtosPorCodigo } = obterIndice(oferta.porQuilo);
     const codigos = lembranca.codigos.filter((codigo) => permitidos.has(codigo));
-    const produtosPorCodigo = new Map(
-      catalogo
-        .map((produto) => [codigoProduto(produto, oferta.porQuilo), produto] as const)
-        .filter(([codigo]) => Boolean(codigo)),
-    );
     const candidatosAtuais = Object.keys(
       oferta.decisoesPorCodigo ?? oferta.nomesPorCodigo ?? {},
     ).filter((codigo) => permitidos.has(codigo));
@@ -319,6 +329,17 @@ interface Rascunho {
   notaMinima: number;
 }
 
+function compactarOfertaParaRascunho(oferta: Oferta): Oferta {
+  const compacta = { ...oferta };
+  // Estes mapas são derivados do catálogo e podem conter centenas de entradas.
+  // Eles são reconstruídos ao reabrir a página, portanto não precisam bloquear
+  // a interface sendo serializados em toda alteração.
+  delete compacta.decisoesPorCodigo;
+  delete compacta.nomesPorCodigo;
+  delete compacta.imagemPorCodigo;
+  return compacta;
+}
+
 function lerRascunho(): Rascunho | null {
   try {
     const salvo = localStorage.getItem(STORAGE_KEY) ?? sessionStorage.getItem(STORAGE_KEY);
@@ -369,6 +390,7 @@ export function useOfertas() {
   const campoArquivo = useRef<HTMLInputElement>(null);
   const rascunho = lerRascunho();
   const tinhaRascunho = useRef(Boolean(rascunho?.ofertas.length));
+  const temporizadoresMemoria = useRef(new Map<string, number>());
   const [processando, setProcessando] = useState(false);
   const [nomeArquivo, setNomeArquivo] = useState(rascunho?.nomeArquivo ?? "");
   const [ofertas, setOfertas] = useState<Oferta[]>(
@@ -392,11 +414,29 @@ export function useOfertas() {
       sessionStorage.removeItem(STORAGE_KEY);
       return;
     }
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ ofertas, nomeArquivo, carrossel, ativarEm, inativarEm, notaMinima }),
-    );
+    const temporizador = window.setTimeout(() => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          ofertas: ofertas.map(compactarOfertaParaRascunho),
+          nomeArquivo,
+          carrossel,
+          ativarEm,
+          inativarEm,
+          notaMinima,
+        }),
+      );
+    }, 450);
+    return () => window.clearTimeout(temporizador);
   }, [ofertas, nomeArquivo, carrossel, ativarEm, inativarEm, notaMinima]);
+
+  useEffect(
+    () => () => {
+      for (const temporizador of temporizadoresMemoria.current.values())
+        window.clearTimeout(temporizador);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!tinhaRascunho.current) return;
@@ -414,7 +454,13 @@ export function useOfertas() {
 
   function alterar(indice: number, mudanca: Partial<Oferta>) {
     const atual = ofertas[indice];
-    if (atual && Object.hasOwn(mudanca, "codigos")) {
+    const codigosMudaram =
+      atual &&
+      Object.hasOwn(mudanca, "codigos") &&
+      !mesmosCodigos(atual.codigos, mudanca.codigos ?? []);
+    const confirmouCodigosAgora =
+      atual && mudanca.codigoRevisadoManualmente === true && !atual.codigoRevisadoManualmente;
+    if (atual && Object.hasOwn(mudanca, "codigos") && (codigosMudaram || confirmouCodigosAgora)) {
       const memoria = lerMemoria();
       const codigos = mudanca.codigos ?? [];
       const candidatos = Object.keys(atual.decisoesPorCodigo ?? atual.nomesPorCodigo ?? {});
@@ -428,18 +474,43 @@ export function useOfertas() {
         conflito: false,
       };
       localStorage.setItem(MEMORY_KEY, JSON.stringify(memoria));
-      void salvarMemoriaNoServidor(chave, codigos, candidatos, atualizadoEm || null)
-        .then((confirmadoEm) => {
-          if (confirmadoEm) confirmarMemoriaSincronizada(chave, codigos, candidatos, confirmadoEm);
-          else void sincronizarMemoriaDoServidor();
-        })
-        .catch(() =>
-          toast.warning(
-            "A escolha ficou salva neste navegador, mas não foi sincronizada. Tente novamente depois.",
-          ),
-        );
+      const anterior = temporizadoresMemoria.current.get(chave);
+      if (anterior) window.clearTimeout(anterior);
+      temporizadoresMemoria.current.set(
+        chave,
+        window.setTimeout(() => {
+          temporizadoresMemoria.current.delete(chave);
+          const maisRecente = lerMemoria()[chave];
+          if (!maisRecente?.pendente) return;
+          void salvarMemoriaNoServidor(
+            chave,
+            maisRecente.codigos,
+            maisRecente.candidatos,
+            maisRecente.atualizadoEm || null,
+          )
+            .then((confirmadoEm) => {
+              if (confirmadoEm)
+                confirmarMemoriaSincronizada(
+                  chave,
+                  maisRecente.codigos,
+                  maisRecente.candidatos,
+                  confirmadoEm,
+                );
+              else void sincronizarMemoriaDoServidor();
+            })
+            .catch(() =>
+              toast.warning(
+                "A escolha ficou salva neste navegador, mas não foi sincronizada. Tente novamente depois.",
+              ),
+            );
+        }, 500),
+      );
     }
-    if (atual && Object.hasOwn(mudanca, "imagem")) {
+    if (
+      atual &&
+      Object.hasOwn(mudanca, "imagem") &&
+      String(mudanca.imagem ?? "").trim() !== atual.imagem.trim()
+    ) {
       const imagens = lerMemoriaImagens();
       const chave = chaveBaseOferta(atual.nome);
       const imagem = String(mudanca.imagem ?? "").trim();
@@ -457,6 +528,13 @@ export function useOfertas() {
     setOfertas((atual) =>
       atual.map((oferta, i) => {
         if (i !== indice) return oferta;
+        const mudou = Object.entries(mudanca).some(([campo, valor]) => {
+          const anterior = oferta[campo as keyof Oferta];
+          return Array.isArray(anterior) && Array.isArray(valor)
+            ? !mesmosCodigos(anterior.map(String), valor.map(String))
+            : anterior !== valor;
+        });
+        if (!mudou) return oferta;
         const alterada = {
           ...oferta,
           ...mudanca,

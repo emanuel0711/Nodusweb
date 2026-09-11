@@ -579,6 +579,34 @@ test("abreviação QJ encontra queijo do catálogo", () => {
   );
 });
 
+test("abreviação de tipo do catálogo apresenta todas as linhas para revisão", () => {
+  const itens = [
+    produto("301", "SH DARLING 350ML 2EM1"),
+    produto("302", "SH DARLING 350ML TILIA"),
+    produto("303", "SH DARLING 350ML CERAMIDAS NOVO"),
+    produto("304", "SH DARLING 350ML DETOX NOVO"),
+  ];
+  const resultado = selecionarCodigosOferta("Shampoo Darling 350ml", itens, false);
+  assert.deepEqual(resultado.codigos, []);
+  assert.deepEqual(resultado.candidatos, itens);
+  assert.match(resultado.motivo!, /Mais de uma família/);
+});
+
+test("lista de medidas reúne a mesma família sem exigir todos os tamanhos em cada item", () => {
+  const itens = [
+    produto("305", "SACO LIXO SUPERPLASTICO 15L C/20UN ALM CITRONELA"),
+    produto("306", "SACO LIXO SUPERPLASTICO 30L C/10UN ALM CITRONELA"),
+    produto("307", "SACO LIXO SUPERPLASTICO 50L C/10UN ALM CITRONELA"),
+    produto("308", "SACO LIXO SUPERPLASTICO 100L C/5UN ALM CITRONELA"),
+    produto("309", "SACO LIXO FRILAR 30L ALMOFADA C/10UN"),
+  ];
+  assert.deepEqual(
+    selecionarCodigosOferta("Saco lixo Superplastico 15L, 30L, 50, e 100L almofada", itens, false)
+      .codigos,
+    itens.slice(0, 4).map((item) => item.ean),
+  );
+});
+
 test("quantidade 03UND equivale a C/3UNID do catálogo", () => {
   const item = produto("89", "Milho verde BDJ C/3UNID");
   assert.deepEqual(
