@@ -89,7 +89,9 @@ export function cruzarOferta(
   const textoEAN = String(valorDoCampo(linha, ["EAN", "Código de barras", "GTIN"]) ?? "").trim();
   // O modelo de cartazes usa a coluna EAN para avisos de vigência.
   // A linha original é preservada; outros valores inválidos continuam exigindo revisão.
-  const eanOrigem = /^oferta\s+dispon[ií]vel\b/i.test(textoEAN) ? "" : textoEAN;
+  const avisoDeVigencia = /^oferta\s+(?:dispon[ií]vel|v[aá]lida)\b|\bvig[eê]ncia\b/i.test(textoEAN);
+  const modeloCartaz = Object.keys(linha).some((chave) => normalizarTexto(chave) === "referencia");
+  const eanOrigem = modeloCartaz || avisoDeVigencia ? "" : textoEAN;
   const internoOrigem = String(
     valorDoCampo(linha, ["Código Interno", "Cód. Interno", "Código da balança"]) ?? "",
   ).trim();

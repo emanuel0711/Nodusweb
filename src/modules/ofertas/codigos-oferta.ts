@@ -129,6 +129,9 @@ const ALIASES: Record<string, string> = {
   bovina: "bovino",
   congel: "congelado",
   cong: "congelado",
+  resf: "resfriado",
+  inte: "integral",
+  desn: "desnatado",
   bdj: "bandeja",
   qj: "queijo",
   prim: "primeira",
@@ -163,13 +166,17 @@ export type Variante =
   | "branco"
   | "parboilizado"
   | "refinado"
-  | "demerara";
+  | "demerara"
+  | "integral"
+  | "semidesnatado"
+  | "desnatado";
 const FAMILIAS: Variante[][] = [
   ["tradicional", "zero"],
   ["com_gas", "sem_gas"],
   ["com_alcool", "sem_alcool"],
   ["branco", "parboilizado"],
   ["refinado", "demerara"],
+  ["integral", "semidesnatado", "desnatado"],
 ];
 const PADROES: Record<Variante, RegExp> = {
   tradicional: /\btradicional\b/g,
@@ -182,6 +189,9 @@ const PADROES: Record<Variante, RegExp> = {
   parboilizado: /\bparboilizado\b/g,
   refinado: /\brefinado\b/g,
   demerara: /\bdemerara\b/g,
+  integral: /\bintegral\b/g,
+  semidesnatado: /\bsemi(?:desnatado)?\b/g,
+  desnatado: /(?<!\bsemi )\bdesnatado\b/g,
 };
 
 /** Converte antes de remover pontuação, preservando 1,5 L e 0.8 kg. */
@@ -391,6 +401,7 @@ function variantesCompativeis(nome: string, descricao: string): boolean {
   return FAMILIAS.every((f) => {
     if (f.includes("branco") && !/\barroz\b/.test(contexto)) return true;
     if (f.includes("refinado") && !/\bacucar\b/.test(contexto)) return true;
+    if (f.includes("integral") && !/\bleite\b/.test(contexto)) return true;
     const desejadas = f.filter((v) => a.has(v)),
       encontradas = f.filter((v) => b.has(v));
     // A ausência de variante significa a versão comum. Nunca inclua zero,
@@ -863,6 +874,9 @@ export function separarVariantesOferta(nome: string): string[] {
     parboilizado: /\bparb(?:o(?:il(?:izado)?)?)?\b/gi,
     refinado: /\brefinado\b/gi,
     demerara: /\bdemerara\b/gi,
+    integral: /\binte(?:gral)?\b/gi,
+    semidesnatado: /\bsemi(?:desnatado)?\b/gi,
+    desnatado: /\bdesn(?:atado)?\b/gi,
     com_gas: /\b(?:com|c\s*\/?)\s*g[aá]s\b/gi,
     sem_gas: /\b(?:sem|s\s*\/?)\s*g[aá]s\b/gi,
     com_alcool: /\b(?:com|c\s*\/?)\s*[aá]lcool\b/gi,
