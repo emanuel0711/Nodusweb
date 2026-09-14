@@ -139,8 +139,14 @@ const ALIASES: Record<string, string> = {
   bov: "bovino",
   bovina: "bovino",
   congel: "congelado",
+  congelada: "congelado",
+  congelados: "congelado",
+  congeladas: "congelado",
   cong: "congelado",
   resf: "resfriado",
+  resfriada: "resfriado",
+  resfriados: "resfriado",
+  resfriadas: "resfriado",
   inte: "integral",
   desn: "desnatado",
   bdj: "bandeja",
@@ -787,7 +793,12 @@ export function selecionarCodigosOferta(
 
   // Primeiro resolve identidade, quantidade, tipo e variedade. O estoque só
   // participa depois, caso ainda existam famílias semanticamente empatadas.
-  const extras = candidatosCatalogo.map((produto) => ({
+  const conservacao = semExcecoes(nome).match(/\b(?:congelado|resfriado)\b/)?.[0];
+  const conservacaoConfirmada = conservacao
+    ? candidatosCatalogo.filter((p) => semExcecoes(p.description).split(" ").includes(conservacao))
+    : [];
+  const candidatosPreferidos = conservacaoConfirmada.length ? conservacaoConfirmada : candidatosCatalogo;
+  const extras = candidatosPreferidos.map((produto) => ({
     produto,
     quantidade: tokensIdentidade(produto.description, sabores).filter(
       (token) => !tokens.includes(token),
@@ -796,9 +807,9 @@ export function selecionarCodigosOferta(
   const menorQuantidade = Math.min(...extras.map((item) => item.quantidade));
   let maisEspecificos =
     exatos.length && !sabores
-      ? candidatosCatalogo.filter((item) => exatos.some((exato) => chaveFamilia(exato, false) === chaveFamilia(item, false)))
+      ? candidatosPreferidos.filter((item) => exatos.some((exato) => chaveFamilia(exato, false) === chaveFamilia(item, false)))
       : sabores
-        ? candidatosCatalogo
+        ? candidatosPreferidos
         : extras.filter((item) => item.quantidade === menorQuantidade).map((item) => item.produto);
   const chaveDaFamilia = tamanhos.length > 1 ? chaveFamiliaSemMedidas : chaveFamilia;
   let familias = new Set(maisEspecificos.map((p) => chaveDaFamilia(p, sabores)));
