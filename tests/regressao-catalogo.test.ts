@@ -19,6 +19,19 @@ const p = (description: string, ean: string, extra: Partial<Produto> = {}): Prod
   image_url: null,
   ...extra,
 });
+test("atributos com e sem nao se misturam independentemente do produto", () => {
+  for (const atributo of ["PIMENTA", "RECHEIO", "CORANTE"]) {
+    const a = p(`PRODUTO MARCA 230G COM ${atributo}`, "1234567890123");
+    const b = p(`PRODUTO MARCA 230G SEM ${atributo}`, "1234567890124");
+    assert.deepEqual(selecionarCodigosOferta(a.description, [a,b], false).codigos, [a.ean]);
+    assert.deepEqual(selecionarCodigosOferta(b.description, [a,b], false).codigos, [b.ean]);
+  }
+});
+test("massa para pizza nao herda agrupamento de sabores de pizza pronta", () => {
+  const a = p("MASSA PIZZA MARCA 150G", "1234567890123");
+  const b = p("MASSA PIZZA MARCA 150G INTEGRAL", "1234567890124");
+  assert.deepEqual(selecionarCodigosOferta(a.description, [a,b], false).codigos, [a.ean]);
+});
 test("cartaz ignora qualquer valor da coluna EAN preservando a origem", () => {
   for (const ean of ["VALIDADE 12/09", "9999999999999", "texto qualquer"]) {
     const row = { DESCRICAO: "CAFE MARCA 500G", REFERENCIA: "LIMITE DE 3 UN POR CPF", EAN: ean };
