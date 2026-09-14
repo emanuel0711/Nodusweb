@@ -19,6 +19,12 @@ const p = (description: string, ean: string, extra: Partial<Produto> = {}): Prod
   image_url: null,
   ...extra,
 });
+test("congelado e resfriado respeitam o estado informado na oferta", () => {
+  const a = p("FRANGO COXA E SOBRECOXA CONGELADA", "", { unit: "KG", internal_code: "507" });
+  const b = p("FRANGO COXA E SOBRECOXA RESFRIADA KG", "", { unit: "KG", internal_code: "505" });
+  assert.deepEqual(selecionarCodigosOferta("COXA E SOBRECOXA CONG KG", [a,b], true).codigos, ["507"]);
+  assert.deepEqual(selecionarCodigosOferta("COXA E SOBRECOXA RESF KG", [a,b], true).codigos, ["505"]);
+});
 test("atributos com e sem nao se misturam independentemente do produto", () => {
   for (const atributo of ["PIMENTA", "RECHEIO", "CORANTE"]) {
     const a = p(`PRODUTO MARCA 230G COM ${atributo}`, "1234567890123");
