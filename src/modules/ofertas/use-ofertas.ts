@@ -54,7 +54,9 @@ function lerMemoriaRevisoes(): Set<string> {
 function aplicarMemoriaRevisoes(ofertas: Oferta[]): Oferta[] {
   const memoria = lerMemoriaRevisoes();
   return ofertas.map((oferta) =>
-    memoria.has(chaveBaseOferta(oferta.nome)) ? { ...oferta, revisadoManualmente: true } : oferta,
+    memoria.has(chaveBaseOferta(oferta.nome)) && !oferta.motivoRevisao
+      ? { ...oferta, revisadoManualmente: true }
+      : oferta,
   );
 }
 
@@ -194,7 +196,8 @@ function aplicarMemoria(ofertas: Oferta[], catalogo: Produto[]): Oferta[] {
       ean: oferta.porQuilo ? "" : codigos[0]!,
       codigoInterno: oferta.porQuilo ? codigos[0]! : "",
       codigosEditados: true,
-      codigoRevisadoManualmente: true,
+      codigoRevisadoManualmente: !catalogoMudou && !lembranca.conflito,
+      revisadoManualmente: false,
       nomesPorCodigo,
       imagemPorCodigo,
       encontrado: codigos.map((codigo) => nomesPorCodigo[codigo]).join(" / ") || oferta.encontrado,

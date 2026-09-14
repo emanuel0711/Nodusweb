@@ -422,6 +422,10 @@ function tokensIdentidade(valor: string, sabores: boolean): string[] {
 function variantesCompativeis(nome: string, descricao: string): boolean {
   const pedido = semExcecoes(nome);
   const cadastro = semExcecoes(descricao);
+  const congelado = /\bcongelad[oa]s?\b/;
+  const resfriado = /\bresfriad[oa]s?\b/;
+  if ((congelado.test(pedido) && resfriado.test(cadastro)) ||
+      (resfriado.test(pedido) && congelado.test(cadastro))) return false;
   const atributos = [...pedido.matchAll(/\b(?:com|c|sem|s) ([a-z]+)\b/g)].map((m) => m[1]);
   for (const atributo of atributos) {
     const positivo = new RegExp(`\\b(?:com|c) ${atributo}\\b`);
