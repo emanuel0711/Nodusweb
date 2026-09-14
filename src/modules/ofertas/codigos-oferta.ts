@@ -356,7 +356,7 @@ function saboresSolicitados(nome: string): boolean {
     /\bfrisco\b|\bred horse\b|\bdetergente ype\b|\blava roupas\b.*\bbrilhante\b|\bamaciante\b.*\baquafast\b|\bmassa isabela\b.*\bsemola\b|\bsopao apti\b|\binseticida mat inset\b|\bfralda\b.*\bpom pom\b.*\bjumbo\b/.test(
       texto,
     );
-  const tipoComVariedades = /\b(?:amaciante|pizza)\b/.test(texto) && texto.split(" ").some((t) => !IGNORADOS.has(t) && !["amaciante", "pizza", "concentrado", "sabores"].includes(t) && !/^\d+(?:d\d+)?(?:g|ml|un)$/.test(t));
+  const tipoComVariedades = /^(?:amaciante|pizza)\b/.test(texto) && texto.split(" ").some((t) => !IGNORADOS.has(t) && !["amaciante", "pizza", "concentrado", "sabores"].includes(t) && !/^\d+(?:d\d+)?(?:g|ml|un)$/.test(t));
   return (familiaComSabores || tipoComVariedades) && !texto.split(" ").some((t) => SABORES.has(t));
 }
 
@@ -422,7 +422,8 @@ function tokensIdentidade(valor: string, sabores: boolean): string[] {
 function variantesCompativeis(nome: string, descricao: string): boolean {
   const pedido = semExcecoes(nome);
   const cadastro = semExcecoes(descricao);
-  for (const atributo of ["pele", "osso", "sal", "lactose", "gluten", "acucar"]) {
+  const atributos = [...pedido.matchAll(/\b(?:com|c|sem|s) ([a-z]+)\b/g)].map((m) => m[1]);
+  for (const atributo of atributos) {
     const positivo = new RegExp(`\\b(?:com|c) ${atributo}\\b`);
     const negativo = new RegExp(`\\b(?:sem|s) ${atributo}\\b`);
     if (
