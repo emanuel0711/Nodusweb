@@ -22,8 +22,9 @@ const p = (description: string, ean: string, extra: Partial<Produto> = {}): Prod
 test("congelado e resfriado respeitam o estado informado na oferta", () => {
   const a = p("FRANGO COXA E SOBRECOXA CONGELADA", "", { unit: "KG", internal_code: "507" });
   const b = p("FRANGO COXA E SOBRECOXA RESFRIADA KG", "", { unit: "KG", internal_code: "505" });
-  assert.deepEqual(selecionarCodigosOferta("COXA E SOBRECOXA CONG KG", [a,b], true).codigos, ["507"]);
-  assert.deepEqual(selecionarCodigosOferta("COXA E SOBRECOXA RESF KG", [a,b], true).codigos, ["505"]);
+  const c = p("NUTRIFRANGO BDJ KG COXA E SOBRECOXA", "", { unit: "KG", internal_code: "902" });
+  assert.deepEqual(selecionarCodigosOferta("COXA E SOBRECOXA CONG KG", [a,b,c], true).codigos, ["507"]);
+  assert.deepEqual(selecionarCodigosOferta("COXA E SOBRECOXA RESF KG", [a,b,c], true).codigos, ["505"]);
 });
 test("atributos com e sem nao se misturam independentemente do produto", () => {
   for (const atributo of ["PIMENTA", "RECHEIO", "CORANTE"]) {
