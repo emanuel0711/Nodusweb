@@ -49,6 +49,16 @@ const IGNORADOS = new Set([
   "hibrido",
 ]);
 const SABORES = new Set([
+  "alfazema",
+  "brisa",
+  "primavera",
+  "verao",
+  "lirios",
+  "calabresa",
+  "mussarela",
+  "lombo",
+  "frango",
+  "requeijao",
   "iogurte",
   "jones",
   "baunilha",
@@ -118,6 +128,7 @@ const SABORES = new Set([
   "antibac",
 ]);
 const ALIASES: Record<string, string> = {
+  conc: "concentrado",
   sh: "shampoo",
   alm: "almofada",
   refrig: "refrigerante",
@@ -195,7 +206,10 @@ const PADROES: Record<Variante, RegExp> = {
 };
 
 /** Converte antes de remover pontuação, preservando 1,5 L e 0.8 kg. */
+const cacheTexto = new Map<string, string>();
 function textoCanonico(valor: string): string {
+  const salvo = cacheTexto.get(valor);
+  if (salvo !== undefined) return salvo;
   let unidadesCompletas = valor.toLowerCase();
   // Em listas como "15L, 30L, 50 e 100L", reaproveita a unidade anterior.
   // O laço cobre várias medidas consecutivas sem confundir a vírgula decimal.
@@ -226,7 +240,7 @@ function textoCanonico(valor: string): string {
     /(\d+)\s*(?:un|und|unid|unidade|unidades)\b/gi,
     (_, numero: string) => ` ${Number(numero)}un `,
   );
-  return normalizarTexto(quantidades)
+  const resultado = normalizarTexto(quantidades)
     .replace(/\bcouve\s+verde\b/g, "couve manteiga")
     .split(" ")
     .map((t) => ALIASES[t] ?? t)
@@ -237,6 +251,9 @@ function textoCanonico(valor: string): string {
     .replace(/\bs alcool\b/g, "sem alcool")
     .replace(/\bcom e sem gas\b/g, "com gas e sem gas")
     .replace(/\bcom e sem alcool\b/g, "com alcool e sem alcool");
+  if (cacheTexto.size >= 60000) cacheTexto.clear();
+  cacheTexto.set(valor, resultado);
+  return resultado;
 }
 
 function semExcecoes(valor: string): string {
@@ -339,7 +356,8 @@ function saboresSolicitados(nome: string): boolean {
     /\bfrisco\b|\bred horse\b|\bdetergente ype\b|\blava roupas\b.*\bbrilhante\b|\bamaciante\b.*\baquafast\b|\bmassa isabela\b.*\bsemola\b|\bsopao apti\b|\binseticida mat inset\b|\bfralda\b.*\bpom pom\b.*\bjumbo\b/.test(
       texto,
     );
-  return familiaComSabores && !texto.split(" ").some((t) => SABORES.has(t));
+  const tipoComVariedades = /\b(?:amaciante|pizza)\b/.test(texto) && texto.split(" ").some((t) => !IGNORADOS.has(t) && !["amaciante", "pizza", "concentrado", "sabores"].includes(t) && !/^\d+(?:d\d+)?(?:g|ml|un)$/.test(t));
+  return (familiaComSabores || tipoComVariedades) && !texto.split(" ").some((t) => SABORES.has(t));
 }
 
 function expansaoSemMedidaPermitida(nome: string): boolean {
@@ -358,11 +376,18 @@ function alternativasExplicitas(nome: string): string[] {
   );
 }
 
+const cacheVariantes = new Map<string, Variante[]>();
 export function variantesDoTexto(valor: string): Set<Variante> {
   const texto = semExcecoes(valor);
-  return new Set(
-    (Object.keys(PADROES) as Variante[]).filter((v) => new RegExp(PADROES[v].source).test(texto)),
-  );
+  let resultado = cacheVariantes.get(texto);
+  if (!resultado) {
+    resultado = (Object.keys(PADROES) as Variante[]).filter((v) =>
+      new RegExp(PADROES[v].source).test(texto),
+    );
+    if (cacheVariantes.size >= 60000) cacheVariantes.clear();
+    cacheVariantes.set(texto, resultado);
+  }
+  return new Set(resultado);
 }
 function semVariantes(texto: string): string {
   for (const padrao of Object.values(PADROES)) texto = texto.replace(padrao, " ");
@@ -395,9 +420,22 @@ function tokensIdentidade(valor: string, sabores: boolean): string[] {
   return tokens;
 }
 function variantesCompativeis(nome: string, descricao: string): boolean {
+  const pedido = semExcecoes(nome);
+  const cadastro = semExcecoes(descricao);
+  for (const atributo of ["pele", "osso", "sal", "lactose", "gluten", "acucar"]) {
+    const positivo = new RegExp(`\\b(?:com|c) ${atributo}\\b`);
+    const negativo = new RegExp(`\\b(?:sem|s) ${atributo}\\b`);
+    if (
+      (positivo.test(pedido) && negativo.test(cadastro)) ||
+      (negativo.test(pedido) && positivo.test(cadastro))
+    )
+      return false;
+  }
+  if (/\barroz\b/.test(pedido) && /\bintegral\b/.test(pedido) !== /\bintegral\b/.test(cadastro))
+    return false;
   const a = variantesDoTexto(nome),
     b = variantesDoTexto(descricao),
-    contexto = semExcecoes(`${nome} ${descricao}`);
+    contexto = `${semExcecoes(nome)} ${semExcecoes(descricao)}`;
   return FAMILIAS.every((f) => {
     if (f.includes("branco") && !/\barroz\b/.test(contexto)) return true;
     if (f.includes("refinado") && !/\bacucar\b/.test(contexto)) return true;
@@ -513,7 +551,9 @@ export function codigoProduto(item: Produto, porQuilo: boolean): string {
   };
   if (pluPorUnidade[codigoInterno]?.test(textoCanonico(item.description))) return codigoInterno;
   const ean = String(item.ean ?? "").trim();
-  return /^(?:\d{8}|\d{12,14})$/.test(ean) ? ean : "";
+  // O catálogo do ERP também armazena PLUs e UPCs sem zeros iniciais.
+  // Preserva o identificador cadastrado, sem inventar ou completar dígitos.
+  return /^\d{1,14}$/.test(ean) ? ean : "";
 }
 export interface SelecaoCodigos {
   codigos: string[];
@@ -702,7 +742,14 @@ export function selecionarCodigosOferta(
     return pendente("Informe a gramatura para reunir os sabores.");
   if (FAMILIAS.some((f) => f.filter((v) => variantesDoTexto(nome).has(v)).length > 1))
     return pendente("Separe as variantes da oferta.");
+  const exatos = catalogo.filter(
+    (item) =>
+      normalizarTexto(item.description) === normalizarTexto(nome) &&
+      codigoProduto(item, porQuilo) &&
+      !excluido(item, excecoes),
+  );
   const candidatosCatalogo = catalogo.filter((item) => {
+    if (exatos.includes(item)) return true;
     if (
       !codigoProduto(item, porQuilo) ||
       excluido(item, excecoes) ||
@@ -742,9 +789,12 @@ export function selecionarCodigosOferta(
     ).length,
   }));
   const menorQuantidade = Math.min(...extras.map((item) => item.quantidade));
-  let maisEspecificos = sabores
-    ? candidatosCatalogo
-    : extras.filter((item) => item.quantidade === menorQuantidade).map((item) => item.produto);
+  let maisEspecificos =
+    exatos.length && !sabores
+      ? candidatosCatalogo.filter((item) => exatos.some((exato) => chaveFamilia(exato, false) === chaveFamilia(item, false)))
+      : sabores
+        ? candidatosCatalogo
+        : extras.filter((item) => item.quantidade === menorQuantidade).map((item) => item.produto);
   const chaveDaFamilia = tamanhos.length > 1 ? chaveFamiliaSemMedidas : chaveFamilia;
   let familias = new Set(maisEspecificos.map((p) => chaveDaFamilia(p, sabores)));
   let familiaEscolhidaPorEstoque: string | null = null;
@@ -860,6 +910,10 @@ export function normalizarCodigos(codigos: string[]): string[] {
 
 /** Expande pares explícitos; nunca divide sabores. Mantém as exclusões no nome. */
 export function separarVariantesOferta(nome: string): string[] {
+  nome = nome.replace(
+    /\b(?:c\/|com)\s+e\s+(?:s\/|sem)\s*(g[aá]s|[aá]lcool)\b/gi,
+    "com $1 e sem $1",
+  );
   const variantes = variantesDoTexto(nome);
   const familias = FAMILIAS.filter((f) => f.filter((v) => variantes.has(v)).length > 1);
   if (!familias.length) return [nome];
