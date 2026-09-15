@@ -18,11 +18,23 @@ import {
 } from "../src/modules/planilhas/planilha.ts";
 import { ehPorQuilo } from "../src/modules/ofertas/regras-oferta.ts";
 import {
+  codigoExatoDaBusca,
   erroCategoriaDaImportacao,
   linhaParaProduto,
   prepararItensImportacao,
   type Produto,
 } from "../src/modules/catalogo/catalogo.ts";
+
+test("pesquisa reconhece código interno sem perder zeros à esquerda", () => {
+  assert.equal(codigoExatoDaBusca(" 001663 "), "001663");
+  assert.equal(codigoExatoDaBusca("1663.0"), "1663");
+  assert.equal(codigoExatoDaBusca("1663"), "1663");
+});
+
+test("pesquisa não confunde descrição com código interno", () => {
+  assert.equal(codigoExatoDaBusca("ABACAXI 1663"), "");
+  assert.equal(codigoExatoDaBusca("15L"), "");
+});
 
 const produto = (id: string, description: string, extra: Partial<Produto> = {}): Produto => ({
   id,
@@ -153,6 +165,29 @@ test("preparação reconhece correção de EAN pela descrição ou código promo
 
   assert.equal(porDescricao.itens[0]!.existing_id, existente.id);
   assert.equal(porPromocao.itens[0]!.existing_id, existente.id);
+});
+test("reimportação preserva imagem ao desdobrar um produto em vários códigos", () => {
+  const existente = produto("206", "PRODUTO TESTE 500G", {
+    ean: "7890000000206",
+    category: "TESTE",
+    image_url: "https://exemplo.com/produto.png",
+  });
+  const base = linhaParaProduto(
+    { Código: "7890000000207", Descrição: "PRODUTO TESTE 500G", "Un.": "UN" },
+    "TESTE",
+  )!;
+  const preparados = prepararItensImportacao(
+    [
+      { ...base, promotion_code: "COD-207" },
+      { ...base, ean: "7890000000208", promotion_code: "COD-208" },
+    ],
+    [existente],
+  );
+
+  assert.equal(preparados.itens.length, 2);
+  assert.equal(preparados.itens.filter((item) => item.existing_id === existente.id).length, 1);
+  assert.equal(preparados.itens.filter((item) => item.existing_id == null).length, 1);
+  assert.ok(preparados.itens.every((item) => item.image_url === existente.image_url));
 });
 test("arquivo renomeado que corresponde a outra categoria é bloqueado", () => {
   const existentes = Array.from({ length: 6 }, (_, indice) =>
@@ -512,6 +547,56 @@ test("modelo de cartaz ignora o aviso de vigência na coluna EAN", () => {
     itens,
   )[0]!;
   assert.deepEqual(oferta.codigos, [itens[0]!.ean]);
+});
+
+test("modelo de oferta ignora aviso OFERTA VÁLIDA na coluna EAN", () => {
+  const resultado = processarLinhasOfertas(
+    [
+      {
+        DESCRICAO: "ÓLEO DE SOJA COAMO 900ML",
+        EAN: "OFERTA VÁLIDA NO DIA 12 DE SET",
+        "PRECO NORMAL": "7,29",
+        "PRECO PROMOCIONAL": "6,59",
+      },
+    ],
+    [produto("coamo", "OLEO SOJA COAMO 900ML PET", { ean: "7896279600538" })],
+  );
+  assert.deepEqual(resultado[0]?.codigos, ["7896279600538"]);
+});
+
+test("abreviação RESF não impede produto resfriado por quilo", () => {
+  const resultado = selecionarCodigosOferta(
+    "PALETA SUINA COM PELE RESF KG",
+    [
+      produto("paleta", "CARNE SUINA PALETA COM PELE", {
+        ean: null,
+        internal_code: "420",
+        unit: "KG",
+      }),
+    ],
+    true,
+  );
+  assert.deepEqual(resultado.codigos, ["420"]);
+});
+
+test("leite com integral semi e desnatado vira três ofertas separadas", () => {
+  const itens = [
+    produto("tirol1", "LEITE UHT TIROL 1L INTEGRAL", { ean: "7896256600223" }),
+    produto("tirol2", "LEITE UHT TIROL 1L SEMI DESNATADO", { ean: "7896256600230" }),
+    produto("tirol3", "LEITE UHT TIROL 1L DESNATADO", { ean: "7896256600247" }),
+    produto("tirol4", "LEITE UHT TIROL 1L INTEGRAL ZERO LACTOSE", {
+      ean: "7896294901993",
+    }),
+  ];
+  const nomes = separarVariantesOferta("LEITE TIROL 1L INTE, SEMI E DESN");
+  assert.equal(nomes.length, 3);
+  assert.deepEqual(
+    nomes.flatMap((nome) => selecionarCodigosOferta(nome, itens, false).codigos).sort(),
+    itens
+      .slice(0, 3)
+      .map((item) => item.ean!)
+      .sort(),
+  );
 });
 
 test("Frisco sem sabor expande a família de sabores", () => {
