@@ -21,6 +21,17 @@ export interface Produto {
   stock_updated_at?: string | null;
 }
 
+/**
+ * Reconhece uma pesquisa que representa um identificador do catálogo.
+ * Aceita os formatos que costumam vir das planilhas, como "1663",
+ * "001663" e "1663.0", sem transformar buscas por descrição em código.
+ */
+export function codigoExatoDaBusca(valor: string): string {
+  const termo = valor.trim();
+  if (!/^\d+(?:\.0+)?$/.test(termo)) return "";
+  return limparCodigo(termo);
+}
+
 export const COLUNAS_PRODUTO_BASE =
   "id, internal_code, promotion_code, ean, description, unit, unit_price, category, image_url";
 export const COLUNAS_PRODUTO = `${COLUNAS_PRODUTO_BASE}, cost, stock_quantity, stock_updated_at`;
@@ -177,6 +188,7 @@ export function prepararItensImportacao(
     }
   }
   const chavesVistas = new Set<string>();
+  const idsVinculados = new Set<string>();
   const itens: ItemImportacaoCatalogo[] = [];
   let duplicados = 0;
 
@@ -188,13 +200,19 @@ export function prepararItensImportacao(
       continue;
     }
     chavesVistas.add(chaveComCategoria);
-    const existente = identificadoresDoProduto(produto)
+    const encontrado = identificadoresDoProduto(produto)
       .map((identificador) =>
         existentesPorCategoriaEChave.get(`${produto.category}\u0000${identificador}`),
       )
       .find((item): item is Produto => Boolean(item));
+    // Um cadastro antigo pode virar duas ou mais linhas quando o ERP passa a
+    // informar todos os códigos. Só a primeira linha atualiza o registro antigo;
+    // as demais são inseridas e herdam a imagem já revisada.
+    const existente = encontrado && !idsVinculados.has(encontrado.id) ? encontrado : null;
+    if (existente) idsVinculados.add(existente.id);
     itens.push({
       ...produto,
+      image_url: produto.image_url ?? encontrado?.image_url ?? null,
       match_key: matchKey,
       existing_id: existente?.id ?? null,
     });
