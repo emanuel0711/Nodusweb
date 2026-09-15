@@ -22,7 +22,9 @@ const IGNORADOS = new Set([
   "sem",
   "un",
   "und",
+  "unds",
   "unidade",
+  "unidades",
   "kg",
   "pct",
   "pcte",
@@ -46,6 +48,10 @@ const IGNORADOS = new Set([
   "somente",
   "uht",
   "bandeja",
+  "pacote",
+  "osso",
+  "nov",
+  "jovem",
   "hibrido",
 ]);
 const SABORES = new Set([
@@ -126,7 +132,10 @@ const SABORES = new Set([
   "clear",
   "care",
   "antibac",
+  "isis",
+  "italia",
 ]);
+const VARIEDADES_HORTIFRUTI = new Set(["isis", "italia"]);
 const ALIASES: Record<string, string> = {
   conc: "concentrado",
   sh: "shampoo",
@@ -171,8 +180,18 @@ const ALIASES: Record<string, string> = {
   bisc: "biscoito",
   rosado: "rose",
   hamburger: "hamburguer",
+  ovos: "ovo",
 };
 const DESCRITORES_OPCIONAIS_NA_APROXIMACAO = new Set(["mini", "molho", "maco"]);
+const FORMATOS_DE_PRODUTO = new Set([
+  "file",
+  "filezinho",
+  "bife",
+  "desfiado",
+  "fatiado",
+  "moido",
+  "sassami",
+]);
 export type Variante =
   | "tradicional"
   | "zero"
@@ -354,6 +373,10 @@ function vinhoCompativel(nome: string, descricao: string): boolean {
 function saboresSolicitados(nome: string): boolean {
   const texto = semExcecoes(nome);
   if (/\bsabores\b/.test(texto)) return true;
+  const variedadesMencionadas = texto
+    .split(" ")
+    .filter((token) => VARIEDADES_HORTIFRUTI.has(token));
+  if (new Set(variedadesMencionadas).size > 1) return true;
   // Uma marca/linha explícita pode reunir as variações de vinho, respeitando
   // cor, tipo e casta quando esses dados aparecem na oferta.
   if (ehVinho(nome)) return vinhoTemMarcaOuLinha(nome);
@@ -363,7 +386,9 @@ function saboresSolicitados(nome: string): boolean {
       texto,
     );
   const tipoComVariedades = /^(?:amaciante|pizza)\b/.test(texto) && texto.split(" ").some((t) => !IGNORADOS.has(t) && !["amaciante", "pizza", "concentrado", "sabores"].includes(t) && !/^\d+(?:d\d+)?(?:g|ml|un)$/.test(t));
-  return (familiaComSabores || tipoComVariedades) && !texto.split(" ").some((t) => SABORES.has(t));
+  const bebidaSemSabor = /\b(?:refrigerante|energetico|suco|refresco)\b/.test(texto) &&
+    !texto.split(" ").some((token) => SABORES.has(token));
+  return bebidaSemSabor || ((familiaComSabores || tipoComVariedades) && !texto.split(" ").some((t) => SABORES.has(t)));
 }
 
 function expansaoSemMedidaPermitida(nome: string): boolean {
@@ -417,6 +442,9 @@ export function tokensFamilia(valor: string): string[] {
 function tokensIdentidade(valor: string, sabores: boolean): string[] {
   let tokens = tokensFamilia(valor);
   if (sabores) {
+    const variedadesHorti = tokens.filter((token) => VARIEDADES_HORTIFRUTI.has(token));
+    if (tokens.includes("uva") && variedadesHorti.length)
+      return tokens.filter((token) => !VARIEDADES_HORTIFRUTI.has(token));
     // A família de bebidas em pó pode omitir "refresco/suco em pó" na oferta.
     tokens = tokens.filter(
       (t) =>
@@ -427,7 +455,10 @@ function tokensIdentidade(valor: string, sabores: boolean): string[] {
 }
 function variantesCompativeis(nome: string, descricao: string): boolean {
   const pedido = semExcecoes(nome);
-  const cadastro = semExcecoes(descricao);
+  const cadastro = semExcecoes(descricao)
+    .replace(/\bdesossad[oa]s?\b/g, "sem osso")
+    .replace(/\bc osso\b/g, "com osso")
+    .replace(/\bs osso\b/g, "sem osso");
   const congelado = /\bcongelad[oa]s?\b/;
   const resfriado = /\bresfriad[oa]s?\b/;
   if ((congelado.test(pedido) && resfriado.test(cadastro)) ||
@@ -800,22 +831,61 @@ export function selecionarCodigosOferta(
   const candidatosPreferidos = conservacaoConfirmada.length ? conservacaoConfirmada : candidatosCatalogo;
   const extras = candidatosPreferidos.map((produto) => ({
     produto,
-    quantidade: tokensIdentidade(produto.description, sabores).filter(
+    tokens: tokensIdentidade(produto.description, sabores).filter(
       (token) => !tokens.includes(token),
-    ).length,
+    ),
   }));
-  const menorQuantidade = Math.min(...extras.map((item) => item.quantidade));
+  const extrasComuns = extras.length
+    ? extras[0]!.tokens.filter((token) => extras.every((item) => item.tokens.includes(token)))
+    : [];
+  const variantesTecnicas = extras.map((item) =>
+    item.tokens.filter((token) => !extrasComuns.includes(token)),
+  );
+  const agruparVariantesTecnicas =
+    !sabores &&
+    candidatosPreferidos.length > 1 &&
+    variantesTecnicas.every(
+      (variantes) => variantes.length === 1 && /^[a-z0-9]{1,3}$/.test(variantes[0]!),
+    ) &&
+    new Set(variantesTecnicas.map((variantes) => variantes[0])).size === candidatosPreferidos.length;
+  const menorQuantidade = Math.min(...extras.map((item) => item.tokens.length));
+  const chaveDaFamilia = tamanhos.length > 1 ? chaveFamiliaSemMedidas : chaveFamilia;
   let maisEspecificos =
     exatos.length && !sabores
       ? candidatosPreferidos.filter((item) => exatos.some((exato) => chaveFamilia(exato, false) === chaveFamilia(item, false)))
       : sabores
         ? candidatosPreferidos
-        : extras.filter((item) => item.quantidade === menorQuantidade).map((item) => item.produto);
-  const chaveDaFamilia = tamanhos.length > 1 ? chaveFamiliaSemMedidas : chaveFamilia;
+        : agruparVariantesTecnicas
+          ? candidatosPreferidos
+          : extras.filter((item) => item.tokens.length === menorQuantidade).map((item) => item.produto);
+  if (
+    !exatos.length &&
+    !sabores &&
+    !agruparVariantesTecnicas &&
+    !maisEspecificos.some((produto) => Number(produto.stock_quantity) > 0)
+  ) {
+    const familiasComSaldo = new Set(
+      candidatosPreferidos
+        .filter(
+          (produto) =>
+            Number(produto.stock_quantity) > 0 &&
+            !tokensIdentidade(produto.description, false)
+              .filter((token) => !tokens.includes(token))
+              .some((token) => FORMATOS_DE_PRODUTO.has(token)),
+        )
+        .map((produto) => chaveDaFamilia(produto, false)),
+    );
+    if (familiasComSaldo.size === 1) {
+      const familiaComSaldo = [...familiasComSaldo][0]!;
+      maisEspecificos = candidatosPreferidos.filter(
+        (produto) => chaveDaFamilia(produto, false) === familiaComSaldo,
+      );
+    }
+  }
   let familias = new Set(maisEspecificos.map((p) => chaveDaFamilia(p, sabores)));
   let familiaEscolhidaPorEstoque: string | null = null;
   let estoqueUsadoNoDesempate = false;
-  if (!sabores && familias.size > 1) {
+  if (!sabores && !agruparVariantesTecnicas && familias.size > 1) {
     const familiasComEstoque = new Set(
       maisEspecificos
         .filter((produto) => produto.stock_quantity != null && produto.stock_quantity > 0)
@@ -830,7 +900,7 @@ export function selecionarCodigosOferta(
       estoqueUsadoNoDesempate = true;
     }
   }
-  if (!sabores && familias.size !== 1)
+  if (!sabores && !agruparVariantesTecnicas && familias.size !== 1)
     return {
       codigos: [],
       produtos: [],
