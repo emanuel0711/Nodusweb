@@ -35,7 +35,7 @@ export const FORMULARIO_VAZIO = {
   image_url: "",
 };
 export type FormularioProduto = typeof FORMULARIO_VAZIO;
-export interface ResumoImportacao {
+interface ResumoImportacao {
   id: string;
   file_name: string;
   category: string;
@@ -83,23 +83,6 @@ export function useCatalogo() {
   const [formulario, setFormulario] = useState<FormularioProduto>(FORMULARIO_VAZIO);
   const [dialogoAberto, setDialogoAberto] = useState(false);
   const [importando, setImportando] = useState(false);
-  const [ultimoResumo, setUltimoResumo] = useState<ResumoImportacao | null>(null);
-
-  const historico = useQuery({
-    queryKey: ["catalog-imports"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("catalog_imports")
-        .select(
-          "id,file_name,category,inserted_count,updated_count,ignored_count,error_count,stock_updated_at,stock_covered_count,product_count,created_at,undone_at",
-        )
-        .order("created_at", { ascending: false })
-        .order("id", { ascending: false })
-        .limit(200);
-      if (error) throw error;
-      return data as ResumoImportacao[];
-    },
-  });
 
   function setBusca(valor: string) {
     setBuscaAtual(valor);
@@ -280,7 +263,6 @@ export function useCatalogo() {
         atualizados += carga.updated_count;
         ignorados += carga.ignored_count;
         erros += carga.error_count;
-        setUltimoResumo(carga);
       }
 
       const segundos = ((performance.now() - inicio) / 1000).toFixed(1);
@@ -300,14 +282,6 @@ export function useCatalogo() {
       setImportando(false);
       if (campoArquivo.current) campoArquivo.current.value = "";
     }
-  }
-
-  async function desfazerImportacao(id: string) {
-    const { error } = await supabase.rpc("undo_catalog_import", { p_import_id: id });
-    if (error) throw error;
-    toast.success("Carga desfeita e categoria restaurada.");
-    atualizarListas();
-    queryClient.invalidateQueries({ queryKey: ["catalog-imports"] });
   }
 
   function editar(produto: Produto) {
@@ -358,8 +332,5 @@ export function useCatalogo() {
     editar,
     novoProduto,
     excluirSelecionadas,
-    ultimoResumo,
-    historico: historico.data ?? [],
-    desfazerImportacao,
   };
 }
