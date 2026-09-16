@@ -11,7 +11,7 @@ import "@/ui-polish.css";
 const NAV = [
   { to: "/painel", label: "Visão geral", icon: LayoutDashboard },
   { to: "/catalogo", label: "Catálogo", icon: Package },
-  { to: "/catalogo/importacoes", label: "Histórico de importações", mobileLabel: "Histórico", icon: History, subitem: true },
+  { to: "/historico-importacoes", label: "Histórico de importações", mobileLabel: "Histórico", icon: History, subitem: true },
   { to: "/ofertas", label: "Ofertas", icon: Sparkles },
 ] as const;
 
