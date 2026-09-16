@@ -323,8 +323,15 @@ function semExcecoes(valor: string): string {
     .split(/\bexceto\b/)[0]!
     .trim();
 }
+const cacheMedidas = new Map<string, string[]>();
 function medidas(valor: string): string[] {
-  return [...new Set(semExcecoes(valor).match(/\b\d+(?:d\d+)?(?:g|ml|un)\b/g) ?? [])].sort();
+  const texto = semExcecoes(valor);
+  const salva = cacheMedidas.get(texto);
+  if (salva) return salva;
+  const resultado = [...new Set(texto.match(/\b\d+(?:d\d+)?(?:g|ml|un)\b/g) ?? [])].sort();
+  if (cacheMedidas.size >= 60000) cacheMedidas.clear();
+  cacheMedidas.set(texto, resultado);
+  return resultado;
 }
 
 /**
@@ -500,19 +507,82 @@ export function tokensFamilia(valor: string): string[] {
     ),
   ];
 }
+const cacheTokensIdentidade = new Map<string, string[]>();
 function tokensIdentidade(valor: string, sabores: boolean): string[] {
+  const chave = `${sabores ? "1" : "0"}\u0000${semExcecoes(valor)}`;
+  const salvos = cacheTokensIdentidade.get(chave);
+  if (salvos) return salvos;
   let tokens = tokensFamilia(valor);
   if (sabores) {
     const variedadesHorti = tokens.filter((token) => VARIEDADES_HORTIFRUTI.has(token));
     if (tokens.includes("uva") && variedadesHorti.length)
-      return tokens.filter((token) => !VARIEDADES_HORTIFRUTI.has(token));
+      tokens = tokens.filter((token) => !VARIEDADES_HORTIFRUTI.has(token));
     // A família de bebidas em pó pode omitir "refresco/suco em pó" na oferta.
-    tokens = tokens.filter(
-      (t) =>
-        !SABORES.has(t) && !["sabor", "suco", "sucos", "refresco", "refrescos", "po"].includes(t),
-    );
+    else
+      tokens = tokens.filter(
+        (t) =>
+          !SABORES.has(t) && !["sabor", "suco", "sucos", "refresco", "refrescos", "po"].includes(t),
+      );
   }
+  if (cacheTokensIdentidade.size >= 120000) cacheTokensIdentidade.clear();
+  cacheTokensIdentidade.set(chave, tokens);
   return tokens;
+}
+
+interface IndiceCatalogo {
+  exatos: Map<string, Produto[]>;
+  porToken: Map<string, Produto[]>;
+  tokensPorProduto: WeakMap<Produto, Set<string>>;
+}
+
+const indicesCatalogo = new WeakMap<Produto[], IndiceCatalogo>();
+
+/**
+ * Monta uma vez o índice de pesquisa do catálogo. A seleção final continua
+ * aplicando todas as regras; o índice apenas evita varrer e renormalizar mais
+ * de vinte mil descrições para cada linha da planilha.
+ */
+function indiceDoCatalogo(catalogo: Produto[]): IndiceCatalogo {
+  const salvo = indicesCatalogo.get(catalogo);
+  if (salvo) return salvo;
+  const indice: IndiceCatalogo = {
+    exatos: new Map(),
+    porToken: new Map(),
+    tokensPorProduto: new WeakMap(),
+  };
+  for (const produto of catalogo) {
+    const descricaoExata = normalizarTexto(produto.description);
+    const exatos = indice.exatos.get(descricaoExata) ?? [];
+    exatos.push(produto);
+    indice.exatos.set(descricaoExata, exatos);
+    // O índice usa os tokens completos. A busca por família/sabores remove
+    // tokens apenas da consulta, portanto continua sendo um subconjunto seguro.
+    const tokens = new Set(tokensIdentidade(produto.description, false));
+    indice.tokensPorProduto.set(produto, tokens);
+    for (const token of tokens) {
+      const produtos = indice.porToken.get(token) ?? [];
+      produtos.push(produto);
+      indice.porToken.set(token, produtos);
+    }
+  }
+  indicesCatalogo.set(catalogo, indice);
+  return indice;
+}
+
+function candidatosComTodosTokens(
+  catalogo: Produto[],
+  tokens: string[],
+  _sabores: boolean,
+): Produto[] {
+  if (catalogo.length < 300 || !tokens.length) return catalogo;
+  const indice = indiceDoCatalogo(catalogo);
+  const listas = tokens.map((token) => indice.porToken.get(token) ?? []);
+  if (listas.some((lista) => !lista.length)) return [];
+  const menor = [...listas].sort((a, b) => a.length - b.length)[0]!;
+  return menor.filter((produto) => {
+    const encontrados = indice.tokensPorProduto.get(produto);
+    return encontrados && tokens.every((token) => encontrados.has(token));
+  });
 }
 function variantesCompativeis(nome: string, descricao: string): boolean {
   const pedido = semExcecoes(nome);
@@ -714,6 +784,28 @@ function tokensQuaseIguais(a: string, b: string): boolean {
   return true;
 }
 
+function candidatosComTokensAproximados(
+  catalogo: Produto[],
+  procurados: string[],
+  _sabores: boolean,
+): Produto[] {
+  if (catalogo.length < 300) return catalogo;
+  const obrigatorios = procurados.filter(
+    (token) => !DESCRITORES_OPCIONAIS_NA_APROXIMACAO.has(token),
+  );
+  if (!obrigatorios.length) return catalogo;
+  const indice = indiceDoCatalogo(catalogo);
+  const conjuntos = obrigatorios.map((procurado) => {
+    const produtos = new Set<Produto>();
+    for (const [encontrado, itens] of indice.porToken)
+      if (tokensQuaseIguais(procurado, encontrado)) for (const item of itens) produtos.add(item);
+    return produtos;
+  });
+  if (conjuntos.some((conjunto) => !conjunto.size)) return [];
+  const menor = [...conjuntos].sort((a, b) => a.size - b.size)[0]!;
+  return [...menor].filter((produto) => conjuntos.every((conjunto) => conjunto.has(produto)));
+}
+
 /** Sugere itens para revisão sem promover uma aproximação a resultado automático. */
 function candidatosAproximados(
   nome: string,
@@ -725,7 +817,7 @@ function candidatosAproximados(
   const procurados = tokensIdentidade(nome, sabores);
   const tamanhos = medidas(nome);
   if (!procurados.length) return [];
-  const pontuados = catalogo
+  const pontuados = candidatosComTokensAproximados(catalogo, procurados, sabores)
     .filter(
       (produto) =>
         codigoProduto(produto, porQuilo) &&
@@ -848,13 +940,14 @@ export function selecionarCodigosOferta(
     return pendente("Informe a gramatura para reunir os sabores.");
   if (FAMILIAS.some((f) => f.filter((v) => variantesDoTexto(nome).has(v)).length > 1))
     return pendente("Separe as variantes da oferta.");
-  const exatos = catalogo.filter(
+  const indice = catalogo.length >= 300 ? indiceDoCatalogo(catalogo) : null;
+  const exatos = (indice?.exatos.get(normalizarTexto(nome)) ?? catalogo).filter(
     (item) =>
       normalizarTexto(item.description) === normalizarTexto(nome) &&
       codigoProduto(item, porQuilo) &&
       !excluido(item, excecoes),
   );
-  const candidatosCatalogo = catalogo.filter((item) => {
+  const candidatosCatalogo = candidatosComTodosTokens(catalogo, tokens, sabores).filter((item) => {
     if (exatos.includes(item)) return true;
     if (
       !codigoProduto(item, porQuilo) ||

@@ -391,7 +391,9 @@ function atualizarComCatalogo(oferta: Oferta, catalogo: Produto[]): Oferta {
 export function useOfertas() {
   const queryClient = useQueryClient();
   const campoArquivo = useRef<HTMLInputElement>(null);
-  const rascunho = lerRascunho();
+  // Ler e analisar o rascunho pode envolver um JSON grande. Faça isso somente
+  // na montagem; reler em cada renderização travava a digitação da tabela.
+  const [rascunho] = useState<Rascunho | null>(() => lerRascunho());
   const tinhaRascunho = useRef(Boolean(rascunho?.ofertas.length));
   const temporizadoresMemoria = useRef(new Map<string, number>());
   const [processando, setProcessando] = useState(false);
