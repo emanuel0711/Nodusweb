@@ -9,8 +9,10 @@ import {
   COLUNAS_PRODUTO,
   COLUNAS_PRODUTO_BASE,
   carregarTodosProdutos,
+  codigoExatoDaBusca,
   erroCategoriaDaImportacao,
   erroDeCustoAusente,
+  invalidarCacheCatalogo,
   limparCodigo,
   limparEan,
   linhaParaProduto,
@@ -49,12 +51,23 @@ export interface ResumoImportacao {
 }
 
 async function carregarCategorias(): Promise<string[]> {
-  const produtos = await carregarTodosProdutos();
   const nomes = new Set<string>();
   let semCategoria = false;
-  produtos.forEach((produto) =>
-    produto.category ? nomes.add(produto.category) : (semCategoria = true),
-  );
+  let inicio = 0;
+  const tamanhoPagina = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from("products")
+      .select("category")
+      .range(inicio, inicio + tamanhoPagina - 1);
+    if (error) throw error;
+    const pagina = data ?? [];
+    pagina.forEach((produto) =>
+      produto.category ? nomes.add(produto.category) : (semCategoria = true),
+    );
+    if (pagina.length < tamanhoPagina) break;
+    inicio += tamanhoPagina;
+  }
   const lista = [...nomes].sort((a, b) => a.localeCompare(b, "pt-BR"));
   return semCategoria ? [SEM_CATEGORIA, ...lista] : lista;
 }
@@ -99,10 +112,14 @@ export function useCatalogo() {
   }
 
   const atualizarListas = () => {
+    invalidarCacheCatalogo();
     queryClient.invalidateQueries({ queryKey: ["products"] });
     queryClient.invalidateQueries({ queryKey: ["product-categories"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
-    queryClient.invalidateQueries({ queryKey: ["imagens-pendentes"] });
+    queryClient.invalidateQueries({ queryKey: ["image-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["image-queue"] });
+    queryClient.invalidateQueries({ queryKey: ["image-review"] });
+    queryClient.invalidateQueries({ queryKey: ["image-candidates"] });
   };
 
   const categorias = useQuery({ queryKey: ["product-categories"], queryFn: carregarCategorias });
@@ -110,14 +127,19 @@ export function useCatalogo() {
     queryKey: ["products", busca, categoria, pagina],
     queryFn: async () => {
       const termo = busca.trim().replace(/[,%]/g, " ");
-      const consultar = async (colunas: string) => {
+      const codigoExato = codigoExatoDaBusca(termo);
+      const consultar = async (colunas: string, somenteCodigoExato = false) => {
         let consulta = supabase
           .from("products")
           .select(colunas, { count: "exact" })
           .order("description")
           .order("id", { ascending: true })
           .range(pagina * POR_PAGINA, pagina * POR_PAGINA + POR_PAGINA - 1);
-        if (termo)
+        if (somenteCodigoExato)
+          consulta = consulta.or(
+            `internal_code.eq.${codigoExato},promotion_code.eq.${codigoExato},ean.eq.${codigoExato}`,
+          );
+        else if (termo)
           consulta = consulta.or(
             `description.ilike.%${termo}%,ean.ilike.%${termo}%,internal_code.ilike.%${termo}%,promotion_code.ilike.%${termo}%`,
           );
@@ -125,9 +147,16 @@ export function useCatalogo() {
         else if (categoria !== TODAS) consulta = consulta.eq("category", categoria);
         return consulta;
       };
-      let consulta = await consultar(COLUNAS_PRODUTO);
+      let consulta = await consultar(COLUNAS_PRODUTO, Boolean(codigoExato));
       if (consulta.error && erroDeCustoAusente(consulta.error))
-        consulta = await consultar(COLUNAS_PRODUTO_BASE);
+        consulta = await consultar(COLUNAS_PRODUTO_BASE, Boolean(codigoExato));
+      // Um número pode fazer parte da descrição (por exemplo, "carvão 4 kg").
+      // Quando nenhum identificador exato existe, preservamos a busca ampla anterior.
+      if (!consulta.error && codigoExato && (consulta.count ?? 0) === 0) {
+        consulta = await consultar(COLUNAS_PRODUTO);
+        if (consulta.error && erroDeCustoAusente(consulta.error))
+          consulta = await consultar(COLUNAS_PRODUTO_BASE);
+      }
       if (consulta.error) throw consulta.error;
       return {
         linhas: ((consulta.data ?? []) as unknown as Produto[]).map((produto) => ({

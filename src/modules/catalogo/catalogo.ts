@@ -79,8 +79,16 @@ function normalizarProduto(produto: Produto): Produto {
   return { ...produto, internal_code: null, ean: limparEan(produto.ean) || null };
 }
 
-/** Carrega o catálogo em páginas, usando custo quando a coluna existe. */
-export async function carregarTodosProdutos(): Promise<Produto[]> {
+const DURACAO_CACHE_CATALOGO_MS = 60_000;
+let cacheCatalogo: { produtos: Produto[]; carregadoEm: number } | null = null;
+let carregamentoCatalogo: Promise<Produto[]> | null = null;
+
+export function invalidarCacheCatalogo() {
+  cacheCatalogo = null;
+  carregamentoCatalogo = null;
+}
+
+async function buscarTodosProdutos(): Promise<Produto[]> {
   const todos: Produto[] = [];
   let usarCusto = true;
   let usarEstoque = true;
@@ -132,6 +140,26 @@ export async function carregarTodosProdutos(): Promise<Produto[]> {
     todos.push(...pagina);
     if (pagina.length < 1000) return todos;
   }
+}
+
+/**
+ * Reutiliza a mesma carga entre telas e chamadas simultâneas. Uma importação
+ * invalida o cache; fora dela, o catálogo é renovado após um minuto para que
+ * alterações feitas em outro computador apareçam sem manter dados antigos.
+ */
+export async function carregarTodosProdutos(): Promise<Produto[]> {
+  if (cacheCatalogo && Date.now() - cacheCatalogo.carregadoEm < DURACAO_CACHE_CATALOGO_MS)
+    return cacheCatalogo.produtos;
+  if (carregamentoCatalogo) return carregamentoCatalogo;
+  carregamentoCatalogo = buscarTodosProdutos()
+    .then((produtos) => {
+      cacheCatalogo = { produtos, carregadoEm: Date.now() };
+      return produtos;
+    })
+    .finally(() => {
+      carregamentoCatalogo = null;
+    });
+  return carregamentoCatalogo;
 }
 
 export interface ProdutoImportado {
