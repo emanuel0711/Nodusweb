@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { LayoutDashboard, Package, Sparkles, LogOut, PackageOpen, Moon, Sun, Settings2, X } from "lucide-react";
+import { LayoutDashboard, Package, Sparkles, LogOut, PackageOpen, Moon, Sun, Settings2, X, History } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import "@/ui-polish.css";
 const NAV = [
   { to: "/painel", label: "Visão geral", icon: LayoutDashboard },
   { to: "/catalogo", label: "Catálogo", icon: Package },
+  { to: "/catalogo/importacoes", label: "Histórico de importações", mobileLabel: "Histórico", icon: History, subitem: true },
   { to: "/ofertas", label: "Ofertas", icon: Sparkles },
 ] as const;
 
@@ -79,8 +80,8 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
 
         <nav className="app-sidebar__nav">
           <div className="app-sidebar__section-label">Workspace</div>
-          {NAV.map(({ to, label, icon: Icon }) => (
-            <Link key={to} to={to} className="app-sidebar__link" activeProps={{ "data-active": "true" }}>
+          {NAV.map(({ to, label, icon: Icon, ...item }) => (
+            <Link key={to} to={to} className="app-sidebar__link" data-subitem={"subitem" in item ? "true" : undefined} activeOptions={{ exact: true }} activeProps={{ "data-active": "true" }}>
               <Icon className="size-5 shrink-0" />
               <span>{label}</span>
             </Link>
@@ -110,10 +111,10 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
       </aside>
 
       <nav className="app-mobile-nav" aria-label="Navegação móvel">
-        {NAV.map(({ to, label, icon: Icon }) => (
-          <Link key={to} to={to} className="app-sidebar__link" activeProps={{ "data-active": "true" }}>
+        {NAV.map(({ to, label, icon: Icon, ...item }) => (
+          <Link key={to} to={to} className="app-sidebar__link" activeOptions={{ exact: true }} activeProps={{ "data-active": "true" }}>
             <Icon className="size-4" />
-            <span>{label}</span>
+            <span>{"mobileLabel" in item ? item.mobileLabel : label}</span>
           </Link>
         ))}
         <Button variant="ghost" size="sm" onClick={() => setShowProfile(true)} className="shrink-0" title="Perfil">
