@@ -132,3 +132,79 @@ test("descricao generica sem marca continua exigindo revisao", () => {
   assert.deepEqual(resultado.codigos, []);
   assert.match(resultado.motivo!, /Mais de uma família/);
 });
+
+test("tradicional e extra forte geram ofertas separadas", () => {
+  const itens = [
+    p("CAFE MARCA 500G TRADICIONAL A VACUO", "7890000000501"),
+    p("CAFE MARCA 500G EXTRA FORTE A VACUO", "7890000000502"),
+  ];
+  const ofertas = processarLinhasOfertas(
+    [
+      {
+        DESCRICAO: "CAFE MARCA 500G TRAD E EXTRA FORTE A VACUO",
+        "PRECO NORMAL": 20,
+        "PRECO PROMOCIONAL": 18,
+      },
+    ],
+    itens,
+  );
+  assert.deepEqual(
+    ofertas.map((oferta) => oferta.codigos),
+    [["7890000000501"], ["7890000000502"]],
+  );
+});
+
+test("variedades ligadas por e ao leite permanecem na mesma oferta", () => {
+  const itens = [
+    p("CHOCOLATE MARCA 100,8G BIS LAKA", "7890000000511"),
+    p("CHOCOLATE MARCA 100,8G BIS LEITE", "7890000000512"),
+    p("CHOCOLATE MARCA 100,8G BIS OREO", "7890000000513"),
+  ];
+  assert.deepEqual(
+    selecionarCodigosOferta("CHOCOLATE MARCA 100,8G BIS LAKA E AO LEITE", itens, false)
+      .codigos,
+    ["7890000000511", "7890000000512"],
+  );
+});
+
+test("abreviacoes de categoria nao impedem correspondencia exata", () => {
+  const absorvente = p("ABS MARCA PROT TOTAL SUAVE C/ABAS C/16UN", "7890000000521");
+  const creme = p("CR DENTAL MARCA 70G TRIPLA LIMPEZA COMPLETA", "7890000000522");
+  assert.deepEqual(
+    selecionarCodigosOferta("ABSORVENTE MARCA PROT TOTAL SUAVE C/ABAS C/16UN", [absorvente], false)
+      .codigos,
+    [absorvente.ean],
+  );
+  assert.deepEqual(
+    selecionarCodigosOferta("CREME DENTAL MARCA 70G TRIPLA LIMPEZA", [creme], false).codigos,
+    [creme.ean],
+  );
+});
+
+test("metro e abreviacao mt sao equivalentes", () => {
+  for (const [nome, descricao] of [
+    ["SUPER ALUMINIO 45X4M", "SUPER ALUMINIO 45X4MT"],
+    ["PAPEL HIGIENICO MARCA 60M 4RL", "PAPEL HIGIEN MARCA 60MT 4RL"],
+  ]) {
+    const item = p(descricao, "7890000000531");
+    assert.deepEqual(selecionarCodigosOferta(nome, [item], false).codigos, [item.ean]);
+  }
+});
+
+test("massa ambigua continua em revisao e kit sem variedade reune a mesma medida", () => {
+  const massas = [
+    p("MASSA MARCA 300G SEMOLA PARAFUSO", "7890000000541"),
+    p("MASSA MARCA 300G SEMOLA PENNE", "7890000000542"),
+  ];
+  const kits = [
+    p("KIT MARCA SH 300ML COND 190ML CERAMIDAS", "7890000000551"),
+    p("KIT MARCA SH 300ML COND 190ML LISO PERFEITO", "7890000000552"),
+  ];
+  const resultadoMassa = selecionarCodigosOferta("MASSA MARCA 300G SEMOLA", massas, false);
+  assert.deepEqual(resultadoMassa.codigos, []);
+  assert.deepEqual(resultadoMassa.candidatos, massas);
+  assert.deepEqual(
+    selecionarCodigosOferta("KIT MARCA SH 300ML+COND 190ML", kits, false).codigos,
+    kits.map((item) => item.ean),
+  );
+});
