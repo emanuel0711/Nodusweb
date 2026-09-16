@@ -18,6 +18,7 @@ const IGNORADOS = new Set([
   "em",
   "no",
   "na",
+  "ao",
   "com",
   "sem",
   "un",
@@ -146,6 +147,9 @@ const SABORES = new Set([
 ]);
 const VARIEDADES_HORTIFRUTI = new Set(["isis", "italia"]);
 const ALIASES: Record<string, string> = {
+  abs: "absorvente",
+  cr: "creme",
+  higien: "higienico",
   conc: "concentrado",
   sh: "shampoo",
   alm: "almofada",
@@ -264,7 +268,11 @@ const cacheTexto = new Map<string, string>();
 function textoCanonico(valor: string): string {
   const salvo = cacheTexto.get(valor);
   if (salvo !== undefined) return salvo;
-  let unidadesCompletas = valor.toLowerCase();
+  let unidadesCompletas = valor
+    .toLowerCase()
+    // O ERP alterna M e MT para medidas lineares. Mantém dimensões como
+    // 45X4M e rolos como 60M equivalentes a 45X4MT e 60MT.
+    .replace(/(\d+(?:[.,]\d+)?)\s*mt\b/g, "$1m");
   // Em listas como "15L, 30L, 50 e 100L", reaproveita a unidade anterior.
   // O laço cobre várias medidas consecutivas sem confundir a vírgula decimal.
   const unidadeOmitida =
@@ -411,7 +419,7 @@ function saboresSolicitados(nome: string): boolean {
   if (ehVinho(nome)) return vinhoTemMarcaOuLinha(nome);
   // Regra confirmada nos exemplos: Frisco sem sabor especificado reúne a família.
   const familiaComSabores =
-    /\bfrisco\b|\bred horse\b|\bdetergente ype\b|\blava roupas\b.*\bbrilhante\b|\bamaciante\b.*\baquafast\b|\bmassa isabela\b.*\bsemola\b|\bsopao apti\b|\binseticida mat inset\b|\bfralda\b.*\bpom pom\b.*\bjumbo\b/.test(
+    /\bfrisco\b|\bred horse\b|\bdetergente ype\b|\blava roupas\b.*\bbrilhante\b|\bamaciante\b.*\baquafast\b|\bmassa isabela\b.*\bsemola\b|\bsopao apti\b|\binseticida mat inset\b|\bfralda\b.*\bpom pom\b.*\bjumbo\b|\bkit\b.*\bshampoo\b.*\bcond\b/.test(
       texto,
     );
   const tipoComVariedades =
@@ -439,6 +447,17 @@ function expansaoSemMedidaPermitida(nome: string): boolean {
 
 function alternativasExplicitas(nome: string): string[] {
   const semExcecao = nome.split(/\bexceto\b/i)[0]!.trim();
+  const aoLeite = semExcecao.match(
+    /^(.*\b(?:chocolate|bombom|wafer|biscoito)\b.*\s)(\S+)\s+e\s+ao\s+leite(.*)$/i,
+  );
+  if (aoLeite) {
+    const prefixo = aoLeite[1] ?? "";
+    const sufixo = aoLeite[3] ?? "";
+    const excecao = nome.match(/\bexceto\b.*$/i)?.[0] ?? "";
+    return [aoLeite[2]!, "leite"].map((alternativa) =>
+      `${prefixo}${alternativa}${sufixo} ${excecao}`.replace(/\s+/g, " ").trim(),
+    );
+  }
   const partes = semExcecao.match(/^(.*\s)?(\S+)\s+ou\s+(\S+)(.*)$/i);
   if (!partes) return [nome];
   const prefixo = partes[1] ?? "";
@@ -1072,6 +1091,11 @@ export function separarVariantesOferta(nome: string): string[] {
     /\b(?:c\/|com)\s+e\s+(?:s\/|sem)\s*(g[aá]s|[aá]lcool)\b/gi,
     "com $1 e sem $1",
   );
+  if (/\btrad(?:icional)?\s+e\s+extra\s+forte\b/i.test(nome))
+    return [
+      nome.replace(/\btrad(?:icional)?\s+e\s+extra\s+forte\b/i, "tradicional"),
+      nome.replace(/\btrad(?:icional)?\s+e\s+extra\s+forte\b/i, "extra forte"),
+    ];
   const variantes = variantesDoTexto(nome);
   const familias = FAMILIAS.filter((f) => f.filter((v) => variantes.has(v)).length > 1);
   if (!familias.length) return [nome];
