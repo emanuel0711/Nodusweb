@@ -61,6 +61,8 @@ button, input, select, textarea, [role="button"] { font-family: inherit; }
 .app-sidebar__link:hover { color: var(--of-text); background: var(--of-orange-soft); border-color: var(--of-line); }
 .app-sidebar__link[data-active="true"] { color: var(--of-orange); background: transparent; border-color: var(--of-line); }
 .app-sidebar__link[data-active="true"]::before { display: none; }
+.app-sidebar__link[data-subitem="true"] { min-height: 34px; margin-left: 20px; padding: 6px 10px; font-size: 13px; }
+.app-sidebar__link[data-subitem="true"] svg { width: 16px; height: 16px; }
 .app-sidebar__account { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--of-line); }
 .app-account-card {
   width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px; text-align: left;
