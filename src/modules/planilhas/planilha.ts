@@ -290,6 +290,10 @@ export function categoriaPeloNomeDoArquivo(nomeArquivo: string): string {
   return (
     nomeArquivo
       .replace(/\.[^.]+$/, "")
+      // Navegadores acrescentam estes sufixos ao baixar novamente um arquivo.
+      // Eles não representam uma nova categoria do catálogo.
+      .replace(/\s*\(\d+\)\s*$/, "")
+      .replace(/\s*[-_]\s*(?:c[oó]pia|copy)\s*$/i, "")
       .trim()
       .slice(0, 120) || "Sem categoria"
   );
