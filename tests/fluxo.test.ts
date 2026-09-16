@@ -15,6 +15,7 @@ import {
   lerPlanilha,
   gerarPlanilhaDoClube,
   valorDoCampo,
+  categoriaPeloNomeDoArquivo,
 } from "../src/modules/planilhas/planilha.ts";
 import { ehPorQuilo } from "../src/modules/ofertas/regras-oferta.ts";
 import {
@@ -34,6 +35,12 @@ test("pesquisa reconhece código interno sem perder zeros à esquerda", () => {
 test("pesquisa não confunde descrição com código interno", () => {
   assert.equal(codigoExatoDaBusca("ABACAXI 1663"), "");
   assert.equal(codigoExatoDaBusca("15L"), "");
+});
+
+test("cópia baixada do CSV continua atualizando a categoria original", () => {
+  assert.equal(categoriaPeloNomeDoArquivo("PERFUMARIA (1).csv"), "PERFUMARIA");
+  assert.equal(categoriaPeloNomeDoArquivo("BEBIDAS (23).CSV"), "BEBIDAS");
+  assert.equal(categoriaPeloNomeDoArquivo("FRUTEIRA - Cópia.csv"), "FRUTEIRA");
 });
 
 const produto = (id: string, description: string, extra: Partial<Produto> = {}): Produto => ({
