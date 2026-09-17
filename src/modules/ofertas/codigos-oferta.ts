@@ -869,6 +869,34 @@ function candidatosAproximados(
     .map((item) => item.produto);
 }
 
+/**
+ * Itens mostrados na escolha manual. Esta busca mantém marca/tipo, medida e
+ * unidade, mas não exige a mesma variedade. Assim variantes como zero,
+ * integral ou outro sabor ficam visíveis sem serem selecionadas por padrão.
+ */
+function candidatosDaMesmaFamilia(
+  nome: string,
+  catalogo: Produto[],
+  porQuilo: boolean,
+  excecoes: string[][],
+): Produto[] {
+  const identidade = tokensFamilia(nome).filter((token) => !SABORES.has(token));
+  const tamanhos = medidas(nome);
+  if (!identidade.length) return [];
+  return catalogo.filter((produto) => {
+    if (
+      !codigoProduto(produto, porQuilo) ||
+      excluido(produto, excecoes) ||
+      !medidasCompativeis(tamanhos, produto.description)
+    )
+      return false;
+    const identidadeProduto = tokensFamilia(produto.description).filter(
+      (token) => !SABORES.has(token),
+    );
+    return identidade.every((token) => identidadeProduto.includes(token));
+  });
+}
+
 function pendente(motivo: string, candidatos: Produto[] = [], porQuilo = false): SelecaoCodigos {
   return {
     codigos: [],
@@ -962,13 +990,27 @@ export function selecionarCodigosOferta(
     const identidade = tokensIdentidade(item.description, sabores);
     return tokens.every((t) => identidade.includes(t));
   });
+  const candidatosRevisao = [
+    ...new Map(
+      [...candidatosCatalogo, ...candidatosDaMesmaFamilia(nome, catalogo, porQuilo, excecoes)].map(
+        (produto) => [codigoProduto(produto, porQuilo), produto] as const,
+      ),
+    ).values(),
+  ].filter((produto) => Boolean(codigoProduto(produto, porQuilo)));
   if (!candidatosCatalogo.length) {
     const aproximados = candidatosAproximados(nome, catalogo, porQuilo, excecoes);
+    const candidatosVisiveis = [
+      ...new Map(
+        [...aproximados, ...candidatosRevisao].map(
+          (produto) => [codigoProduto(produto, porQuilo), produto] as const,
+        ),
+      ).values(),
+    ];
     return pendente(
-      aproximados.length
+      candidatosVisiveis.length
         ? "Não encontrei uma correspondência exata. Selecione abaixo um dos itens aproximados."
         : "Nenhum código compatível encontrado no catálogo.",
-      aproximados,
+      candidatosVisiveis,
       porQuilo,
     );
   }
@@ -1088,10 +1130,10 @@ export function selecionarCodigosOferta(
     return {
       codigos: [],
       produtos: [],
-      candidatos: candidatosCatalogo,
+      candidatos: candidatosRevisao,
       nota: 0,
       decisoesPorCodigo: Object.fromEntries(
-        candidatosCatalogo.map((produto) => [
+        candidatosRevisao.map((produto) => [
           codigoProduto(produto, porQuilo),
           {
             nome: produto.description,
@@ -1120,7 +1162,7 @@ export function selecionarCodigosOferta(
     produtos.some((p) => p.cost != null && p.cost > preco * 1.15);
   const codigosIncluidos = new Set(produtos.map((p) => codigoProduto(p, porQuilo)));
   const decisoesPorCodigo: NonNullable<SelecaoCodigos["decisoesPorCodigo"]> = Object.fromEntries(
-    candidatosCatalogo.map((produto) => {
+    candidatosRevisao.map((produto) => {
       const codigo = codigoProduto(produto, porQuilo);
       const incluido = codigosIncluidos.has(codigo);
       const motivos = [
@@ -1142,6 +1184,8 @@ export function selecionarCodigosOferta(
         motivos.push("descartado no último desempate: estoque zerado");
       else if (!incluido && estoqueUsadoNoDesempate && produto.stock_quantity == null)
         motivos.push("descartado no último desempate: estoque não informado");
+      else if (!incluido && !variantesCompativeis(nome, produto.description))
+        motivos.push("outra variedade da mesma família; disponível para seleção manual");
       else if (!incluido) motivos.push("descartado por pertencer a uma família menos específica");
       const status: "incluido" | "descartado" = incluido ? "incluido" : "descartado";
       return [codigo, { nome: produto.description, status, motivos }];
@@ -1149,7 +1193,7 @@ export function selecionarCodigosOferta(
   );
   return {
     produtos,
-    candidatos: candidatosCatalogo,
+    candidatos: candidatosRevisao,
     codigos: normalizarCodigos(produtos.map((p) => codigoProduto(p, porQuilo))),
     nota: 1,
     motivo: custoAlto ? "O custo cadastrado supera o preço da oferta. Confira o preço." : null,
