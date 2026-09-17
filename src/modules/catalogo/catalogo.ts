@@ -373,6 +373,41 @@ export function linhaParaProduto(
   };
 }
 
+/**
+ * Converte uma linha do catálogo em um ou mais produtos. Alguns relatórios do
+ * ERP trazem um segundo código de barras na coluna "Código 2". O banco mantém
+ * um EAN por registro, então cada código válido vira um registro da mesma
+ * família, com descrição, preço, estoque e imagem compartilhados.
+ */
+export function linhaParaProdutos(
+  linha: LinhaPlanilha,
+  categoria: string,
+  atualizadoEm = new Date().toISOString(),
+): ProdutoImportado[] {
+  const produto = linhaParaProduto(linha, categoria, atualizadoEm);
+  if (!produto) return [];
+  if (unidadeEhKg(produto.unit, produto.description)) return [produto];
+
+  const codigosSecundarios = String(
+    valorDoCampo(linha, [
+      "Código 2",
+      "Codigo 2",
+      "Cód. 2",
+      "Cod. 2",
+      "EAN 2",
+      "Código de barras 2",
+      "Codigo de barras 2",
+      "GTIN 2",
+    ]) ?? "",
+  )
+    .split(/[;,|\n]+/)
+    .map(limparEan)
+    .filter(pareceEan);
+  const eans = [...new Set([produto.ean ?? "", ...codigosSecundarios].filter(pareceEan))];
+
+  return eans.length ? eans.map((ean) => ({ ...produto, ean })) : [produto];
+}
+
 export function chaveDoProduto(produto: {
   internal_code: string | null;
   promotion_code: string | null;

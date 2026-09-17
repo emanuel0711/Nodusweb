@@ -16,6 +16,7 @@ import {
   limparCodigo,
   limparEan,
   linhaParaProduto,
+  linhaParaProdutos,
   prepararItensImportacao,
   type Produto,
 } from "@/lib/catalogo";
@@ -240,10 +241,12 @@ export function useCatalogo() {
         const categoriaArquivo = categoriaPeloNomeDoArquivo(arquivo.name);
         const atualizadoEm = new Date().toISOString();
         const existentes = await carregarTodosProdutos();
-        const convertidos = linhas
-          .map((linha) => linhaParaProduto(linha, categoriaArquivo, atualizadoEm))
-          .filter((produto): produto is NonNullable<typeof produto> => Boolean(produto));
-        const errosArquivo = linhas.length - convertidos.length;
+        const convertidos = linhas.flatMap((linha) =>
+          linhaParaProdutos(linha, categoriaArquivo, atualizadoEm),
+        );
+        const errosArquivo = linhas.filter(
+          (linha) => !linhaParaProduto(linha, categoriaArquivo, atualizadoEm),
+        ).length;
         const erroCategoria = erroCategoriaDaImportacao(categoriaArquivo, convertidos, existentes);
         if (erroCategoria)
           throw new Error(`O arquivo ${arquivo.name} foi bloqueado: ${erroCategoria}`);
