@@ -280,7 +280,24 @@ export function useCatalogo() {
       atualizarListas();
       queryClient.invalidateQueries({ queryKey: ["catalog-imports"] });
     } catch (erro) {
-      toast.error(erro instanceof Error ? erro.message : "Falha na importação");
+      const falha =
+        typeof erro === "object" && erro !== null
+          ? (erro as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown })
+          : null;
+      const mensagem =
+        erro instanceof Error
+          ? erro.message
+          : falha?.message
+            ? String(falha.message)
+            : "Falha na importação";
+      const detalhes = [falha?.details, falha?.hint, falha?.code && `Código: ${falha.code}`]
+        .filter(Boolean)
+        .map(String)
+        .join(" · ");
+      toast.error(mensagem, {
+        description: detalhes || "Nenhum produto foi alterado. Revise o arquivo e tente novamente.",
+        duration: 15_000,
+      });
     } finally {
       setImportando(false);
       if (campoArquivo.current) campoArquivo.current.value = "";

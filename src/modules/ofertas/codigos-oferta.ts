@@ -144,12 +144,16 @@ const SABORES = new Set([
   "flor",
   "floral",
   "talco",
+  "marine",
+  "eucalipto",
+  "citronela",
 ]);
 const VARIEDADES_HORTIFRUTI = new Set(["isis", "italia"]);
 const ALIASES: Record<string, string> = {
   abs: "absorvente",
   cr: "creme",
   higien: "higienico",
+  sanit: "sanitario",
   conc: "concentrado",
   sh: "shampoo",
   alm: "almofada",
@@ -198,6 +202,7 @@ const ALIASES: Record<string, string> = {
   temperada: "temperado",
   temperados: "temperado",
   temperadas: "temperado",
+  st: "santa",
 };
 const DESCRITORES_OPCIONAIS_NA_APROXIMACAO = new Set(["mini", "molho", "maco"]);
 const FORMATOS_DE_PRODUTO = new Set([
@@ -225,6 +230,7 @@ const PREPAROS_DE_PRODUTO = new Set([
   "recheado",
   "defumado",
 ]);
+const APRESENTACOES_DE_PRODUTO = new Set(["refil"]);
 export type Variante =
   | "tradicional"
   | "zero"
@@ -270,9 +276,20 @@ function textoCanonico(valor: string): string {
   if (salvo !== undefined) return salvo;
   let unidadesCompletas = valor
     .toLowerCase()
+    // Separa marcas e palavras coladas a algarismos ("3Corações"), mas
+    // preserva formatos curtos como "2em1".
+    .replace(/(\d)(?=[a-zà-ÿ]{4,}\b)/gi, "$1 ")
+    // Promoções leve/pague descrevem a embalagem comercial; o segundo número
+    // é preço/bonificação, não outra medida do produto.
+    .replace(/\b(?:l|lv)\s*(\d+)\s*(?:p|pg)\s*\d+(?:\s*un)?\b/gi, " $1un ")
     // O ERP alterna M e MT para medidas lineares. Mantém dimensões como
     // 45X4M e rolos como 60M equivalentes a 45X4MT e 60MT.
     .replace(/(\d+(?:[.,]\d+)?)\s*mt\b/g, "$1m");
+  // Creme de leite aparece em cadastros equivalentes como 200 g ou 200 ml.
+  // A equivalência fica restrita à categoria para não misturar massa e volume
+  // de outros produtos.
+  if (/\bcreme\s+(?:de\s+)?leite\b/.test(unidadesCompletas))
+    unidadesCompletas = unidadesCompletas.replace(/(\d+(?:[.,]\d+)?)\s*ml\b/g, "$1g");
   // Em listas como "15L, 30L, 50 e 100L", reaproveita a unidade anterior.
   // O laço cobre várias medidas consecutivas sem confundir a vírgula decimal.
   const unidadeOmitida =
@@ -299,7 +316,7 @@ function textoCanonico(valor: string): string {
     },
   );
   const quantidades = medidas.replace(
-    /(\d+)\s*(?:un|und|unid|unidade|unidades)\b/gi,
+    /(\d+)\s*(?:un|und|unid|unidade|unidades|rl|rolo|rolos)\b/gi,
     (_, numero: string) => ` ${Number(numero)}un `,
   );
   const resultado = normalizarTexto(quantidades)
@@ -307,6 +324,9 @@ function textoCanonico(valor: string): string {
     .split(" ")
     .map((t) => ALIASES[t] ?? t)
     .join(" ")
+    .replace(/\bleite cond\b/g, "leite condensado")
+    // Nomes distintos usados pelo varejo e pelo ERP para a mesma categoria.
+    .replace(/\bsabao em po\b/g, "lava roupas po")
     .replace(/\bc gas\b/g, "com gas")
     .replace(/\bs gas\b/g, "sem gas")
     .replace(/\bc alcool\b/g, "com alcool")
@@ -870,6 +890,66 @@ function candidatosAproximados(
 }
 
 /**
+ * Último recurso para revisão quando a oferta é mais específica que o
+ * cadastro. Ex.: "MANGA TOMMY KG" pode sugerir "MANGA KG", mas nunca uma
+ * variedade conflitante como "MANGA PALMER KG". Estes itens permanecem
+ * desmarcados e não participam da seleção automática.
+ */
+function candidatosComDescricaoMenosEspecifica(
+  nome: string,
+  catalogo: Produto[],
+  porQuilo: boolean,
+  excecoes: string[][],
+): Produto[] {
+  const procurados = tokensIdentidade(nome, false);
+  const tamanhos = medidas(nome);
+  if (procurados.length < 2) return [];
+
+  const base = (() => {
+    if (catalogo.length < 300) return catalogo;
+    const indice = indiceDoCatalogo(catalogo);
+    const encontrados = new Set<Produto>();
+    for (const token of procurados)
+      for (const produto of indice.porToken.get(token) ?? []) encontrados.add(produto);
+    return [...encontrados];
+  })();
+
+  const pontuados = base
+    .filter((produto) => {
+      if (
+        !codigoProduto(produto, porQuilo) ||
+        excluido(produto, excecoes) ||
+        !variantesCompativeis(nome, produto.description) ||
+        !vinhoCompativel(nome, produto.description) ||
+        !medidasCompativeis(tamanhos, produto.description)
+      )
+        return false;
+      const encontrados = tokensIdentidade(produto.description, false);
+      const ausentesNoCadastro = procurados.filter((token) => !encontrados.includes(token));
+      return (
+        ausentesNoCadastro.length === 1 &&
+        encontrados.length > 0 &&
+        encontrados.every((token) => procurados.includes(token))
+      );
+    })
+    .map((produto) => ({
+      produto,
+      especificidade: tokensIdentidade(produto.description, false).length,
+    }))
+    .sort(
+      (a, b) =>
+        b.especificidade - a.especificidade ||
+        codigoProduto(a.produto, porQuilo).localeCompare(codigoProduto(b.produto, porQuilo)),
+    );
+  const melhor = pontuados[0]?.especificidade;
+  if (melhor == null) return [];
+  return pontuados
+    .filter((item) => item.especificidade === melhor)
+    .slice(0, 25)
+    .map((item) => item.produto);
+}
+
+/**
  * Itens mostrados na escolha manual. Esta busca mantém marca/tipo, medida e
  * unidade, mas não exige a mesma variedade. Assim variantes como zero,
  * integral ou outro sabor ficam visíveis sem serem selecionadas por padrão.
@@ -999,9 +1079,15 @@ export function selecionarCodigosOferta(
   ].filter((produto) => Boolean(codigoProduto(produto, porQuilo)));
   if (!candidatosCatalogo.length) {
     const aproximados = candidatosAproximados(nome, catalogo, porQuilo, excecoes);
+    const menosEspecificos = candidatosComDescricaoMenosEspecifica(
+      nome,
+      catalogo,
+      porQuilo,
+      excecoes,
+    );
     const candidatosVisiveis = [
       ...new Map(
-        [...aproximados, ...candidatosRevisao].map(
+        [...aproximados, ...menosEspecificos, ...candidatosRevisao].map(
           (produto) => [codigoProduto(produto, porQuilo), produto] as const,
         ),
       ).values(),
@@ -1027,7 +1113,15 @@ export function selecionarCodigosOferta(
   const conservacaoConfirmada = conservacao
     ? candidatosCatalogo.filter((p) => semExcecoes(p.description).split(" ").includes(conservacao))
     : [];
-  const semPreparoNaoSolicitado = candidatosCatalogo.filter((produto) =>
+  const semApresentacaoNaoSolicitada = candidatosCatalogo.filter((produto) =>
+    tokensIdentidade(produto.description, sabores)
+      .filter((token) => !tokens.includes(token))
+      .every((token) => !APRESENTACOES_DE_PRODUTO.has(token)),
+  );
+  const candidatosNaApresentacao = semApresentacaoNaoSolicitada.length
+    ? semApresentacaoNaoSolicitada
+    : candidatosCatalogo;
+  const semPreparoNaoSolicitado = candidatosNaApresentacao.filter((produto) =>
     tokensIdentidade(produto.description, sabores)
       .filter((token) => !tokens.includes(token))
       .every((token) => !PREPAROS_DE_PRODUTO.has(token)),
@@ -1036,7 +1130,7 @@ export function selecionarCodigosOferta(
     ? conservacaoConfirmada
     : semPreparoNaoSolicitado.length
       ? semPreparoNaoSolicitado
-      : candidatosCatalogo;
+      : candidatosNaApresentacao;
   const extras = candidatosPreferidos.map((produto) => ({
     produto,
     tokens: tokensIdentidade(produto.description, sabores).filter(
@@ -1069,7 +1163,17 @@ export function selecionarCodigosOferta(
           (token) => !FORMATOS_DE_PRODUTO.has(token) && !PREPAROS_DE_PRODUTO.has(token),
         ),
     );
-  const agruparVariantesCatalogo = agruparVariantesTecnicas || agruparVariantesAdicionais;
+  // Se a identidade, a marca e as medidas já coincidem, diferenças compostas
+  // apenas por aroma/sabor são variantes da mesma oferta. Isso independe da
+  // posição desses termos na descrição do ERP.
+  const agruparVariantesSensoriais =
+    !sabores &&
+    candidatosPreferidos.length > 1 &&
+    variantesTecnicas.every(
+      (variantes) => variantes.length > 0 && variantes.every((token) => SABORES.has(token)),
+    );
+  const agruparVariantesCatalogo =
+    agruparVariantesTecnicas || agruparVariantesAdicionais || agruparVariantesSensoriais;
   const menorQuantidade = Math.min(...extras.map((item) => item.tokens.length));
   const chaveDaFamilia = tamanhos.length > 1 ? chaveFamiliaSemMedidas : chaveFamilia;
   let maisEspecificos =

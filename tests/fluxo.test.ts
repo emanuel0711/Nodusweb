@@ -22,6 +22,7 @@ import {
   codigoExatoDaBusca,
   erroCategoriaDaImportacao,
   linhaParaProduto,
+  linhaParaProdutos,
   prepararItensImportacao,
   type Produto,
 } from "../src/modules/catalogo/catalogo.ts";
@@ -401,6 +402,74 @@ test("CSV do catálogo continua descartando coluna A de referência", async () =
   assert.equal(linhas[0]!["Ref"], undefined);
   assert.equal(linhas[0]!["Produto"], "Frisco uva 25g");
 });
+test("CSV do catálogo importa Código e Código 2 como EANs da mesma família", async () => {
+  const linhas = await lerPlanilha(
+    new File(
+      [
+        "Cód. Interno;Código;Código 2;Descrição;Un.;Qtd.\n69591;7890000000101;7890000000102;PRODUTO TESTE 1L;UN;8",
+      ],
+      "catalogo.csv",
+    ),
+  );
+  const produtos = linhaParaProdutos(linhas[0]!, "TESTE");
+  assert.deepEqual(
+    produtos.map((produto) => produto.ean),
+    ["7890000000101", "7890000000102"],
+  );
+  assert.ok(produtos.every((produto) => produto.description === "PRODUTO TESTE 1L"));
+});
+test("produto com dois EANs entrega todos os códigos da mesma família", () => {
+  const principal = produto("codigo-principal", "PRODUTO TESTE 1L", {
+    ean: "7890000000101",
+  });
+  const secundario = produto("codigo-secundario", "PRODUTO TESTE 1L", {
+    ean: "7890000000102",
+  });
+  assert.deepEqual(
+    selecionarCodigosOferta("PRODUTO TESTE 1L", [principal, secundario], false).codigos,
+    ["7890000000101", "7890000000102"],
+  );
+});
+test("descrição mais específica sugere cadastro-base sem marcar código", () => {
+  const base = produto("manga", "MANGA KG", {
+    ean: null,
+    internal_code: "1403",
+    unit: "KG",
+    category: "FRUTEIRA",
+    stock_quantity: 168.824,
+  });
+  const conflitante = produto("palmer", "MANGA PALMER KG", {
+    ean: null,
+    internal_code: "1404",
+    unit: "KG",
+    category: "FRUTEIRA",
+  });
+  const resultado = selecionarCodigosOferta("MANGA TOMMY KG", [base, conflitante], true);
+  assert.deepEqual(resultado.codigos, []);
+  assert.deepEqual(
+    resultado.candidatos?.map((item) => item.internal_code),
+    ["1403"],
+  );
+  assert.match(resultado.motivo ?? "", /Selecione abaixo/);
+});
+test("fallback não sugere variedade contraditória", () => {
+  const refinado = produto("refinado", "ACUCAR MARCA 1KG REFINADO", {
+    ean: "7890000000111",
+  });
+  const demerara = produto("demerara", "ACUCAR MARCA 1KG DEMERARA", {
+    ean: "7890000000112",
+  });
+  const resultado = selecionarCodigosOferta(
+    "ACUCAR MARCA 1KG REFINADO ESPECIAL",
+    [refinado, demerara],
+    false,
+  );
+  assert.deepEqual(resultado.codigos, []);
+  assert.deepEqual(
+    resultado.candidatos?.map((item) => item.ean),
+    [refinado.ean],
+  );
+});
 test("XLSX encontra cabeçalho depois de título com duas células", async () => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(
@@ -657,10 +726,24 @@ test("Red Horse sem sabor reúne sabores comuns e exclui zero", () => {
     produto("86", "Energético Red Horse 473ml melancia lata"),
     produto("87", "Energético Red Horse 473ml melancia zero lata"),
   ];
-  assert.deepEqual(selecionarCodigosOferta("Energético Red Horse 473ml", itens, false).codigos, [
-    itens[0]!.ean,
-    itens[1]!.ean,
-  ]);
+  const resultado = selecionarCodigosOferta("Energético Red Horse 473ml", itens, false);
+  assert.deepEqual(resultado.codigos, [itens[0]!.ean, itens[1]!.ean]);
+  assert.deepEqual(resultado.candidatos, itens);
+  assert.equal(resultado.decisoesPorCodigo?.[itens[2]!.ean!]?.status, "descartado");
+});
+
+test("leite mostra outras variantes da marca e volume sem ativá-las", () => {
+  const itens = [
+    produto("401", "LEITE DALIA 1L INTEGRAL"),
+    produto("402", "LEITE DALIA 1L SEMIDESNATADO"),
+    produto("403", "LEITE DALIA 1L DESNATADO"),
+    produto("404", "LEITE OUTRA MARCA 1L INTEGRAL"),
+  ];
+  const resultado = selecionarCodigosOferta("LEITE DALIA 1L INTEGRAL", itens, false);
+  assert.deepEqual(resultado.codigos, [itens[0]!.ean]);
+  assert.deepEqual(resultado.candidatos, itens.slice(0, 3));
+  assert.equal(resultado.decisoesPorCodigo?.[itens[1]!.ean!]?.status, "descartado");
+  assert.equal(resultado.decisoesPorCodigo?.[itens[2]!.ean!]?.status, "descartado");
 });
 
 test("abreviação QJ encontra queijo do catálogo", () => {
