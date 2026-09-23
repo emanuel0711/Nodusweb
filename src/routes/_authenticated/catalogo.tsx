@@ -98,6 +98,57 @@ function BarraCatalogo({
   setSelecionadas,
   excluirSelecionadas,
 }: ReturnType<typeof useCatalogo>) {
+  const [arquivosAbertos, setArquivosAbertos] = useState(false);
+
+  const listaArquivos = (
+    <>
+      <div className="catalog-files-list flex flex-wrap gap-x-5 gap-y-2">
+        {categorias.length ? (
+          categorias.map((item) => (
+            <label key={item} className="catalog-file-chip">
+              <input
+                type="checkbox"
+                checked={selecionadas.includes(item)}
+                onChange={(e) =>
+                  setSelecionadas((atual) =>
+                    e.target.checked ? [...atual, item] : atual.filter((valor) => valor !== item),
+                  )
+                }
+              />
+              <span>{item === SEM_CATEGORIA ? "Sem categoria" : item}</span>
+            </label>
+          ))
+        ) : (
+          <span className="text-sm text-muted-foreground">Nenhum arquivo importado ainda.</span>
+        )}
+      </div>
+
+      <div className="catalog-files-actions mt-3 flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!categorias.length}
+          onClick={() =>
+            setSelecionadas(selecionadas.length === categorias.length ? [] : categorias)
+          }
+        >
+          {selecionadas.length === categorias.length && categorias.length
+            ? "Limpar seleção"
+            : "Selecionar tudo"}
+        </Button>
+
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={!selecionadas.length}
+          onClick={() => void excluirSelecionadas()}
+        >
+          <Trash2 className="size-4" /> Excluir selecionados ({selecionadas.length})
+        </Button>
+      </div>
+    </>
+  );
+
   return (
     <div className="catalog-toolbar surface mt-4 space-y-4 p-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -162,55 +213,34 @@ function BarraCatalogo({
         </Button>
       </div>
 
-      <div className="border-t pt-3">
+      <Button
+        type="button"
+        variant="outline"
+        className="catalog-files-mobile-trigger"
+        onClick={() => setArquivosAbertos(true)}
+      >
+        <CheckSquare className="size-4" />
+        Arquivos importados
+        <span className="ml-auto text-muted-foreground">{categorias.length}</span>
+      </Button>
+
+      <Dialog open={arquivosAbertos} onOpenChange={setArquivosAbertos}>
+        <DialogContent className="catalog-files-dialog">
+          <DialogHeader>
+            <DialogTitle>Arquivos importados</DialogTitle>
+            <DialogDescription>
+              Selecione os setores que deseja gerenciar no catálogo.
+            </DialogDescription>
+          </DialogHeader>
+          {listaArquivos}
+        </DialogContent>
+      </Dialog>
+
+      <div className="catalog-files-desktop border-t pt-3">
         <div className="mb-2 flex items-center gap-2 text-sm font-medium">
           <CheckSquare className="size-4" /> Arquivos importados
         </div>
-
-        <div className="flex flex-wrap gap-x-5 gap-y-2">
-          {categorias.length ? (
-            categorias.map((item) => (
-              <label key={item} className="catalog-file-chip">
-                <input
-                  type="checkbox"
-                  checked={selecionadas.includes(item)}
-                  onChange={(e) =>
-                    setSelecionadas((atual) =>
-                      e.target.checked ? [...atual, item] : atual.filter((valor) => valor !== item),
-                    )
-                  }
-                />
-                <span>{item === SEM_CATEGORIA ? "Sem categoria" : item}</span>
-              </label>
-            ))
-          ) : (
-            <span className="text-sm text-muted-foreground">Nenhum arquivo importado ainda.</span>
-          )}
-        </div>
-
-        <div className="mt-3 flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!categorias.length}
-            onClick={() =>
-              setSelecionadas(selecionadas.length === categorias.length ? [] : categorias)
-            }
-          >
-            {selecionadas.length === categorias.length && categorias.length
-              ? "Limpar seleção"
-              : "Selecionar tudo"}
-          </Button>
-
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={!selecionadas.length}
-            onClick={() => void excluirSelecionadas()}
-          >
-            <Trash2 className="size-4" /> Excluir selecionados ({selecionadas.length})
-          </Button>
-        </div>
+        {listaArquivos}
       </div>
     </div>
   );

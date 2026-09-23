@@ -268,10 +268,16 @@ export function AppShell({
 
             <div className="app-profile-section">
               <span className="app-profile-section__label">Preferências</span>
-              <Button variant="outline" size="sm" onClick={alternarTema}>
-                {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
-                {darkMode ? "Usar tema claro" : "Usar tema escuro"}
-              </Button>
+              <div className="app-profile-actions">
+                <Button variant="outline" size="sm" onClick={alternarTema}>
+                  {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
+                  {darkMode ? "Usar tema claro" : "Usar tema escuro"}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => void handleSignOut()}>
+                  <LogOut className="size-4" />
+                  Sair
+                </Button>
+              </div>
             </div>
           </section>
         </div>

@@ -260,20 +260,20 @@ tbody tr:hover {
 }
 
 /* Ofertas: tabela larga, confortável e com ações sempre acessíveis. */
-.surface:has(table th:nth-child(12)) {
+.offers-table-wrap {
   position: relative;
   overflow: auto;
   max-height: min(68vh, 760px);
   scrollbar-gutter: stable both-edges;
 }
 
-.surface:has(table th:nth-child(12)) table {
+.offers-table-wrap table {
   min-width: 1560px;
   border-collapse: separate;
   border-spacing: 0;
 }
 
-.surface:has(table th:nth-child(12)) thead th {
+.offers-table-wrap thead th {
   position: sticky;
   top: 0;
   z-index: 8;
@@ -284,25 +284,25 @@ tbody tr:hover {
   border-bottom: 1px solid var(--color-border);
 }
 
-.surface:has(table th:nth-child(12)) tbody td {
+.offers-table-wrap tbody td {
   padding: 0.72rem 0.85rem;
   vertical-align: middle;
   height: 72px;
 }
 
-.surface:has(table th:nth-child(12)) tbody tr {
+.offers-table-wrap tbody tr {
   transition:
     background-color 140ms ease,
     box-shadow 140ms ease;
 }
 
-.surface:has(table th:nth-child(12)) tbody tr:hover {
+.offers-table-wrap tbody tr:hover {
   box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
 /* Lixeira/ações: não desaparece quando a tabela é rolada horizontalmente. */
-.surface:has(table th:nth-child(12)) thead th:last-child,
-.surface:has(table th:nth-child(12)) tbody td:last-child {
+.offers-table-wrap thead th:last-child,
+.offers-table-wrap tbody td:last-child {
   position: sticky;
   right: 0;
   z-index: 9;
@@ -315,60 +315,60 @@ tbody tr:hover {
   box-shadow: -10px 0 18px -18px oklch(0.2 0.03 150 / 0.65);
 }
 
-.surface:has(table th:nth-child(12)) thead th:last-child {
+.offers-table-wrap thead th:last-child {
   background: oklch(0.97 0.012 130);
   z-index: 12;
 }
 
-.surface:has(table th:nth-child(12)) tbody tr:hover td:last-child {
+.offers-table-wrap tbody tr:hover td:last-child {
   background: oklch(0.985 0.012 130);
 }
 
-.surface:has(table th:nth-child(12)) tbody td:first-child {
+.offers-table-wrap tbody td:first-child {
   width: 66px;
   min-width: 66px;
 }
 
-.surface:has(table th:nth-child(12)) tbody td:first-child img,
-.surface:has(table th:nth-child(12)) tbody td:first-child > span {
+.offers-table-wrap tbody td:first-child img,
+.offers-table-wrap tbody td:first-child > span {
   width: 48px;
   height: 48px;
 }
 
-.surface:has(table th:nth-child(12)) tbody td:nth-child(2) {
+.offers-table-wrap tbody td:nth-child(2) {
   width: 210px;
   min-width: 210px;
   white-space: normal;
 }
 
-.surface:has(table th:nth-child(12)) tbody td:nth-child(3) {
+.offers-table-wrap tbody td:nth-child(3) {
   width: 240px;
   min-width: 240px;
   white-space: normal;
 }
 
-.surface:has(table th:nth-child(12)) tbody td:nth-child(4),
-.surface:has(table th:nth-child(12)) tbody td:nth-child(5),
-.surface:has(table th:nth-child(12)) tbody td:nth-child(6),
-.surface:has(table th:nth-child(12)) tbody td:nth-child(7),
-.surface:has(table th:nth-child(12)) tbody td:nth-child(8) {
+.offers-table-wrap tbody td:nth-child(4),
+.offers-table-wrap tbody td:nth-child(5),
+.offers-table-wrap tbody td:nth-child(6),
+.offers-table-wrap tbody td:nth-child(7),
+.offers-table-wrap tbody td:nth-child(8) {
   min-width: 105px;
   white-space: nowrap;
 }
 
-.surface:has(table th:nth-child(12)) tbody td:nth-child(9) {
+.offers-table-wrap tbody td:nth-child(9) {
   min-width: 245px;
 }
 
-.surface:has(table th:nth-child(12)) tbody td:nth-child(10) {
+.offers-table-wrap tbody td:nth-child(10) {
   min-width: 210px;
 }
 
-.surface:has(table th:nth-child(12)) tbody td:nth-child(11) {
+.offers-table-wrap tbody td:nth-child(11) {
   min-width: 270px;
 }
 
-.surface:has(table th:nth-child(12)) tbody td input {
+.offers-table-wrap tbody td input {
   min-height: 42px;
 }
 
@@ -379,11 +379,11 @@ main .surface.flex.flex-wrap.items-center {
 }
 
 @media (max-width: 900px) {
-  .surface:has(table th:nth-child(12)) {
+  .offers-table-wrap {
     max-height: 72vh;
   }
 
-  .surface:has(table th:nth-child(12)) tbody td {
+  .offers-table-wrap tbody td {
     height: 68px;
     padding: 0.6rem 0.7rem;
   }

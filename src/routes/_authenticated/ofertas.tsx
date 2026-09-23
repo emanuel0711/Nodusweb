@@ -269,7 +269,7 @@ function TabelaOfertas({
   }, [pagina, totalPaginas]);
 
   return (
-    <div className="surface mt-4 overflow-hidden">
+    <div className="offers-table-wrap surface mt-4 overflow-hidden">
       <Table className="offers-table w-full table-fixed text-xs [&_td]:px-2 [&_th]:px-2">
         <TableHeader>
           <TableRow>
