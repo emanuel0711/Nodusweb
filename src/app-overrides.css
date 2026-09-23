@@ -1,6 +1,6 @@
 /* Sistema visual Nódus inspirado no macOS/iOS. */
 html {
-  color-scheme: light;
+  color-scheme: light dark;
 }
 html.dark {
   color-scheme: dark;
@@ -13,21 +13,34 @@ body {
 
 /* Acesso: tons quentes e superfícies contínuas. */
 .auth-page {
+  --auth-page: #f1e9e2;
+  --auth-shell: #f8f1eb;
+  --auth-shell-border: rgb(85 52 31/13%);
+  --auth-shadow: rgb(68 38 20/16%);
+  --auth-story: #ead8c9;
+  --auth-story-ink: #291d16;
+  --auth-story-muted: rgb(72 48 34/64%);
+  --auth-panel: #fffaf6;
+  --auth-panel-ink: #251c17;
+  --auth-panel-muted: #756a63;
+  --auth-control: rgb(255 255 255/78%);
+  --auth-control-border: rgb(72 48 34/13%);
+  --auth-control-muted: #9a8f87;
   background:
-    radial-gradient(circle at 12% 16%, rgb(232 111 24/22%), transparent 30rem),
-    radial-gradient(circle at 88% 84%, rgb(255 154 83/12%), transparent 34rem), #0f0b09;
+    radial-gradient(circle at 12% 16%, rgb(232 111 24/16%), transparent 30rem),
+    radial-gradient(circle at 88% 84%, rgb(255 154 83/10%), transparent 34rem), var(--auth-page);
 }
 .auth-shell {
-  border: 1px solid rgb(255 190 143/16%);
+  border: 1px solid var(--auth-shell-border);
   border-radius: 30px;
-  background: #211711;
-  box-shadow: 0 32px 100px rgb(0 0 0/42%);
+  background: var(--auth-shell);
+  box-shadow: 0 32px 100px var(--auth-shadow);
 }
 .auth-story {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(145deg, rgb(255 166 101/18%), transparent 56%), #2a1b13;
-  color: #fff3ea;
+  background: linear-gradient(145deg, rgb(255 166 101/22%), transparent 56%), var(--auth-story);
+  color: var(--auth-story-ink);
 }
 .auth-story::after {
   position: absolute;
@@ -48,43 +61,77 @@ body {
 }
 .auth-story .text-background\/50,
 .auth-story .text-background\/65 {
-  color: rgb(255 229 210/62%) !important;
+  color: var(--auth-story-muted) !important;
 }
 .auth-form-panel {
-  background: linear-gradient(165deg, #1d1d20, #171719);
-  color: #f5f5f7;
+  background: var(--auth-panel);
+  color: var(--auth-panel-ink);
 }
 .auth-form-panel .text-muted-foreground {
-  color: #aaa3a0 !important;
+  color: var(--auth-panel-muted) !important;
 }
 .auth-form-panel input[type="email"],
 .auth-form-panel input[type="password"] {
-  border: 1px solid rgb(255 255 255/9%) !important;
-  background: rgb(255 255 255/7%) !important;
-  color: #f8f1ec !important;
+  border: 1px solid var(--auth-control-border) !important;
+  background: var(--auth-control) !important;
+  color: var(--auth-panel-ink) !important;
 }
 .auth-form-panel input::placeholder {
-  color: #777176;
+  color: var(--auth-control-muted);
 }
 .auth-form-panel .auth-tabs [role="tablist"] {
-  background: rgb(255 255 255/7%) !important;
+  background: var(--auth-control) !important;
 }
 .auth-form-panel .auth-tabs [role="tab"][data-state="active"] {
-  background: rgb(255 255 255/11%) !important;
-  color: #fff !important;
+  background: var(--auth-panel) !important;
+  color: var(--auth-panel-ink) !important;
   box-shadow: none;
 }
 .auth-form-panel button[class*="bg-primary"] {
   color: #fff;
 }
 .auth-form-panel button[class*="border-input"] {
-  border-color: rgb(255 255 255/10%);
-  background: rgb(255 255 255/5%);
-  color: #eee7e2;
+  border-color: var(--auth-control-border);
+  background: var(--auth-control);
+  color: var(--auth-panel-ink);
 }
 .auth-form-panel label[class*="border"] {
-  border-color: rgb(255 255 255/10%);
-  background: rgb(255 255 255/4%);
+  border-color: var(--auth-control-border);
+  background: var(--auth-control);
+}
+
+.dark .auth-page {
+  --auth-page: #0f0b09;
+  --auth-shell: #211711;
+  --auth-shell-border: rgb(255 190 143/16%);
+  --auth-shadow: rgb(0 0 0/42%);
+  --auth-story: #2a1b13;
+  --auth-story-ink: #fff3ea;
+  --auth-story-muted: rgb(255 229 210/62%);
+  --auth-panel: #19191b;
+  --auth-panel-ink: #f5f5f7;
+  --auth-panel-muted: #aaa3a0;
+  --auth-control: rgb(255 255 255/7%);
+  --auth-control-border: rgb(255 255 255/10%);
+  --auth-control-muted: #777176;
+}
+
+@media (prefers-color-scheme: dark) {
+  .auth-page {
+    --auth-page: #0f0b09;
+    --auth-shell: #211711;
+    --auth-shell-border: rgb(255 190 143/16%);
+    --auth-shadow: rgb(0 0 0/42%);
+    --auth-story: #2a1b13;
+    --auth-story-ink: #fff3ea;
+    --auth-story-muted: rgb(255 229 210/62%);
+    --auth-panel: #19191b;
+    --auth-panel-ink: #f5f5f7;
+    --auth-panel-muted: #aaa3a0;
+    --auth-control: rgb(255 255 255/7%);
+    --auth-control-border: rgb(255 255 255/10%);
+    --auth-control-muted: #777176;
+  }
 }
 
 .offers-table__image-cell,

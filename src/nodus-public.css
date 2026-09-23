@@ -246,6 +246,25 @@
 .dark .nodus-section--bordered {
   background: linear-gradient(145deg, rgb(52 32 22/82%), rgb(35 23 18/76%));
 }
+@media (prefers-color-scheme: dark) {
+  .nodus-public {
+    --nodus-ink: #f7eee7;
+    --nodus-muted: #b8a89c;
+    --nodus-line: rgb(255 180 125/13%);
+    --nodus-paper: #130e0b;
+    --nodus-card: rgb(38 26 20/72%);
+    background:
+      radial-gradient(circle at 82% 7%, rgb(232 111 24/23%), transparent 31rem),
+      radial-gradient(circle at 8% 42%, rgb(255 151 76/8%), transparent 30rem), var(--nodus-paper);
+  }
+  .nodus-step,
+  .nodus-feature {
+    background: rgb(255 255 255/4%);
+  }
+  .nodus-section--bordered {
+    background: linear-gradient(145deg, rgb(52 32 22/82%), rgb(35 23 18/76%));
+  }
+}
 @media (max-width: 760px) {
   .nodus-public__header-inner,
   .nodus-hero,

@@ -35,7 +35,7 @@ import { CARROSSEIS, separarCodigos, useOfertas } from "@/modules/ofertas/use-of
 export const Route = createFileRoute("/_authenticated/ofertas")({
   head: () => ({
     meta: [
-      { title: "Automação de ofertas — OfertaFlow" },
+      { title: "Automação de ofertas — Nódus" },
       { name: "description", content: "Envie a planilha da semana e gere o arquivo do clube." },
     ],
   }),

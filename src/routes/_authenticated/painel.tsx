@@ -9,12 +9,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 export const Route = createFileRoute("/_authenticated/painel")({
   head: () => ({
     meta: [
-      { title: "Painel — OfertaFlow" },
+      { title: "Painel — Nódus" },
       {
         name: "description",
         content: "Estatísticas do catálogo e das ofertas processadas na semana.",
       },
-      { property: "og:title", content: "Painel — OfertaFlow" },
+      { property: "og:title", content: "Painel — Nódus" },
       { property: "og:description", content: "Visão geral do catálogo e das ofertas processadas." },
     ],
   }),
@@ -42,11 +42,7 @@ function DashboardPage() {
           .from("offer_runs")
           .select("id", { count: "exact", head: true })
           .gte("created_at", weekStart()),
-        supabase
-          .from("offer_runs")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(5),
+        supabase.from("offer_runs").select("*").order("created_at", { ascending: false }).limit(5),
       ]);
       return {
         totalProducts: products.count ?? 0,
