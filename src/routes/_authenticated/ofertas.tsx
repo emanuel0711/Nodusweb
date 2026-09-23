@@ -162,7 +162,7 @@ function BarraAcao({
 }: ReturnType<typeof useOfertas>) {
   return (
     <>
-      <div className="surface flex flex-wrap items-center gap-3 p-5">
+      <div className="offers-action-bar surface flex flex-wrap items-center gap-3 p-5">
         <input
           ref={campoArquivo}
           type="file"
@@ -173,7 +173,11 @@ function BarraAcao({
             if (arquivo) void processar(arquivo);
           }}
         />
-        <Button disabled={processando} onClick={() => campoArquivo.current?.click()}>
+        <Button
+          className="offers-action-upload"
+          disabled={processando}
+          onClick={() => campoArquivo.current?.click()}
+        >
           {processando ? (
             <Loader2 className="size-4 animate-spin" />
           ) : (
@@ -181,7 +185,7 @@ function BarraAcao({
           )}{" "}
           Enviar planilha da semana
         </Button>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="offers-sensitivity flex items-center gap-2 text-sm text-muted-foreground">
           <span>Sensibilidade</span>
           <Input
             type="number"
@@ -194,9 +198,9 @@ function BarraAcao({
           />
         </div>
         <Button
-          variant="destructive"
+          variant="outline"
           disabled={!ofertas.length}
-          className="ml-auto"
+          className="offers-action-delete ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
           onClick={() => {
             if (confirm("Excluir a planilha carregada?")) limparOfertas();
           }}
@@ -205,6 +209,7 @@ function BarraAcao({
         </Button>
         <Button
           variant="outline"
+          className="offers-action-download"
           disabled={!ofertas.length || processando}
           onClick={() => setModalAberto(true)}
         >
@@ -278,7 +283,6 @@ function TabelaOfertas({
             <TableHead>Produto encontrado</TableHead>
             <TableHead>Confiança</TableHead>
             <TableHead>Preço</TableHead>
-            <TableHead>Preço clube</TableHead>
             <TableHead>Limite</TableHead>
             <TableHead>Tipo de produto</TableHead>
             <TableHead>Códigos</TableHead>
@@ -289,7 +293,7 @@ function TabelaOfertas({
         <TableBody>
           {!ofertasVisiveis.length && (
             <TableRow>
-              <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
+              <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                 Nenhuma oferta corresponde a este filtro.
               </TableCell>
             </TableRow>
@@ -343,7 +347,6 @@ function TabelaOfertas({
                 </TableCell>
                 <TableCell>{Math.round(item.nota * 100)}%</TableCell>
                 <TableCell>{item.preco ?? "—"}</TableCell>
-                <TableCell>{item.precoClube ?? "—"}</TableCell>
                 <TableCell>{item.limite ?? "—"}</TableCell>
                 <TableCell>{item.unidade}</TableCell>
                 <TableCell className="offers-table__remove-cell">

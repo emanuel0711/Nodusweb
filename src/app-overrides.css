@@ -804,12 +804,14 @@ button[class*="bg-primary"]:hover {
 
 /* Modais compartilhados: seguem a mesma linguagem do painel de perfil. */
 [data-slot="dialog-overlay"] {
+  z-index: 120 !important;
   background: rgb(0 0 0 / 25%) !important;
   backdrop-filter: blur(14px) saturate(75%) !important;
   -webkit-backdrop-filter: blur(14px) saturate(75%) !important;
 }
 
 [data-slot="dialog-content"] {
+  z-index: 121 !important;
   border: 1px solid var(--border) !important;
   border-radius: 12px !important;
   background: var(--card) !important;
@@ -927,6 +929,7 @@ button[class*="bg-primary"]:hover {
   }
 
   .app-profile-backdrop {
+    z-index: 120;
     align-items: center;
     padding: 16px;
   }
@@ -951,13 +954,13 @@ button[class*="bg-primary"]:hover {
   .of-product-dialog,
   [role="dialog"].max-w-2xl {
     width: calc(100vw - 32px) !important;
-    max-height: calc(100dvh - 32px) !important;
+    max-height: 78dvh !important;
     gap: 16px !important;
     padding: 18px !important;
   }
 
   .catalog-files-dialog {
-    max-height: min(78dvh, 620px) !important;
+    max-height: min(72dvh, 580px) !important;
   }
 
   .catalog-files-dialog .catalog-files-list {
@@ -989,8 +992,15 @@ button[class*="bg-primary"]:hover {
   }
 
   [data-slot="dialog-footer"] {
+    position: sticky;
+    bottom: -18px;
+    z-index: 2;
     align-items: stretch !important;
+    margin: 0 -18px -18px;
+    padding: 14px 18px 18px;
     padding-top: 14px;
+    background: var(--card);
+    box-shadow: 0 -10px 24px rgb(0 0 0 / 7%);
   }
 
   [data-slot="dialog-footer"] > button {
@@ -1032,6 +1042,45 @@ button[class*="bg-primary"]:hover {
     flex: 1;
   }
 
+  .offers-action-bar {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px !important;
+    padding: 16px !important;
+  }
+
+  .offers-action-upload,
+  .offers-sensitivity {
+    grid-column: 1 / -1;
+  }
+
+  .offers-sensitivity {
+    justify-content: space-between;
+  }
+
+  .offers-sensitivity input {
+    width: 96px !important;
+  }
+
+  .offers-action-download {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .offers-action-delete {
+    grid-column: 2;
+    grid-row: 3;
+    margin-left: 0 !important;
+  }
+
+  .offers-action-upload,
+  .offers-action-download,
+  .offers-action-delete {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+
   .app-profile-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1050,5 +1099,71 @@ button[class*="bg-primary"]:hover {
   .app-mobile-nav .app-sidebar__link,
   .app-mobile-nav button {
     font-size: 10px;
+  }
+}
+
+@media (min-width: 901px) {
+  .offers-table-wrap {
+    overflow-x: hidden !important;
+  }
+
+  .offers-table-wrap .offers-table {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed !important;
+  }
+
+  .offers-table-wrap .offers-table th,
+  .offers-table-wrap .offers-table td {
+    min-width: 0 !important;
+    padding-right: 8px !important;
+    padding-left: 8px !important;
+  }
+
+  .offers-table-wrap .offers-table th:nth-child(1),
+  .offers-table-wrap .offers-table td:nth-child(1) {
+    width: 7%;
+  }
+
+  .offers-table-wrap .offers-table th:nth-child(2),
+  .offers-table-wrap .offers-table td:nth-child(2) {
+    width: 15%;
+  }
+
+  .offers-table-wrap .offers-table th:nth-child(3),
+  .offers-table-wrap .offers-table td:nth-child(3) {
+    width: 18%;
+  }
+
+  .offers-table-wrap .offers-table th:nth-child(4),
+  .offers-table-wrap .offers-table td:nth-child(4) {
+    width: 8%;
+  }
+
+  .offers-table-wrap .offers-table th:nth-child(5),
+  .offers-table-wrap .offers-table td:nth-child(5),
+  .offers-table-wrap .offers-table th:nth-child(6),
+  .offers-table-wrap .offers-table td:nth-child(6) {
+    width: 7%;
+  }
+
+  .offers-table-wrap .offers-table th:nth-child(7),
+  .offers-table-wrap .offers-table td:nth-child(7) {
+    width: 10%;
+  }
+
+  .offers-table-wrap .offers-table th:nth-child(8),
+  .offers-table-wrap .offers-table td:nth-child(8) {
+    width: 14%;
+  }
+
+  .offers-table-wrap .offers-table th:nth-child(9),
+  .offers-table-wrap .offers-table td:nth-child(9) {
+    width: 10%;
+  }
+
+  .offers-table-wrap .offers-table th:nth-child(10),
+  .offers-table-wrap .offers-table td:nth-child(10) {
+    width: 48px;
   }
 }
