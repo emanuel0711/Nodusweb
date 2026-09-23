@@ -47,11 +47,14 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
         ? "Sem categoria"
         : categoria;
 
+  const totalProdutos = fila.totalConcluidos + fila.totalSemImagem;
+  const percentual = (valor: number) =>
+    totalProdutos > 0 ? Math.min(100, Math.max(0, (valor / totalProdutos) * 100)) : 0;
   const resumo = [
-    ["Total de produtos", fila.totalConcluidos + fila.totalSemImagem],
-    ["Com imagem", fila.totalConcluidos],
-    ["Sem imagem", fila.totalSemImagem],
-    ["Para revisar", fila.aguardandoAprovacao],
+    ["Total de produtos", totalProdutos, totalProdutos > 0 ? 100 : 0],
+    ["Com imagem", fila.totalConcluidos, percentual(fila.totalConcluidos)],
+    ["Sem imagem", fila.totalSemImagem, percentual(fila.totalSemImagem)],
+    ["Para revisar", fila.aguardandoAprovacao, percentual(fila.aguardandoAprovacao)],
   ] as const;
 
   const podeBuscar = fila.totalNaFila > 0;
@@ -110,11 +113,13 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
         </div>
 
         <div className="catalog-summary-grid">
-          {resumo.map(([rotulo, valor]) => (
+          {resumo.map(([rotulo, valor, progresso]) => (
             <div key={rotulo} className="catalog-summary-card">
               <div className="catalog-summary-card__label">{rotulo}</div>
               <div className="catalog-summary-card__value">{valor.toLocaleString("pt-BR")}</div>
-              <span className="catalog-summary-card__bar" aria-hidden="true" />
+              <span className="catalog-summary-card__bar" aria-hidden="true">
+                <span style={{ width: `${progresso}%` }} />
+              </span>
             </div>
           ))}
         </div>

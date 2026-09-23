@@ -243,6 +243,7 @@ function TabelaOfertas({
   filtroPendencia,
 }: ReturnType<typeof useOfertas> & { filtroPendencia: FiltroPendencia }) {
   const cliquePendente = useRef<number | null>(null);
+  const [pagina, setPagina] = useState(1);
   const ofertasVisiveis = ofertas.filter((item) => {
     if (filtroPendencia === "pendentes") return itemPrecisaRevisao(item, notaMinima);
     if (filtroPendencia === "sem_imagem")
@@ -255,10 +256,21 @@ function TabelaOfertas({
       );
     return true;
   });
+  const porPagina = 20;
+  const totalPaginas = Math.max(1, Math.ceil(ofertasVisiveis.length / porPagina));
+  const ofertasDaPagina = ofertasVisiveis.slice((pagina - 1) * porPagina, pagina * porPagina);
+
+  useEffect(() => {
+    setPagina(1);
+  }, [filtroPendencia, ofertas.length]);
+
+  useEffect(() => {
+    if (pagina > totalPaginas) setPagina(totalPaginas);
+  }, [pagina, totalPaginas]);
 
   return (
     <div className="surface mt-4 overflow-hidden">
-      <Table className="w-full table-fixed text-xs [&_td]:px-2 [&_th]:px-2">
+      <Table className="offers-table w-full table-fixed text-xs [&_td]:px-2 [&_th]:px-2">
         <TableHeader>
           <TableRow>
             <TableHead>Img</TableHead>
@@ -282,7 +294,7 @@ function TabelaOfertas({
               </TableCell>
             </TableRow>
           )}
-          {ofertasVisiveis.map((item) => {
+          {ofertasDaPagina.map((item) => {
             const index = ofertas.indexOf(item);
             return (
               <TableRow
@@ -298,7 +310,7 @@ function TabelaOfertas({
                   }, 220);
                 }}
               >
-                <TableCell>
+                <TableCell className="offers-table__image-cell">
                   {item.imagem ? (
                     <img
                       src={item.imagem}
@@ -334,7 +346,7 @@ function TabelaOfertas({
                 <TableCell>{item.precoClube ?? "—"}</TableCell>
                 <TableCell>{item.limite ?? "—"}</TableCell>
                 <TableCell>{item.unidade}</TableCell>
-                <TableCell>
+                <TableCell className="offers-table__remove-cell">
                   <CodigoInput
                     value={item.codigos.join(";")}
                     onChange={(value) => {
@@ -374,6 +386,31 @@ function TabelaOfertas({
           })}
         </TableBody>
       </Table>
+      {ofertasVisiveis.length > porPagina ? (
+        <div className="offers-pagination flex items-center justify-between gap-4 border-t border-border px-4 py-3">
+          <span className="text-xs text-muted-foreground">
+            {ofertasVisiveis.length} produtos · página {pagina} de {totalPaginas}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pagina === 1}
+              onClick={() => setPagina((atual) => atual - 1)}
+            >
+              <ChevronLeft className="size-4" /> Anterior
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pagina === totalPaginas}
+              onClick={() => setPagina((atual) => atual + 1)}
+            >
+              Próxima <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

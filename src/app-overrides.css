@@ -11,6 +11,128 @@ body {
   background: var(--background);
 }
 
+/* Acesso: tons quentes e superfícies contínuas. */
+.auth-page {
+  background:
+    radial-gradient(circle at 12% 16%, rgb(232 111 24/22%), transparent 30rem),
+    radial-gradient(circle at 88% 84%, rgb(255 154 83/12%), transparent 34rem), #0f0b09;
+}
+.auth-shell {
+  border: 1px solid rgb(255 190 143/16%);
+  border-radius: 30px;
+  background: #211711;
+  box-shadow: 0 32px 100px rgb(0 0 0/42%);
+}
+.auth-story {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(145deg, rgb(255 166 101/18%), transparent 56%), #2a1b13;
+  color: #fff3ea;
+}
+.auth-story::after {
+  position: absolute;
+  right: -120px;
+  bottom: -150px;
+  width: 360px;
+  height: 360px;
+  border: 1px solid rgb(255 161 92/22%);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 58px rgb(232 111 24/5%),
+    0 0 0 116px rgb(232 111 24/3%);
+  content: "";
+}
+.auth-story > * {
+  position: relative;
+  z-index: 1;
+}
+.auth-story .text-background\/50,
+.auth-story .text-background\/65 {
+  color: rgb(255 229 210/62%) !important;
+}
+.auth-form-panel {
+  background: linear-gradient(165deg, #1d1d20, #171719);
+  color: #f5f5f7;
+}
+.auth-form-panel .text-muted-foreground {
+  color: #aaa3a0 !important;
+}
+.auth-form-panel input[type="email"],
+.auth-form-panel input[type="password"] {
+  border: 1px solid rgb(255 255 255/9%) !important;
+  background: rgb(255 255 255/7%) !important;
+  color: #f8f1ec !important;
+}
+.auth-form-panel input::placeholder {
+  color: #777176;
+}
+.auth-form-panel .auth-tabs [role="tablist"] {
+  background: rgb(255 255 255/7%) !important;
+}
+.auth-form-panel .auth-tabs [role="tab"][data-state="active"] {
+  background: rgb(255 255 255/11%) !important;
+  color: #fff !important;
+  box-shadow: none;
+}
+.auth-form-panel button[class*="bg-primary"] {
+  color: #fff;
+}
+.auth-form-panel button[class*="border-input"] {
+  border-color: rgb(255 255 255/10%);
+  background: rgb(255 255 255/5%);
+  color: #eee7e2;
+}
+.auth-form-panel label[class*="border"] {
+  border-color: rgb(255 255 255/10%);
+  background: rgb(255 255 255/4%);
+}
+
+.offers-table__image-cell,
+.offers-table__remove-cell {
+  text-align: center;
+  vertical-align: middle !important;
+}
+.offers-table__image-cell > img,
+.offers-table__image-cell > span {
+  margin-inline: auto;
+}
+.offers-table__remove-cell > button {
+  margin-inline: auto;
+}
+
+.of-product-dialog {
+  width: min(700px, calc(100vw - 32px)) !important;
+  max-width: 700px !important;
+  padding: 26px !important;
+  border-radius: 24px !important;
+}
+.of-product-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.of-product-field {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+.of-product-field:first-child,
+.of-product-field:last-child {
+  grid-column: 1/-1;
+}
+.of-product-field label {
+  font-size: 12px;
+  font-weight: 650;
+}
+.of-product-input {
+  width: 100%;
+}
+.of-product-dialog [data-slot="dialog-footer"] {
+  margin-top: 4px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
 .surface {
   border: 1px solid var(--border) !important;
   border-radius: 18px !important;
@@ -235,13 +357,12 @@ body {
   border-radius: 999px;
   background: var(--muted);
 }
-.catalog-summary-card__bar::after {
+.catalog-summary-card__bar > span {
   display: block;
-  width: 64%;
   height: 100%;
   border-radius: inherit;
   background: var(--primary);
-  content: "";
+  transition: width 220ms ease;
 }
 .catalog-image-panel > div:first-child {
   align-items: center;
@@ -487,6 +608,25 @@ button[class*="bg-primary"]:hover {
 }
 
 @media (max-width: 820px) {
+  .auth-page {
+    padding: 0;
+    background: #171719;
+  }
+  .auth-shell {
+    min-height: 100vh;
+    border: 0;
+    border-radius: 0;
+  }
+  .auth-form-panel {
+    min-height: 100vh;
+  }
+  .of-product-form {
+    grid-template-columns: 1fr;
+  }
+  .of-product-field:first-child,
+  .of-product-field:last-child {
+    grid-column: auto;
+  }
   .app-sidebar {
     display: none;
   }
