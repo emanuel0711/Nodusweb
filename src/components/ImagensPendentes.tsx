@@ -1,12 +1,5 @@
 import { useState } from "react";
-import {
-  Check,
-  ImageIcon,
-  Loader2,
-  RefreshCw,
-  RotateCcw,
-  X,
-} from "lucide-react";
+import { Check, ImageIcon, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -43,9 +36,7 @@ function formatarOrigem(origem: string): string {
   return nomes[origem] ?? origem;
 }
 
-export function ImagensPendentes({
-  categoria = "__all__",
-}: ImagensPendentesProps) {
+export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProps) {
   const fila = useImagensPendentes(categoria);
   const [revisaoAberta, setRevisaoAberta] = useState(false);
 
@@ -57,9 +48,10 @@ export function ImagensPendentes({
         : categoria;
 
   const resumo = [
+    ["Total de produtos", fila.totalConcluidos + fila.totalSemImagem],
     ["Com imagem", fila.totalConcluidos],
-    ["Para revisar", fila.aguardandoAprovacao],
     ["Sem imagem", fila.totalSemImagem],
+    ["Para revisar", fila.aguardandoAprovacao],
   ] as const;
 
   const podeBuscar = fila.totalNaFila > 0;
@@ -68,13 +60,13 @@ export function ImagensPendentes({
 
   return (
     <>
-      <section className="surface mt-4 space-y-5 p-5">
+      <section className="catalog-image-panel surface space-y-5 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-1">
             <h2 className="text-lg font-semibold">Imagens do catálogo</h2>
             <p className="text-sm text-muted-foreground">
-              {categoriaLabel}. O Nódus encontra imagens e envia apenas os casos
-              duvidosos para revisão.
+              {categoriaLabel}. O Nódus encontra imagens e envia apenas os casos duvidosos para
+              revisão.
             </p>
           </div>
 
@@ -106,10 +98,7 @@ export function ImagensPendentes({
               <RotateCcw className="size-4" /> Tentar novamente
             </Button>
 
-            <Button
-              disabled={fila.rodando || !podeBuscar}
-              onClick={() => void fila.completar()}
-            >
+            <Button disabled={fila.rodando || !podeBuscar} onClick={() => void fila.completar()}>
               {fila.rodando ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
@@ -120,11 +109,12 @@ export function ImagensPendentes({
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="catalog-summary-grid">
           {resumo.map(([rotulo, valor]) => (
-            <div key={rotulo} className="rounded-lg border px-4 py-3">
-              <div className="text-xs text-muted-foreground">{rotulo}</div>
-              <div className="mt-1 text-2xl font-semibold">{valor}</div>
+            <div key={rotulo} className="catalog-summary-card">
+              <div className="catalog-summary-card__label">{rotulo}</div>
+              <div className="catalog-summary-card__value">{valor.toLocaleString("pt-BR")}</div>
+              <span className="catalog-summary-card__bar" aria-hidden="true" />
             </div>
           ))}
         </div>
@@ -138,8 +128,7 @@ export function ImagensPendentes({
 
         {!fila.carregando && fila.totalSemImagem === 0 ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <ImageIcon className="size-4" /> Todos os produtos desta seleção já
-            possuem imagem.
+            <ImageIcon className="size-4" /> Todos os produtos desta seleção já possuem imagem.
           </p>
         ) : null}
       </section>
@@ -149,8 +138,8 @@ export function ImagensPendentes({
           <DialogHeader>
             <DialogTitle>Revisar imagens</DialogTitle>
             <DialogDescription>
-              Resultados abaixo da confiança automática ficam aqui para sua
-              confirmação. Escolha a imagem correta ou descarte o resultado.
+              Resultados abaixo da confiança automática ficam aqui para sua confirmação. Escolha a
+              imagem correta ou descarte o resultado.
             </DialogDescription>
           </DialogHeader>
 
@@ -197,9 +186,7 @@ export function ImagensPendentes({
                           </div>
                           <div className="mt-1 text-sm text-muted-foreground">
                             Confiança:{" "}
-                            <strong className="text-foreground">
-                              {principal.score}/100
-                            </strong>
+                            <strong className="text-foreground">{principal.score}/100</strong>
                           </div>
                         </div>
 

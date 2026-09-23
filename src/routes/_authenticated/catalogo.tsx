@@ -69,8 +69,8 @@ function PaginaCatalogo() {
       title="Catálogo de produtos"
       subtitle="Base usada no cruzamento automático das ofertas."
     >
-      <BarraCatalogo {...catalogo} />
       <ImagensPendentes categoria={catalogo.categoria} />
+      <BarraCatalogo {...catalogo} />
       <TabelaCatalogo {...catalogo} onVisualizar={setProdutoVisualizado} />
       <Paginacao {...catalogo} />
       <DialogProduto {...catalogo} />
@@ -87,6 +87,8 @@ function BarraCatalogo({
   setBusca,
   categoria,
   setCategoria,
+  filtroImagem,
+  setFiltroImagem,
   categorias,
   campoArquivo,
   importar,
@@ -97,7 +99,7 @@ function BarraCatalogo({
   excluirSelecionadas,
 }: ReturnType<typeof useCatalogo>) {
   return (
-    <div className="surface space-y-4 p-4">
+    <div className="catalog-toolbar surface mt-4 space-y-4 p-4">
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative min-w-56 flex-1">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -123,6 +125,19 @@ function BarraCatalogo({
             ))}
           </SelectContent>
         </Select>
+
+        <div className="catalog-segmented" aria-label="Filtrar por imagem">
+          {(["todos", "com", "sem"] as const).map((valor) => (
+            <button
+              key={valor}
+              type="button"
+              data-active={filtroImagem === valor}
+              onClick={() => setFiltroImagem(valor)}
+            >
+              {valor === "todos" ? "Todos" : valor === "com" ? "Com imagem" : "Sem imagem"}
+            </button>
+          ))}
+        </div>
 
         <input
           ref={campoArquivo}
@@ -155,7 +170,7 @@ function BarraCatalogo({
         <div className="flex flex-wrap gap-x-5 gap-y-2">
           {categorias.length ? (
             categorias.map((item) => (
-              <label key={item} className="flex cursor-pointer items-center gap-2 text-sm">
+              <label key={item} className="catalog-file-chip">
                 <input
                   type="checkbox"
                   checked={selecionadas.includes(item)}
@@ -208,7 +223,7 @@ function TabelaCatalogo({
   onVisualizar,
 }: ReturnType<typeof useCatalogo> & { onVisualizar: (produto: Produto) => void }) {
   return (
-    <div className="surface mt-4 overflow-x-auto">
+    <div className="catalog-table surface mt-4 overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
@@ -244,7 +259,7 @@ function TabelaCatalogo({
                     className="size-12 rounded-md bg-white object-contain"
                   />
                 ) : (
-                  <span className="flex size-12 items-center justify-center rounded-md bg-muted">
+                  <span className="catalog-image-placeholder flex size-12 items-center justify-center">
                     <ImageIcon className="size-4 text-muted-foreground" />
                   </span>
                 )}
@@ -253,12 +268,14 @@ function TabelaCatalogo({
               <TableCell>{produto.ean || "—"}</TableCell>
               <TableCell>{produto.internal_code || "—"}</TableCell>
               <TableCell>{produto.unit || "—"}</TableCell>
-              <TableCell>{produto.unit_price ?? "—"}</TableCell>
-              <TableCell>{produto.cost ?? "—"}</TableCell>
+              <TableCell className="catalog-number">{formatarMoeda(produto.unit_price)}</TableCell>
+              <TableCell className="catalog-number">{formatarMoeda(produto.cost)}</TableCell>
               <TableCell>
                 {produto.stock_quantity == null ? "Não informado" : produto.stock_quantity}
               </TableCell>
-              <TableCell>{produto.category || "Sem categoria"}</TableCell>
+              <TableCell>
+                <span className="catalog-category-chip">{produto.category || "Sem categoria"}</span>
+              </TableCell>
               <TableCell>
                 <div className="flex gap-1">
                   <Button
@@ -295,7 +312,7 @@ function TabelaCatalogo({
 
 function Paginacao({ total, pagina, paginas, setPagina }: ReturnType<typeof useCatalogo>) {
   return (
-    <div className="mt-4 flex items-center justify-between text-sm">
+    <div className="catalog-pagination mt-4 flex items-center justify-between text-sm">
       <span>{total} produto(s)</span>
       <div className="flex items-center gap-2">
         <Button variant="outline" disabled={pagina === 0} onClick={() => setPagina((p) => p - 1)}>
@@ -314,6 +331,11 @@ function Paginacao({ total, pagina, paginas, setPagina }: ReturnType<typeof useC
       </div>
     </div>
   );
+}
+
+function formatarMoeda(valor: number | null) {
+  if (valor == null || valor === 0) return <span className="catalog-empty-value">—</span>;
+  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 function DialogProduto({

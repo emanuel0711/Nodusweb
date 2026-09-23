@@ -418,6 +418,45 @@ test("CSV do catálogo importa Código e Código 2 como EANs da mesma família",
   );
   assert.ok(produtos.every((produto) => produto.description === "PRODUTO TESTE 1L"));
 });
+test("EAN secundário não repete o código promocional único do cadastro principal", () => {
+  const produtos = linhaParaProdutos(
+    {
+      Código: "7890000000101",
+      "Código 2": "7890000000102",
+      "Código da promoção": "205",
+      Descrição: "PRODUTO TESTE 1L",
+      "Un.": "UN",
+    },
+    "TESTE",
+  );
+  assert.deepEqual(
+    produtos.map(({ ean, promotion_code }) => ({ ean, promotion_code })),
+    [
+      { ean: "7890000000101", promotion_code: "205" },
+      { ean: "7890000000102", promotion_code: null },
+    ],
+  );
+});
+test("Código 2 funciona em qualquer categoria do catálogo", () => {
+  for (const categoria of ["BEBIDAS", "LIMPEZA E HIGIENE", "MASSAS", "PERFUMARIA"]) {
+    const produtos = linhaParaProdutos(
+      {
+        Código: "7890000000101",
+        "Código 2": "7890000000102",
+        Descrição: "PRODUTO TESTE 1L",
+        "Un.": "UN",
+      },
+      categoria,
+    );
+    assert.deepEqual(
+      produtos.map(({ ean, category }) => ({ ean, category })),
+      [
+        { ean: "7890000000101", category: categoria },
+        { ean: "7890000000102", category: categoria },
+      ],
+    );
+  }
+});
 test("produto com dois EANs entrega todos os códigos da mesma família", () => {
   const principal = produto("codigo-principal", "PRODUTO TESTE 1L", {
     ean: "7890000000101",
@@ -429,6 +468,16 @@ test("produto com dois EANs entrega todos os códigos da mesma família", () => 
     selecionarCodigosOferta("PRODUTO TESTE 1L", [principal, secundario], false).codigos,
     ["7890000000101", "7890000000102"],
   );
+});
+test("descrição exata por quilo não exige gramatura para uma família com sabores", () => {
+  const pizza = produto("pizza-padaria", "PIZZA PADARIA BRASIL KG", {
+    ean: null,
+    internal_code: "131",
+    unit: "KG",
+  });
+  const resultado = selecionarCodigosOferta("PIZZA PADARIA BRASIL KG", [pizza], true);
+  assert.deepEqual(resultado.codigos, ["131"]);
+  assert.equal(resultado.motivo, null);
 });
 test("descrição mais específica sugere cadastro-base sem marcar código", () => {
   const base = produto("manga", "MANGA KG", {

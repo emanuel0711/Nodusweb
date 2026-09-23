@@ -24,6 +24,7 @@ import {
 export const POR_PAGINA = 20;
 export const TODAS = "__all__";
 export const SEM_CATEGORIA = "__uncategorized__";
+export type FiltroImagemCatalogo = "todos" | "com" | "sem";
 export const FORMULARIO_VAZIO = {
   description: "",
   internal_code: "",
@@ -78,6 +79,7 @@ export function useCatalogo() {
   const campoArquivo = useRef<HTMLInputElement>(null);
   const [busca, setBuscaAtual] = useState("");
   const [categoria, setCategoriaAtual] = useState(TODAS);
+  const [filtroImagem, setFiltroImagemAtual] = useState<FiltroImagemCatalogo>("todos");
   const [selecionadas, setSelecionadas] = useState<string[]>([]);
   const [pagina, setPagina] = useState(0);
   const [editando, setEditando] = useState<Produto | null>(null);
@@ -95,6 +97,11 @@ export function useCatalogo() {
     setPagina(0);
   }
 
+  function setFiltroImagem(valor: FiltroImagemCatalogo) {
+    setFiltroImagemAtual(valor);
+    setPagina(0);
+  }
+
   const atualizarListas = () => {
     invalidarCacheCatalogo();
     queryClient.invalidateQueries({ queryKey: ["products"] });
@@ -108,7 +115,7 @@ export function useCatalogo() {
 
   const categorias = useQuery({ queryKey: ["product-categories"], queryFn: carregarCategorias });
   const produtos = useQuery({
-    queryKey: ["products", busca, categoria, pagina],
+    queryKey: ["products", busca, categoria, filtroImagem, pagina],
     queryFn: async () => {
       const termo = busca.trim().replace(/[,%]/g, " ");
       const codigoExato = codigoExatoDaBusca(termo);
@@ -129,6 +136,8 @@ export function useCatalogo() {
           );
         if (categoria === SEM_CATEGORIA) consulta = consulta.is("category", null);
         else if (categoria !== TODAS) consulta = consulta.eq("category", categoria);
+        if (filtroImagem === "com") consulta = consulta.not("image_url", "is", null);
+        else if (filtroImagem === "sem") consulta = consulta.is("image_url", null);
         return consulta;
       };
       let consulta = await consultar(COLUNAS_PRODUTO, Boolean(codigoExato));
@@ -235,6 +244,7 @@ export function useCatalogo() {
       let atualizados = 0;
       let ignorados = 0;
       let erros = 0;
+      let codigosSecundarios = 0;
 
       for (const arquivo of Array.from(arquivos)) {
         const linhas = await lerPlanilha(arquivo);
@@ -244,6 +254,7 @@ export function useCatalogo() {
         const convertidos = linhas.flatMap((linha) =>
           linhaParaProdutos(linha, categoriaArquivo, atualizadoEm),
         );
+        codigosSecundarios += Math.max(0, convertidos.length - linhas.length);
         const errosArquivo = linhas.filter(
           (linha) => !linhaParaProduto(linha, categoriaArquivo, atualizadoEm),
         ).length;
@@ -275,7 +286,7 @@ export function useCatalogo() {
         );
       else
         toast.success(
-          `${importados} produto(s) importado(s) e ${atualizados} atualizado(s) em ${segundos}s. Imagens ficam na fila do Catálogo.`,
+          `${importados} produto(s) importado(s) e ${atualizados} atualizado(s) em ${segundos}s. ${codigosSecundarios} código(s) secundário(s) lido(s). Imagens ficam na fila do Catálogo.`,
         );
       atualizarListas();
       queryClient.invalidateQueries({ queryKey: ["catalog-imports"] });
@@ -332,6 +343,8 @@ export function useCatalogo() {
     setBusca,
     categoria,
     setCategoria,
+    filtroImagem,
+    setFiltroImagem,
     selecionadas,
     setSelecionadas,
     pagina,

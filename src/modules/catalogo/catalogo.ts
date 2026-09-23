@@ -405,7 +405,16 @@ export function linhaParaProdutos(
     .filter(pareceEan);
   const eans = [...new Set([produto.ean ?? "", ...codigosSecundarios].filter(pareceEan))];
 
-  return eans.length ? eans.map((ean) => ({ ...produto, ean })) : [produto];
+  return eans.length
+    ? eans.map((ean, indice) => ({
+        ...produto,
+        ean,
+        // O código promocional identifica o cadastro principal e é único no
+        // banco. Os demais EANs representam a mesma família, mas precisam de
+        // registros independentes para serem encontrados nas ofertas.
+        promotion_code: indice === 0 ? produto.promotion_code : null,
+      }))
+    : [produto];
 }
 
 export function chaveDoProduto(produto: {

@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as PrivacidadeRouteImport } from './routes/privacidade'
 import { Route as TermosRouteImport } from './routes/termos'
 import { Route as AuthenticatedCatalogoRouteImport } from './routes/_authenticated/catalogo'
+import { Route as AuthenticatedHistoricoImportacoesRouteImport } from './routes/_authenticated/historico-importacoes'
 import { Route as AuthenticatedOfertasRouteImport } from './routes/_authenticated/ofertas'
 import { Route as AuthenticatedPainelRouteImport } from './routes/_authenticated/painel'
 import { Route as AuthenticatedCatalogoImportacoesRouteImport } from './routes/_authenticated/catalogo.importacoes'
@@ -48,6 +49,12 @@ const AuthenticatedCatalogoRoute = AuthenticatedCatalogoRouteImport.update({
   path: '/catalogo',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedHistoricoImportacoesRoute =
+  AuthenticatedHistoricoImportacoesRouteImport.update({
+    id: '/historico-importacoes',
+    path: '/historico-importacoes',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedOfertasRoute = AuthenticatedOfertasRouteImport.update({
   id: '/ofertas',
   path: '/ofertas',
@@ -71,6 +78,7 @@ export interface FileRoutesByFullPath {
   '/privacidade': typeof PrivacidadeRoute
   '/termos': typeof TermosRoute
   '/catalogo': typeof AuthenticatedCatalogoRouteWithChildren
+  '/historico-importacoes': typeof AuthenticatedHistoricoImportacoesRoute
   '/ofertas': typeof AuthenticatedOfertasRoute
   '/painel': typeof AuthenticatedPainelRoute
   '/catalogo/importacoes': typeof AuthenticatedCatalogoImportacoesRoute
@@ -81,6 +89,7 @@ export interface FileRoutesByTo {
   '/privacidade': typeof PrivacidadeRoute
   '/termos': typeof TermosRoute
   '/catalogo': typeof AuthenticatedCatalogoRouteWithChildren
+  '/historico-importacoes': typeof AuthenticatedHistoricoImportacoesRoute
   '/ofertas': typeof AuthenticatedOfertasRoute
   '/painel': typeof AuthenticatedPainelRoute
   '/catalogo/importacoes': typeof AuthenticatedCatalogoImportacoesRoute
@@ -93,6 +102,7 @@ export interface FileRoutesById {
   '/privacidade': typeof PrivacidadeRoute
   '/termos': typeof TermosRoute
   '/_authenticated/catalogo': typeof AuthenticatedCatalogoRouteWithChildren
+  '/_authenticated/historico-importacoes': typeof AuthenticatedHistoricoImportacoesRoute
   '/_authenticated/ofertas': typeof AuthenticatedOfertasRoute
   '/_authenticated/painel': typeof AuthenticatedPainelRoute
   '/_authenticated/catalogo/importacoes': typeof AuthenticatedCatalogoImportacoesRoute
@@ -105,6 +115,7 @@ export interface FileRouteTypes {
     | '/privacidade'
     | '/termos'
     | '/catalogo'
+    | '/historico-importacoes'
     | '/ofertas'
     | '/painel'
     | '/catalogo/importacoes'
@@ -115,6 +126,7 @@ export interface FileRouteTypes {
     | '/privacidade'
     | '/termos'
     | '/catalogo'
+    | '/historico-importacoes'
     | '/ofertas'
     | '/painel'
     | '/catalogo/importacoes'
@@ -126,6 +138,7 @@ export interface FileRouteTypes {
     | '/privacidade'
     | '/termos'
     | '/_authenticated/catalogo'
+    | '/_authenticated/historico-importacoes'
     | '/_authenticated/ofertas'
     | '/_authenticated/painel'
     | '/_authenticated/catalogo/importacoes'
@@ -183,6 +196,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCatalogoRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/historico-importacoes': {
+      id: '/_authenticated/historico-importacoes'
+      path: '/historico-importacoes'
+      fullPath: '/historico-importacoes'
+      preLoaderRoute: typeof AuthenticatedHistoricoImportacoesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/ofertas': {
       id: '/_authenticated/ofertas'
       path: '/ofertas'
@@ -222,12 +242,15 @@ const AuthenticatedCatalogoRouteWithChildren =
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedCatalogoRoute: typeof AuthenticatedCatalogoRouteWithChildren
+  AuthenticatedHistoricoImportacoesRoute: typeof AuthenticatedHistoricoImportacoesRoute
   AuthenticatedOfertasRoute: typeof AuthenticatedOfertasRoute
   AuthenticatedPainelRoute: typeof AuthenticatedPainelRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCatalogoRoute: AuthenticatedCatalogoRouteWithChildren,
+  AuthenticatedHistoricoImportacoesRoute:
+    AuthenticatedHistoricoImportacoesRoute,
   AuthenticatedOfertasRoute: AuthenticatedOfertasRoute,
   AuthenticatedPainelRoute: AuthenticatedPainelRoute,
 }

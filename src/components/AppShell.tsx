@@ -1,17 +1,32 @@
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { LayoutDashboard, Package, Sparkles, LogOut, PackageOpen, Moon, Sun, Settings2, X, History } from "lucide-react";
+import {
+  LayoutDashboard,
+  Package,
+  Sparkles,
+  LogOut,
+  PackageOpen,
+  Moon,
+  Sun,
+  Settings2,
+  X,
+  History,
+} from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import "@/app-overrides.css";
-import "@/catalogo-overrides.css";
-import "@/ui-polish.css";
 
 const NAV = [
   { to: "/painel", label: "Visão geral", icon: LayoutDashboard },
   { to: "/catalogo", label: "Catálogo", icon: Package },
-  { to: "/historico-importacoes", label: "Histórico de importações", mobileLabel: "Histórico", icon: History, subitem: true },
+  {
+    to: "/historico-importacoes",
+    label: "Histórico de importações",
+    mobileLabel: "Histórico",
+    icon: History,
+    subitem: true,
+  },
   { to: "/ofertas", label: "Ofertas", icon: Sparkles },
 ] as const;
 
@@ -20,10 +35,21 @@ const THEME_STORAGE_KEY = "nodus:tema";
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "N";
-  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
 }
 
-export function AppShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+export function AppShell({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+}) {
   const navigate = useNavigate();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -34,7 +60,9 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
 
   useEffect(() => {
     const salvo = localStorage.getItem(THEME_STORAGE_KEY);
-    const preferencia = salvo === "dark" || (salvo === null && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const preferencia =
+      salvo === "dark" ||
+      (salvo === null && window.matchMedia("(prefers-color-scheme: dark)").matches);
     setDarkMode(preferencia);
     document.documentElement.classList.toggle("dark", preferencia);
 
@@ -42,11 +70,17 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
     void supabase.auth.getUser().then(({ data }) => {
       if (!mounted || !data.user) return;
       const metadata = data.user.user_metadata;
-      const nome = metadata?.["full_name"] || metadata?.["name"] || data.user.email?.split("@")[0] || "Usuário";
+      const nome =
+        metadata?.["full_name"] ||
+        metadata?.["name"] ||
+        data.user.email?.split("@")[0] ||
+        "Usuário";
       setUserName(String(nome));
       setUserEmail(data.user.email ?? "");
     });
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   function alternarTema() {
@@ -81,7 +115,14 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
         <nav className="app-sidebar__nav">
           <div className="app-sidebar__section-label">Workspace</div>
           {NAV.map(({ to, label, icon: Icon, ...item }) => (
-            <Link key={to} to={to} className="app-sidebar__link" data-subitem={"subitem" in item ? "true" : undefined} activeOptions={{ exact: true }} activeProps={{ "data-active": "true" }}>
+            <Link
+              key={to}
+              to={to}
+              className="app-sidebar__link"
+              data-subitem={"subitem" in item ? "true" : undefined}
+              activeOptions={{ exact: true }}
+              activeProps={{ "data-active": "true" }}
+            >
               <Icon className="size-5 shrink-0" />
               <span>{label}</span>
             </Link>
@@ -89,7 +130,11 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
         </nav>
 
         <div className="app-sidebar__account">
-          <button className="app-account-card" onClick={() => setShowProfile(true)} aria-label="Abrir perfil">
+          <button
+            className="app-account-card"
+            onClick={() => setShowProfile(true)}
+            aria-label="Abrir perfil"
+          >
             <span className="app-account-card__avatar">{initials(userName)}</span>
             <span className="app-account-card__identity">
               <strong>{userName}</strong>
@@ -98,7 +143,12 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
             <Settings2 className="app-account-card__chevron" />
           </button>
           <div className="app-account-actions">
-            <Button variant="ghost" size="sm" onClick={alternarTema} title={darkMode ? "Usar tema claro" : "Usar tema escuro"}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={alternarTema}
+              title={darkMode ? "Usar tema claro" : "Usar tema escuro"}
+            >
               {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
               <span>{darkMode ? "Tema claro" : "Tema escuro"}</span>
             </Button>
@@ -112,15 +162,33 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
 
       <nav className="app-mobile-nav" aria-label="Navegação móvel">
         {NAV.map(({ to, label, icon: Icon, ...item }) => (
-          <Link key={to} to={to} className="app-sidebar__link" activeOptions={{ exact: true }} activeProps={{ "data-active": "true" }}>
+          <Link
+            key={to}
+            to={to}
+            className="app-sidebar__link"
+            activeOptions={{ exact: true }}
+            activeProps={{ "data-active": "true" }}
+          >
             <Icon className="size-4" />
             <span>{"mobileLabel" in item ? item.mobileLabel : label}</span>
           </Link>
         ))}
-        <Button variant="ghost" size="sm" onClick={() => setShowProfile(true)} className="shrink-0" title="Perfil">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowProfile(true)}
+          className="shrink-0"
+          title="Perfil"
+        >
           <Settings2 className="size-4" />
         </Button>
-        <Button variant="ghost" size="sm" onClick={alternarTema} className="shrink-0" title={darkMode ? "Usar tema claro" : "Usar tema escuro"}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={alternarTema}
+          className="shrink-0"
+          title={darkMode ? "Usar tema claro" : "Usar tema escuro"}
+        >
           {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
       </nav>
@@ -129,7 +197,9 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
         <main className="app-main__content">
           <div className="mb-6">
             <div className="app-main__eyebrow">Nódus · Workspace</div>
-            <h1 className="text-2xl font-semibold sm:text-3xl">{title === "Painel" ? "Visão geral" : title}</h1>
+            <h1 className="text-2xl font-semibold sm:text-3xl">
+              {title === "Painel" ? "Visão geral" : title}
+            </h1>
             {subtitle ? <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p> : null}
           </div>
           {children}
@@ -141,14 +211,31 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
       </div>
 
       {showProfile ? (
-        <div className="app-profile-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setShowProfile(false); }}>
-          <section className="app-profile-panel" role="dialog" aria-modal="true" aria-labelledby="perfil-titulo">
+        <div
+          className="app-profile-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setShowProfile(false);
+          }}
+        >
+          <section
+            className="app-profile-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="perfil-titulo"
+          >
             <div className="app-profile-panel__header">
               <div>
                 <div className="app-main__eyebrow">Conta</div>
                 <h2 id="perfil-titulo">Perfil e preferências</h2>
               </div>
-              <button className="app-profile-close" onClick={() => setShowProfile(false)} aria-label="Fechar perfil"><X className="size-5" /></button>
+              <button
+                className="app-profile-close"
+                onClick={() => setShowProfile(false)}
+                aria-label="Fechar perfil"
+              >
+                <X className="size-5" />
+              </button>
             </div>
 
             <div className="app-profile-identity">
@@ -161,13 +248,22 @@ export function AppShell({ title, subtitle, children }: { title: string; subtitl
 
             <div className="app-profile-section">
               <span className="app-profile-section__label">Conta</span>
-              <div className="app-profile-row"><span>Nome</span><strong>{userName}</strong></div>
-              <div className="app-profile-row"><span>E-mail</span><strong>{userEmail || "—"}</strong></div>
+              <div className="app-profile-row">
+                <span>Nome</span>
+                <strong>{userName}</strong>
+              </div>
+              <div className="app-profile-row">
+                <span>E-mail</span>
+                <strong>{userEmail || "—"}</strong>
+              </div>
             </div>
 
             <div className="app-profile-section">
               <span className="app-profile-section__label">Empresa / organização</span>
-              <div className="app-profile-placeholder">A área de empresa está preparada para receber os dados da organização quando essa informação fizer parte do cadastro.</div>
+              <div className="app-profile-placeholder">
+                A área de empresa está preparada para receber os dados da organização quando essa
+                informação fizer parte do cadastro.
+              </div>
             </div>
 
             <div className="app-profile-section">
