@@ -229,6 +229,75 @@
   display: flex;
   gap: 24px;
 }
+.nodus-legal-page {
+  padding: 56px 20px 80px;
+}
+.nodus-legal {
+  width: min(860px, 100%);
+  margin: 0 auto;
+  padding: 52px clamp(24px, 6vw, 72px) 58px;
+  border: 1px solid var(--nodus-line);
+  border-radius: 28px;
+  background: var(--nodus-card);
+  box-shadow: 0 24px 80px rgb(82 45 22/8%);
+  backdrop-filter: blur(18px);
+}
+.nodus-legal__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 46px;
+  color: var(--nodus-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.nodus-legal__back:hover {
+  color: var(--nodus-orange);
+}
+.nodus-legal h1 {
+  margin: 8px 0 0;
+  color: var(--nodus-ink);
+  font-size: clamp(42px, 7vw, 68px);
+  font-weight: 720;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+.nodus-legal__lead {
+  max-width: 670px;
+  margin: 24px 0 0;
+  color: var(--nodus-muted);
+  font-size: 15px;
+  line-height: 1.75;
+}
+.nodus-legal__sections {
+  display: grid;
+  gap: 0;
+  margin-top: 48px;
+  border-top: 1px solid var(--nodus-line);
+}
+.nodus-legal__sections section {
+  padding: 28px 0;
+  border-bottom: 1px solid var(--nodus-line);
+}
+.nodus-legal__sections h2 {
+  margin: 0;
+  color: var(--nodus-ink);
+  font-size: 20px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+.nodus-legal__sections p {
+  margin: 10px 0 0;
+  color: var(--nodus-muted);
+  font-size: 14px;
+  line-height: 1.75;
+}
+.nodus-legal__note {
+  margin: 34px 0 0;
+  color: var(--nodus-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
 .dark .nodus-public {
   --nodus-ink: #f7eee7;
   --nodus-muted: #b8a89c;
@@ -313,5 +382,15 @@
   }
   .nodus-footer__links {
     flex-wrap: wrap;
+  }
+  .nodus-legal-page {
+    padding: 14px;
+  }
+  .nodus-legal {
+    padding: 32px 22px 38px;
+    border-radius: 22px;
+  }
+  .nodus-legal__back {
+    margin-bottom: 34px;
   }
 }
