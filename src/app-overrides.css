@@ -476,7 +476,9 @@ body {
   content: "";
   opacity: 0;
   transform: scale(0.5);
-  transition: opacity 120ms ease, transform 120ms ease;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
 }
 .catalog-file-chip input:checked {
   border-color: var(--primary);
@@ -773,5 +775,155 @@ button[class*="bg-primary"]:hover {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+/* Modais compartilhados: seguem a mesma linguagem do painel de perfil. */
+[data-slot="dialog-overlay"] {
+  background: rgb(0 0 0 / 28%) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+[data-slot="dialog-content"] {
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  background: var(--card) !important;
+  color: var(--card-foreground) !important;
+  box-shadow: var(--shadow-lift) !important;
+}
+
+[data-slot="dialog-header"] {
+  min-width: 0;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+[data-slot="dialog-title"] {
+  overflow-wrap: anywhere;
+  font-size: 22px !important;
+  line-height: 1.25 !important;
+}
+
+[data-slot="dialog-description"] {
+  line-height: 1.5;
+}
+
+[data-slot="dialog-footer"] {
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+[role="dialog"].max-w-2xl {
+  width: min(720px, calc(100vw - 32px)) !important;
+  max-width: 720px !important;
+}
+
+@media (max-width: 640px) {
+  .app-main__content {
+    padding-top: 22px;
+  }
+
+  .app-main__content > div:first-child {
+    margin-bottom: 18px !important;
+  }
+
+  .app-profile-backdrop {
+    align-items: center;
+    padding: 10px;
+  }
+
+  .app-profile-panel {
+    width: 100% !important;
+    max-height: calc(100dvh - 20px);
+    padding: 20px !important;
+    border-radius: 12px !important;
+  }
+
+  .app-profile-panel__header {
+    padding-bottom: 16px !important;
+  }
+
+  .app-profile-panel__header h2,
+  [data-slot="dialog-title"] {
+    font-size: 20px !important;
+  }
+
+  [data-slot="dialog-content"],
+  .of-product-dialog,
+  [role="dialog"].max-w-2xl {
+    width: calc(100vw - 20px) !important;
+    max-height: calc(100dvh - 20px) !important;
+    gap: 16px !important;
+    padding: 20px !important;
+  }
+
+  [data-slot="dialog-content"] > button[aria-label] {
+    top: 12px;
+    right: 12px;
+  }
+
+  [data-slot="dialog-header"] {
+    padding-right: 38px !important;
+    padding-bottom: 14px;
+  }
+
+  [data-slot="dialog-footer"] {
+    align-items: stretch !important;
+    padding-top: 14px;
+  }
+
+  [data-slot="dialog-footer"] > button {
+    min-width: min(132px, 100%);
+    flex: 1 1 132px;
+  }
+
+  [data-slot="dialog-footer"] > div {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  [data-slot="dialog-footer"] > div > button {
+    flex: 1 1 132px;
+  }
+
+  [role="dialog"].max-w-2xl .min-h-44 {
+    min-height: 160px !important;
+  }
+
+  [role="dialog"].max-w-2xl .min-h-44 img {
+    max-height: 190px !important;
+  }
+
+  .catalog-pagination,
+  .offers-pagination {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+
+  .catalog-pagination > div,
+  .offers-pagination > div {
+    width: 100%;
+    justify-content: space-between !important;
+  }
+
+  .catalog-pagination button,
+  .offers-pagination button {
+    flex: 1;
+  }
+}
+
+@media (max-width: 520px) {
+  .app-mobile-nav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .app-mobile-nav > button:last-child {
+    display: none;
+  }
+
+  .app-mobile-nav .app-sidebar__link,
+  .app-mobile-nav button {
+    font-size: 10px;
   }
 }
