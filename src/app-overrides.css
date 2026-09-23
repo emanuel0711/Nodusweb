@@ -780,9 +780,9 @@ button[class*="bg-primary"]:hover {
 
 /* Modais compartilhados: seguem a mesma linguagem do painel de perfil. */
 [data-slot="dialog-overlay"] {
-  background: rgb(0 0 0 / 28%) !important;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgb(0 0 0 / 25%) !important;
+  backdrop-filter: blur(14px) saturate(75%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(75%) !important;
 }
 
 [data-slot="dialog-content"] {
@@ -807,6 +807,47 @@ button[class*="bg-primary"]:hover {
 
 [data-slot="dialog-description"] {
   line-height: 1.5;
+}
+
+[data-slot="dialog-content"] input[type="checkbox"] {
+  appearance: none;
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  place-content: center;
+  border: 1px solid color-mix(in srgb, var(--muted-foreground) 48%, transparent) !important;
+  border-radius: 4px !important;
+  background: var(--card) !important;
+  box-shadow: none !important;
+}
+
+[data-slot="dialog-content"] input[type="checkbox"]::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--primary-foreground);
+  content: "";
+  opacity: 0;
+  transform: scale(0.5);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+[data-slot="dialog-content"] input[type="checkbox"]:checked {
+  border-color: var(--primary) !important;
+  background: var(--primary) !important;
+}
+
+[data-slot="dialog-content"] input[type="checkbox"]:checked::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
+[data-slot="dialog-content"] input[type="checkbox"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 38%, transparent);
+  outline-offset: 2px;
 }
 
 [data-slot="dialog-footer"] {
