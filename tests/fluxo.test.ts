@@ -23,6 +23,7 @@ import {
   erroCategoriaDaImportacao,
   linhaParaProduto,
   linhaParaProdutos,
+  expandirCodigosDoProduto,
   prepararItensImportacao,
   type Produto,
 } from "../src/modules/catalogo/catalogo.ts";
@@ -412,13 +413,12 @@ test("CSV do catálogo importa Código e Código 2 como EANs da mesma família",
     ),
   );
   const produtos = linhaParaProdutos(linhas[0]!, "TESTE");
-  assert.deepEqual(
-    produtos.map((produto) => produto.ean),
-    ["7890000000101", "7890000000102"],
-  );
-  assert.ok(produtos.every((produto) => produto.description === "PRODUTO TESTE 1L"));
+  assert.equal(produtos.length, 1);
+  assert.equal(produtos[0]!.ean, "7890000000101");
+  assert.deepEqual(produtos[0]!.additional_eans, ["7890000000102"]);
+  assert.equal(produtos[0]!.description, "PRODUTO TESTE 1L");
 });
-test("EAN secundário não repete o código promocional único do cadastro principal", () => {
+test("EAN secundário permanece no cadastro principal com o código promocional", () => {
   const produtos = linhaParaProdutos(
     {
       Código: "7890000000101",
@@ -429,13 +429,9 @@ test("EAN secundário não repete o código promocional único do cadastro princ
     },
     "TESTE",
   );
-  assert.deepEqual(
-    produtos.map(({ ean, promotion_code }) => ({ ean, promotion_code })),
-    [
-      { ean: "7890000000101", promotion_code: "205" },
-      { ean: "7890000000102", promotion_code: null },
-    ],
-  );
+  assert.equal(produtos.length, 1);
+  assert.equal(produtos[0]!.promotion_code, "205");
+  assert.deepEqual(produtos[0]!.additional_eans, ["7890000000102"]);
 });
 test("Código 2 funciona em qualquer categoria do catálogo", () => {
   for (const categoria of ["BEBIDAS", "LIMPEZA E HIGIENE", "MASSAS", "PERFUMARIA"]) {
@@ -448,13 +444,10 @@ test("Código 2 funciona em qualquer categoria do catálogo", () => {
       },
       categoria,
     );
-    assert.deepEqual(
-      produtos.map(({ ean, category }) => ({ ean, category })),
-      [
-        { ean: "7890000000101", category: categoria },
-        { ean: "7890000000102", category: categoria },
-      ],
-    );
+    assert.equal(produtos.length, 1);
+    assert.equal(produtos[0]!.ean, "7890000000101");
+    assert.deepEqual(produtos[0]!.additional_eans, ["7890000000102"]);
+    assert.equal(produtos[0]!.category, categoria);
   }
 });
 test("produto com dois EANs entrega todos os códigos da mesma família", () => {
@@ -466,6 +459,18 @@ test("produto com dois EANs entrega todos os códigos da mesma família", () => 
   });
   assert.deepEqual(
     selecionarCodigosOferta("PRODUTO TESTE 1L", [principal, secundario], false).codigos,
+    ["7890000000101", "7890000000102"],
+  );
+});
+test("um cadastro com Código 2 entrega todos os EANs ao motor de ofertas", () => {
+  const cadastro = produto("cadastro-unico", "PRODUTO TESTE 1L", {
+    ean: "7890000000101",
+    additional_eans: ["7890000000102"],
+  });
+  const catalogoExpandido = expandirCodigosDoProduto(cadastro);
+  assert.equal(catalogoExpandido.length, 2);
+  assert.deepEqual(
+    selecionarCodigosOferta("PRODUTO TESTE 1L", catalogoExpandido, false).codigos,
     ["7890000000101", "7890000000102"],
   );
 });
