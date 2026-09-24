@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { lerPlanilha, categoriaPeloNomeDoArquivo } from "@/lib/planilha";
 import { lerPreco } from "@/lib/comparar-textos";
+import { normalizarTexto } from "@/lib/comparar-textos";
 import {
   COLUNAS_PRODUTO,
   COLUNAS_PRODUTO_BASE,
@@ -30,6 +31,7 @@ export const FORMULARIO_VAZIO = {
   internal_code: "",
   promotion_code: "",
   ean: "",
+  additional_eans: "",
   unit: "",
   category: "",
   unit_price: "",
@@ -50,6 +52,61 @@ interface ResumoImportacao {
   product_count: number;
   created_at: string;
   undone_at: string | null;
+}
+
+export interface ConflitoCatalogo {
+  chave: string;
+  description: string;
+  category: string | null;
+  produtos: Produto[];
+}
+
+export function useConflitosCatalogo(ativo: boolean) {
+  return useQuery({
+    queryKey: ["catalog-conflicts"],
+    enabled: ativo,
+    queryFn: async (): Promise<ConflitoCatalogo[]> => {
+      const todos: Produto[] = [];
+      for (let inicio = 0; ; inicio += 1000) {
+        const { data, error } = await supabase
+          .from("products")
+          .select(COLUNAS_PRODUTO)
+          .order("description")
+          .range(inicio, inicio + 999);
+        if (error) throw error;
+        const pagina = (data ?? []) as unknown as Produto[];
+        todos.push(...pagina);
+        if (pagina.length < 1000) break;
+      }
+      const grupos = new Map<string, Produto[]>();
+      for (const produto of todos) {
+        const chave = `${produto.category ?? ""}\u0000${normalizarTexto(produto.description)}`;
+        grupos.set(chave, [...(grupos.get(chave) ?? []), produto]);
+      }
+      return [...grupos.entries()]
+        .filter(([, produtos]) => {
+          if (produtos.length < 2) return false;
+          const dados = new Set(
+            produtos.map((produto) =>
+              JSON.stringify([
+                produto.internal_code,
+                produto.unit,
+                produto.unit_price,
+                produto.cost,
+                produto.stock_quantity,
+              ]),
+            ),
+          );
+          return dados.size > 1;
+        })
+        .map(([chave, produtos]) => ({
+          chave,
+          description: produtos[0]!.description,
+          category: produtos[0]!.category,
+          produtos,
+        }));
+    },
+  });
 }
 
 async function carregarCategorias(): Promise<string[]> {
@@ -128,7 +185,7 @@ export function useCatalogo() {
           .range(pagina * POR_PAGINA, pagina * POR_PAGINA + POR_PAGINA - 1);
         if (somenteCodigoExato)
           consulta = consulta.or(
-            `internal_code.eq.${codigoExato},promotion_code.eq.${codigoExato},ean.eq.${codigoExato}`,
+            `internal_code.eq.${codigoExato},promotion_code.eq.${codigoExato},ean.eq.${codigoExato},additional_eans.cs.{${codigoExato}}`,
           );
         else if (termo)
           consulta = consulta.or(
@@ -171,6 +228,10 @@ export function useCatalogo() {
         internal_code: formulario.internal_code.trim() || null,
         promotion_code: limparCodigo(formulario.promotion_code) || null,
         ean: limparEan(formulario.ean) || null,
+        additional_eans: formulario.additional_eans
+          .split(/[;,|\n]+/)
+          .map(limparEan)
+          .filter(Boolean),
         unit: formulario.unit.trim() || null,
         category: formulario.category.trim() || null,
         image_url: formulario.image_url.trim() || null,
@@ -254,7 +315,10 @@ export function useCatalogo() {
         const convertidos = linhas.flatMap((linha) =>
           linhaParaProdutos(linha, categoriaArquivo, atualizadoEm),
         );
-        codigosSecundarios += Math.max(0, convertidos.length - linhas.length);
+        codigosSecundarios += convertidos.reduce(
+          (total, produto) => total + produto.additional_eans.length,
+          0,
+        );
         const errosArquivo = linhas.filter(
           (linha) => !linhaParaProduto(linha, categoriaArquivo, atualizadoEm),
         ).length;
@@ -272,6 +336,22 @@ export function useCatalogo() {
         });
         if (error) throw error;
         const carga = data as unknown as ResumoImportacao;
+
+        // A RPC continua responsável pela carga atômica e pelo histórico. Após
+        // ela confirmar o cadastro principal, associa os EANs alternativos da
+        // mesma linha sem criar novos produtos visuais.
+        for (const produto of convertidos.filter((item) => item.additional_eans.length)) {
+          let atualizacao = supabase
+            .from("products")
+            .update({ additional_eans: produto.additional_eans })
+            .eq("category", categoriaArquivo);
+          if (produto.ean) atualizacao = atualizacao.eq("ean", produto.ean);
+          else if (produto.internal_code)
+            atualizacao = atualizacao.eq("internal_code", produto.internal_code);
+          else atualizacao = atualizacao.eq("description", produto.description);
+          const { error: erroCodigos } = await atualizacao;
+          if (erroCodigos) throw erroCodigos;
+        }
 
         importados += carga.inserted_count;
         atualizados += carga.updated_count;
@@ -322,6 +402,7 @@ export function useCatalogo() {
       internal_code: produto.internal_code ?? "",
       promotion_code: produto.promotion_code ?? "",
       ean: produto.ean ?? "",
+      additional_eans: (produto.additional_eans ?? []).join(";"),
       unit: produto.unit ?? "",
       category: produto.category ?? "",
       unit_price: produto.unit_price != null ? String(produto.unit_price) : "",

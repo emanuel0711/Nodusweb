@@ -11,6 +11,7 @@ export interface Produto {
   internal_code: string | null;
   promotion_code: string | null;
   ean: string | null;
+  additional_eans?: string[];
   description: string;
   unit: string | null;
   unit_price: number | null;
@@ -33,7 +34,7 @@ export function codigoExatoDaBusca(valor: string): string {
 }
 
 export const COLUNAS_PRODUTO_BASE =
-  "id, internal_code, promotion_code, ean, description, unit, unit_price, category, image_url";
+  "id, internal_code, promotion_code, ean, additional_eans, description, unit, unit_price, category, image_url";
 export const COLUNAS_PRODUTO = `${COLUNAS_PRODUTO_BASE}, cost, stock_quantity, stock_updated_at`;
 const COLUNAS_PRODUTO_SEM_ESTOQUE = `${COLUNAS_PRODUTO_BASE}, cost`;
 
@@ -72,11 +73,35 @@ function normalizarProduto(produto: Produto): Produto {
     const interno = limparCodigo(produto.internal_code);
     const ean = limparEan(produto.ean);
     const codigoInterno = interno || (!pareceEan(ean) ? ean : "");
-    return { ...produto, internal_code: codigoInterno || null, ean: null };
+    return { ...produto, internal_code: codigoInterno || null, ean: null, additional_eans: [] };
   }
 
   // Produto por unidade usa EAN; código interno nunca participa da chave de busca.
-  return { ...produto, internal_code: null, ean: limparEan(produto.ean) || null };
+  return {
+    ...produto,
+    internal_code: null,
+    ean: limparEan(produto.ean) || null,
+    additional_eans: [...new Set((produto.additional_eans ?? []).map(limparEan).filter(pareceEan))],
+  };
+}
+
+export function expandirCodigosDoProduto(produto: Produto): Produto[] {
+  const normalizado = normalizarProduto(produto);
+  if (unidadeEhKg(normalizado.unit, normalizado.description)) return [normalizado];
+  const codigos = [
+    ...new Set(
+      [normalizado.ean, ...(normalizado.additional_eans ?? [])].filter(
+        (codigo): codigo is string => Boolean(codigo),
+      ),
+    ),
+  ];
+  return codigos.length
+    ? codigos.map((ean) => ({
+        ...normalizado,
+        ean,
+        additional_eans: normalizado.additional_eans ?? [],
+      }))
+    : [normalizado];
 }
 
 const DURACAO_CACHE_CATALOGO_MS = 60_000;
@@ -134,8 +159,10 @@ async function buscarTodosProdutos(): Promise<Produto[]> {
 
     if (error) throw error;
 
-    const pagina = ((data ?? []) as unknown as Produto[]).map((produto) =>
-      normalizarProduto({ ...produto, cost: produto.cost ?? null }),
+    // O catálogo mantém um cadastro. Para o motor de ofertas, cada EAN da
+    // família vira apenas uma visão virtual do mesmo produto.
+    const pagina = ((data ?? []) as unknown as Produto[]).flatMap((produto) =>
+      expandirCodigosDoProduto({ ...produto, cost: produto.cost ?? null }),
     );
     todos.push(...pagina);
     if (pagina.length < 1000) return todos;
@@ -166,6 +193,7 @@ export interface ProdutoImportado {
   internal_code: string | null;
   promotion_code: string | null;
   ean: string | null;
+  additional_eans: string[];
   description: string;
   unit: string | null;
   unit_price: number | null;
@@ -185,11 +213,13 @@ function identificadoresDoProduto(produto: {
   internal_code: string | null;
   promotion_code: string | null;
   ean: string | null;
+  additional_eans?: string[];
   description: string;
 }): string[] {
   return [
     produto.promotion_code ? `promocao:${produto.promotion_code}` : "",
     produto.ean ? `ean:${produto.ean}` : "",
+    ...(produto.additional_eans ?? []).map((ean) => `ean:${ean}`),
     produto.internal_code ? `interno:${produto.internal_code}` : "",
     `descricao:${normalizarTexto(produto.description)}`,
   ].filter(Boolean);
@@ -360,6 +390,7 @@ export function linhaParaProduto(
     internal_code: internalCode || null,
     promotion_code: codigoPromocaoExplicito || null,
     ean: ean || null,
+    additional_eans: [],
     description: descricao,
     unit: unidade || null,
     unit_price: lerPreco(valorDoCampo(linha, ["Preço Un.", "Preco Un", "Preço", "Preco", "Valor"])),
@@ -374,10 +405,8 @@ export function linhaParaProduto(
 }
 
 /**
- * Converte uma linha do catálogo em um ou mais produtos. Alguns relatórios do
- * ERP trazem um segundo código de barras na coluna "Código 2". O banco mantém
- * um EAN por registro, então cada código válido vira um registro da mesma
- * família, com descrição, preço, estoque e imagem compartilhados.
+ * Converte uma linha do catálogo em um cadastro. Os códigos de barras da
+ * coluna "Código 2" ficam associados ao EAN principal no mesmo produto.
  */
 export function linhaParaProdutos(
   linha: LinhaPlanilha,
@@ -404,17 +433,13 @@ export function linhaParaProdutos(
     .map(limparEan)
     .filter(pareceEan);
   const eans = [...new Set([produto.ean ?? "", ...codigosSecundarios].filter(pareceEan))];
-
-  return eans.length
-    ? eans.map((ean, indice) => ({
-        ...produto,
-        ean,
-        // O código promocional identifica o cadastro principal e é único no
-        // banco. Os demais EANs representam a mesma família, mas precisam de
-        // registros independentes para serem encontrados nas ofertas.
-        promotion_code: indice === 0 ? produto.promotion_code : null,
-      }))
-    : [produto];
+  return [
+    {
+      ...produto,
+      ean: eans[0] ?? produto.ean,
+      additional_eans: eans.slice(1),
+    },
+  ];
 }
 
 export function chaveDoProduto(produto: {
