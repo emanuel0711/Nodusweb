@@ -149,6 +149,7 @@ export type Database = {
           created_at: string;
           description: string;
           ean: string | null;
+          additional_eans: string[];
           id: string;
           image_last_checked_at: string | null;
           image_search_version: number;
@@ -169,6 +170,7 @@ export type Database = {
           created_at?: string;
           description: string;
           ean?: string | null;
+          additional_eans?: string[];
           id?: string;
           image_last_checked_at?: string | null;
           image_search_version?: number;
@@ -189,6 +191,7 @@ export type Database = {
           created_at?: string;
           description?: string;
           ean?: string | null;
+          additional_eans?: string[];
           id?: string;
           image_last_checked_at?: string | null;
           image_search_version?: number;
