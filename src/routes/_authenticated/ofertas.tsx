@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -500,26 +501,8 @@ function DialogExportacao({
               ))}
             </select>
           </label>
-          <label className="block text-sm font-medium">
-            Ativação automática
-            <Input
-              className="mt-1.5"
-              type="datetime-local"
-              step="60"
-              value={ativarEm}
-              onChange={(e) => setAtivarEm(e.target.value)}
-            />
-          </label>
-          <label className="block text-sm font-medium">
-            Inativar em
-            <Input
-              className="mt-1.5"
-              type="datetime-local"
-              step="60"
-              value={inativarEm}
-              onChange={(e) => setInativarEm(e.target.value)}
-            />
-          </label>
+          <CampoDataHora rotulo="Ativação automática" value={ativarEm} onChange={setAtivarEm} />
+          <CampoDataHora rotulo="Inativar em" value={inativarEm} onChange={setInativarEm} />
           <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
             Check-In: <strong>Não</strong> · Dias para resgate: <strong>1</strong> · App:{" "}
             <strong>Não exigir ativação</strong>
@@ -535,6 +518,47 @@ function DialogExportacao({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CampoDataHora({
+  rotulo,
+  value,
+  onChange,
+}: {
+  rotulo: string;
+  value: string;
+  onChange: (valor: string) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const data = value ? new Date(value) : null;
+  const texto = data && !Number.isNaN(data.getTime())
+    ? data.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+    : "Selecione a data e a hora";
+  return (
+    <label className="block text-sm font-medium">
+      {rotulo}
+      <div className="mt-1.5 flex gap-2">
+        <Input
+          ref={input}
+          className="offers-date-input"
+          type="datetime-local"
+          step="60"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          aria-label={`Abrir calendário de ${rotulo.toLowerCase()}`}
+          onClick={() => input.current?.showPicker()}
+        >
+          <CalendarDays className="size-4" />
+        </Button>
+      </div>
+      <span className="mt-1 block text-xs font-normal text-muted-foreground">{texto}</span>
+    </label>
   );
 }
 

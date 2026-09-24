@@ -39,7 +39,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Produto } from "@/lib/catalogo";
-import { SEM_CATEGORIA, TODAS, useCatalogo } from "@/modules/catalogo/use-catalogo";
+import {
+  SEM_CATEGORIA,
+  TODAS,
+  useCatalogo,
+  useConflitosCatalogo,
+  type ConflitoCatalogo,
+} from "@/modules/catalogo/use-catalogo";
 import { LoadingState } from "@/components/LoadingState";
 
 export const Route = createFileRoute("/_authenticated/catalogo")({
@@ -64,22 +70,95 @@ export const Route = createFileRoute("/_authenticated/catalogo")({
 function PaginaCatalogo() {
   const catalogo = useCatalogo();
   const [produtoVisualizado, setProdutoVisualizado] = useState<Produto | null>(null);
+  const [aba, setAba] = useState<"catalogo" | "conflitos">("catalogo");
+  const conflitos = useConflitosCatalogo(aba === "conflitos");
 
   return (
     <AppShell
       title="Catálogo de produtos"
       subtitle="Base usada no cruzamento automático das ofertas."
     >
-      <ImagensPendentes categoria={catalogo.categoria} />
-      <BarraCatalogo {...catalogo} />
-      <TabelaCatalogo {...catalogo} onVisualizar={setProdutoVisualizado} />
-      <Paginacao {...catalogo} />
+      <div className="catalog-segmented mt-4 w-fit" aria-label="Seção do catálogo">
+        <button type="button" data-active={aba === "catalogo"} onClick={() => setAba("catalogo")}>
+          Produtos
+        </button>
+        <button type="button" data-active={aba === "conflitos"} onClick={() => setAba("conflitos")}>
+          Conflitos {conflitos.data?.length ? `(${conflitos.data.length})` : ""}
+        </button>
+      </div>
+      {aba === "catalogo" ? (
+        <>
+          <ImagensPendentes categoria={catalogo.categoria} />
+          <BarraCatalogo {...catalogo} />
+          <TabelaCatalogo {...catalogo} onVisualizar={setProdutoVisualizado} />
+          <Paginacao {...catalogo} />
+        </>
+      ) : (
+        <TabelaConflitos
+          conflitos={conflitos.data ?? []}
+          carregando={conflitos.isLoading}
+          onVisualizar={setProdutoVisualizado}
+        />
+      )}
       <DialogProduto {...catalogo} />
       <DialogVisualizacao
         produto={produtoVisualizado}
         onClose={() => setProdutoVisualizado(null)}
       />
     </AppShell>
+  );
+}
+
+function TabelaConflitos({
+  conflitos,
+  carregando,
+  onVisualizar,
+}: {
+  conflitos: ConflitoCatalogo[];
+  carregando: boolean;
+  onVisualizar: (produto: Produto) => void;
+}) {
+  if (carregando)
+    return <LoadingState className="surface mt-4 min-h-64" title="Procurando conflitos" />;
+  return (
+    <div className="surface mt-4 overflow-x-auto">
+      <div className="border-b p-4">
+        <h2 className="font-semibold">Cadastros com a mesma descrição</h2>
+        <p className="text-sm text-muted-foreground">
+          Estes itens possuem preço, custo, estoque, unidade ou código interno diferentes.
+        </p>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Descrição</TableHead>
+            <TableHead>Arquivo</TableHead>
+            <TableHead>Cadastros encontrados</TableHead>
+            <TableHead>Códigos</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {!conflitos.length ? (
+            <TableRow><TableCell colSpan={4} className="h-24 text-center">Nenhum conflito encontrado.</TableCell></TableRow>
+          ) : conflitos.map((grupo) => (
+            <TableRow key={grupo.chave}>
+              <TableCell className="font-medium">{grupo.description}</TableCell>
+              <TableCell>{grupo.category || "Sem categoria"}</TableCell>
+              <TableCell>{grupo.produtos.length}</TableCell>
+              <TableCell>
+                <div className="flex flex-wrap gap-2">
+                  {grupo.produtos.map((produto) => (
+                    <Button key={produto.id} variant="outline" size="sm" onClick={() => onVisualizar(produto)}>
+                      {produto.ean || produto.internal_code || "Sem código"}
+                    </Button>
+                  ))}
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -309,7 +388,9 @@ function TabelaCatalogo({
                   )}
                 </TableCell>
                 <TableCell className="font-medium">{produto.description}</TableCell>
-                <TableCell>{produto.ean || "—"}</TableCell>
+                <TableCell>
+                  {[produto.ean, ...(produto.additional_eans ?? [])].filter(Boolean).join("; ") || "—"}
+                </TableCell>
                 <TableCell>{produto.internal_code || "—"}</TableCell>
                 <TableCell>{produto.unit || "—"}</TableCell>
                 <TableCell className="catalog-number">
@@ -399,6 +480,7 @@ function DialogProduto({
     ["description", "Descrição"],
     ["internal_code", "Código interno"],
     ["ean", "EAN"],
+    ["additional_eans", "EANs adicionais"],
     ["unit", "Unidade"],
     ["category", "Categoria"],
     ["unit_price", "Preço"],
@@ -473,7 +555,12 @@ function DialogVisualizacao({
             </div>
 
             <div className="grid gap-3 text-sm sm:grid-cols-2">
-              <Info label="EAN" value={produto.ean || "—"} />
+              <Info
+                label="EANs"
+                value={
+                  [produto.ean, ...(produto.additional_eans ?? [])].filter(Boolean).join("; ") || "—"
+                }
+              />
               <Info label="Código interno" value={produto.internal_code || "—"} />
               <Info label="Unidade" value={produto.unit || "—"} />
               <Info label="Preço" value={produto.unit_price ?? "—"} />
