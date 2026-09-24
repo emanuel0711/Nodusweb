@@ -399,26 +399,25 @@ function TabelaOfertas({
         </TableBody>
       </Table>
       {ofertasVisiveis.length > porPagina ? (
-        <div className="offers-pagination flex items-center justify-between gap-4 border-t border-border px-4 py-3">
-          <span className="text-xs text-muted-foreground">
-            {ofertasVisiveis.length} produtos · página {pagina} de {totalPaginas}
-          </span>
+        <div className="catalog-pagination offers-pagination mt-4 flex items-center justify-between px-4 pb-3 text-sm">
+          <span>{ofertasVisiveis.length} produto(s)</span>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              size="sm"
               disabled={pagina === 1}
               onClick={() => setPagina((atual) => atual - 1)}
             >
-              <ChevronLeft className="size-4" /> Anterior
+              Anterior
             </Button>
+            <span>
+              Página {pagina} de {totalPaginas}
+            </span>
             <Button
               variant="outline"
-              size="sm"
               disabled={pagina === totalPaginas}
               onClick={() => setPagina((atual) => atual + 1)}
             >
-              Próxima <ChevronRight className="size-4" />
+              Próxima
             </Button>
           </div>
         </div>
