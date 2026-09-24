@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/table";
 import type { Produto } from "@/lib/catalogo";
 import { SEM_CATEGORIA, TODAS, useCatalogo } from "@/modules/catalogo/use-catalogo";
+import { LoadingState } from "@/components/LoadingState";
 
 export const Route = createFileRoute("/_authenticated/catalogo")({
   head: () => ({
@@ -248,94 +249,112 @@ function BarraCatalogo({
 
 function TabelaCatalogo({
   produtos,
+  carregandoProdutos,
+  atualizandoProdutos,
   editar,
   excluir,
   onVisualizar,
 }: ReturnType<typeof useCatalogo> & { onVisualizar: (produto: Produto) => void }) {
   return (
-    <div className="catalog-table surface mt-4 overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Imagem</TableHead>
-            <TableHead>Descrição</TableHead>
-            <TableHead>EAN</TableHead>
-            <TableHead>Cód. interno</TableHead>
-            <TableHead>Un.</TableHead>
-            <TableHead>Preço</TableHead>
-            <TableHead>Custo</TableHead>
-            <TableHead>Estoque</TableHead>
-            <TableHead>Arquivo</TableHead>
-            <TableHead>Ações</TableHead>
-          </TableRow>
-        </TableHeader>
-
-        <TableBody>
-          {produtos.map((produto) => (
-            <TableRow
-              key={produto.id}
-              className="cursor-pointer hover:bg-muted/60"
-              onClick={(e) => {
-                if ((e.target as HTMLElement).closest("button,input,a")) return;
-                onVisualizar(produto);
-              }}
-            >
-              <TableCell>
-                {produto.image_url ? (
-                  <img
-                    src={produto.image_url}
-                    alt={produto.description}
-                    loading="lazy"
-                    className="size-12 rounded-md bg-white object-contain"
-                  />
-                ) : (
-                  <span className="catalog-image-placeholder flex size-12 items-center justify-center">
-                    <ImageIcon className="size-4 text-muted-foreground" />
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="font-medium">{produto.description}</TableCell>
-              <TableCell>{produto.ean || "—"}</TableCell>
-              <TableCell>{produto.internal_code || "—"}</TableCell>
-              <TableCell>{produto.unit || "—"}</TableCell>
-              <TableCell className="catalog-number">{formatarMoeda(produto.unit_price)}</TableCell>
-              <TableCell className="catalog-number">{formatarMoeda(produto.cost)}</TableCell>
-              <TableCell>
-                {produto.stock_quantity == null ? "Não informado" : produto.stock_quantity}
-              </TableCell>
-              <TableCell>
-                <span className="catalog-category-chip">{produto.category || "Sem categoria"}</span>
-              </TableCell>
-              <TableCell>
-                <div className="flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`Editar ${produto.description}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      editar(produto);
-                    }}
-                  >
-                    <Pencil className="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`Excluir ${produto.description}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm(`Excluir ${produto.description}?`)) excluir.mutate(produto.id);
-                    }}
-                  >
-                    <Trash2 className="size-4 text-destructive" />
-                  </Button>
-                </div>
-              </TableCell>
+    <div className="catalog-table surface relative mt-4 overflow-x-auto">
+      {carregandoProdutos ? (
+        <LoadingState
+          className="min-h-64"
+          title="Carregando produtos"
+          description="Consultando o catálogo e os códigos cadastrados."
+        />
+      ) : null}
+      {atualizandoProdutos ? (
+        <LoadingState className="catalog-table-loading" compact title="Atualizando resultados" />
+      ) : null}
+      {!carregandoProdutos ? (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Imagem</TableHead>
+              <TableHead>Descrição</TableHead>
+              <TableHead>EAN</TableHead>
+              <TableHead>Cód. interno</TableHead>
+              <TableHead>Un.</TableHead>
+              <TableHead>Preço</TableHead>
+              <TableHead>Custo</TableHead>
+              <TableHead>Estoque</TableHead>
+              <TableHead>Arquivo</TableHead>
+              <TableHead>Ações</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+
+          <TableBody>
+            {produtos.map((produto) => (
+              <TableRow
+                key={produto.id}
+                className="cursor-pointer hover:bg-muted/60"
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("button,input,a")) return;
+                  onVisualizar(produto);
+                }}
+              >
+                <TableCell>
+                  {produto.image_url ? (
+                    <img
+                      src={produto.image_url}
+                      alt={produto.description}
+                      loading="lazy"
+                      className="size-12 rounded-md bg-white object-contain"
+                    />
+                  ) : (
+                    <span className="catalog-image-placeholder flex size-12 items-center justify-center">
+                      <ImageIcon className="size-4 text-muted-foreground" />
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className="font-medium">{produto.description}</TableCell>
+                <TableCell>{produto.ean || "—"}</TableCell>
+                <TableCell>{produto.internal_code || "—"}</TableCell>
+                <TableCell>{produto.unit || "—"}</TableCell>
+                <TableCell className="catalog-number">
+                  {formatarMoeda(produto.unit_price)}
+                </TableCell>
+                <TableCell className="catalog-number">{formatarMoeda(produto.cost)}</TableCell>
+                <TableCell>
+                  {produto.stock_quantity == null ? "Não informado" : produto.stock_quantity}
+                </TableCell>
+                <TableCell>
+                  <span className="catalog-category-chip">
+                    {produto.category || "Sem categoria"}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Editar ${produto.description}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        editar(produto);
+                      }}
+                    >
+                      <Pencil className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Excluir ${produto.description}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Excluir ${produto.description}?`)) excluir.mutate(produto.id);
+                      }}
+                    >
+                      <Trash2 className="size-4 text-destructive" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : null}
     </div>
   );
 }

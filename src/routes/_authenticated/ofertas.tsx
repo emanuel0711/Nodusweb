@@ -31,6 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CARROSSEIS, separarCodigos, useOfertas } from "@/modules/ofertas/use-ofertas";
+import { LoadingState } from "@/components/LoadingState";
 
 export const Route = createFileRoute("/_authenticated/ofertas")({
   head: () => ({
@@ -51,7 +52,14 @@ function PaginaOfertas() {
       subtitle="Envie a planilha da semana, confira o cruzamento com o catálogo e baixe o arquivo aceito pelo Clube."
     >
       <BarraAcao {...oferta} />
-      {oferta.ofertas.length ? (
+      {oferta.processando ? (
+        <LoadingState
+          className="surface mt-4"
+          title="Processando a planilha"
+          description="Lendo os produtos e procurando os códigos no catálogo."
+        />
+      ) : null}
+      {!oferta.processando && oferta.ofertas.length ? (
         <>
           <PainelPendencias
             ofertas={oferta.ofertas}
@@ -61,9 +69,9 @@ function PaginaOfertas() {
           />
           <TabelaOfertas {...oferta} filtroPendencia={filtroPendencia} />
         </>
-      ) : (
+      ) : !oferta.processando ? (
         <EmptyState />
-      )}
+      ) : null}
       <DialogExportacao {...oferta} />
       <DialogVisualizacao {...oferta} />
     </AppShell>

@@ -1167,3 +1167,68 @@ button[class*="bg-primary"]:hover {
     width: 48px;
   }
 }
+
+.nodus-page-loading {
+  display: grid;
+  min-height: 100svh;
+  place-items: center;
+  padding: 24px;
+  background: hsl(var(--background));
+}
+
+.nodus-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: 100%;
+  padding: 32px;
+  color: hsl(var(--foreground));
+}
+
+.nodus-loading--compact {
+  justify-content: flex-start;
+  gap: 9px;
+  padding: 10px 14px;
+}
+
+.nodus-loading__mark {
+  display: grid;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 14px;
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.1);
+}
+
+.nodus-loading--compact .nodus-loading__mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+
+.nodus-loading__title {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.nodus-loading__description {
+  margin-top: 3px;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+}
+
+.catalog-table-loading {
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  right: 8px;
+  width: auto;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(var(--background) / 0.92);
+  box-shadow: 0 8px 24px hsl(var(--foreground) / 0.08);
+  backdrop-filter: blur(8px);
+}

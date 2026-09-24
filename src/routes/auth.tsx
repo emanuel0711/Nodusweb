@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { PageLoading } from "@/components/LoadingState";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -49,6 +50,7 @@ function getAuthErrorMessage(error: unknown) {
 
 function AuthPage() {
   const navigate = useNavigate();
+  const [verificandoSessao, setVerificandoSessao] = useState(true);
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -131,6 +133,8 @@ function AuthPage() {
       } catch (error) {
         console.error("[Auth] Falha ao finalizar sessão OAuth:", error);
         if (active) toast.error(getAuthErrorMessage(error));
+      } finally {
+        if (active) setVerificandoSessao(false);
       }
     };
 
@@ -288,6 +292,15 @@ function AuthPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (verificandoSessao) {
+    return (
+      <PageLoading
+        title="Preparando o acesso"
+        description="Verificando sua sessão com segurança."
+      />
+    );
   }
 
   return (

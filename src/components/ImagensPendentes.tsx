@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useImagensPendentes } from "@/modules/imagens/use-imagens-pendentes";
+import { LoadingState } from "@/components/LoadingState";
 
 interface ImagensPendentesProps {
   categoria?: string;
@@ -112,17 +113,25 @@ export function ImagensPendentes({ categoria = "__all__" }: ImagensPendentesProp
           </div>
         </div>
 
-        <div className="catalog-summary-grid">
-          {resumo.map(([rotulo, valor, progresso]) => (
-            <div key={rotulo} className="catalog-summary-card">
-              <div className="catalog-summary-card__label">{rotulo}</div>
-              <div className="catalog-summary-card__value">{valor.toLocaleString("pt-BR")}</div>
-              <span className="catalog-summary-card__bar" aria-hidden="true">
-                <span style={{ width: `${progresso}%` }} />
-              </span>
-            </div>
-          ))}
-        </div>
+        {fila.carregando ? (
+          <LoadingState
+            className="min-h-32"
+            title="Carregando imagens do catálogo"
+            description="Conferindo produtos com imagem e itens que precisam de revisão."
+          />
+        ) : (
+          <div className="catalog-summary-grid">
+            {resumo.map(([rotulo, valor, progresso]) => (
+              <div key={rotulo} className="catalog-summary-card">
+                <div className="catalog-summary-card__label">{rotulo}</div>
+                <div className="catalog-summary-card__value">{valor.toLocaleString("pt-BR")}</div>
+                <span className="catalog-summary-card__bar" aria-hidden="true">
+                  <span style={{ width: `${progresso}%` }} />
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {fila.rodando ? (
           <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
